@@ -3,7 +3,7 @@ import {
   Activity, Zap, Key, ShieldAlert,
   RefreshCw, CheckCircle, AlertCircle, PlayCircle,
   Volume2, VolumeX, Bell, TrendingUp, Gauge, Trophy,
-  Compass
+  Compass, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { apiSports } from '../services/apiSports';
 import { sportsmonks } from '../services/sportsmonks';
@@ -47,6 +47,7 @@ export default function Radar() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [minConfidence, setMinConfidence] = useState(65);
   const [activeTab, setActiveTab] = useState<'live' | 'prematch'>('live');
+  const [showMatchesTable, setShowMatchesTable] = useState(false);
   
   // General status
   const [isApiMock, setIsApiMock] = useState(true);
@@ -880,6 +881,195 @@ export default function Radar() {
           </div>
 
         </div>
+      </div>
+
+      {/* Seletor de Partidas Ativas (Dropdown / Tabela Collapsible) */}
+      <div style={{ marginBottom: 24 }}>
+        <button
+          onClick={() => setShowMatchesTable(!showMatchesTable)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '14px 20px',
+            borderRadius: 12,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-color)',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.02)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            outline: 'none'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-primary)' }}>
+            <Activity size={18} color="var(--accent-primary)" className="pulse-indicator" />
+            <span style={{ fontWeight: 800, fontSize: '0.95rem' }}>
+              Partidas Ativas sob Varredura Inteligente
+            </span>
+            <span className="badge" style={{ marginLeft: 6, fontSize: '0.75rem', background: 'var(--accent-glow)', color: 'var(--accent-primary)', fontWeight: 700 }}>
+              {fixtures.length} {fixtures.length === 1 ? 'Jogo' : 'Jogos'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>
+              {showMatchesTable ? 'Ocultar Painel' : 'Visualizar Tabela de Métricas'}
+            </span>
+            {showMatchesTable ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </div>
+        </button>
+
+        {showMatchesTable && (
+          <div 
+            className="card glass-panel" 
+            style={{ 
+              marginTop: 12, 
+              padding: '16px 20px', 
+              borderRadius: 12, 
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-surface)',
+              overflowX: 'auto',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.04)',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            {fixtures.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)' }}>
+                <p style={{ fontWeight: 600 }}>Nenhuma partida ao vivo sob varredura no momento.</p>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 800 }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Partida / Liga</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Placar / Tempo</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>APM1 / APM2 (C / F)</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Escanteios (C-F)</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Chutes Alvo (C-F)</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Posse (C-F)</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Motivação IA (C-F)</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Status Scanner</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fixtures.map(f => {
+                    const stats = allStats[f.id];
+                    const dossier = allDossiers[f.id];
+                    
+                    // Check if this fixture has an active opportunity matching the criteria
+                    const hasOpp = opportunities.some(opp => opp.fixtureId === f.id && opp.confidence >= minConfidence);
+                    
+                    return (
+                      <tr 
+                        key={`table-fixture-${f.id}`}
+                        style={{ 
+                          borderBottom: '1px solid var(--border-color)',
+                          background: hasOpp ? 'rgba(16, 185, 129, 0.04)' : 'transparent',
+                          transition: 'background 0.15s ease'
+                        }}
+                      >
+                        {/* Partida */}
+                        <td style={{ padding: '14px 8px' }}>
+                          <div style={{ fontWeight: 800, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+                            {f.homeTeam.name} <span style={{ color: 'var(--accent-primary)', fontWeight: 500 }}>vs</span> {f.awayTeam.name}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 2, fontWeight: 700 }}>
+                            {f.leagueName}
+                          </div>
+                        </td>
+
+                        {/* Placar e Tempo */}
+                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                          <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>
+                            {f.goalsHome} - {f.goalsAway}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--status-green)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
+                            <span className="pulse-indicator" style={{ background: 'var(--status-green)', width: 6, height: 6 }}></span>
+                            {f.elapsed}' Min
+                          </div>
+                        </td>
+
+                        {/* APM1 / APM2 */}
+                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                          {!stats ? (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mapeando APM...</span>
+                          ) : (
+                            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
+                              <span style={{ color: stats.home.apm1 >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
+                                {stats.home.apm1}/{stats.home.apm2}
+                              </span>
+                              <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
+                              <span style={{ color: stats.away.apm1 >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
+                                {stats.away.apm1}/{stats.away.apm2}
+                              </span>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Escanteios */}
+                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                          {!stats ? (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+                          ) : (
+                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                              {stats.home.corners} - {stats.away.corners}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Chutes no Alvo */}
+                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                          {!stats ? (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+                          ) : (
+                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                              {stats.home.shotsOnGoal} - {stats.away.shotsOnGoal}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Posse */}
+                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                          {!stats ? (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+                          ) : (
+                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                              {stats.home.possession}% - {stats.away.possession}%
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Necessidade IA / Motivação */}
+                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                          {!dossier ? (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cruzando dados...</span>
+                          ) : (
+                            <div style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                              {dossier.motivationHome}% <span style={{ color: 'var(--text-muted)' }}>/</span> {dossier.motivationAway}%
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Status / Oportunidade */}
+                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                          {hasOpp ? (
+                            <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'var(--status-green-glow)', color: 'var(--status-green)' }}>
+                              ⚡ GATILHO ATIVO
+                            </span>
+                          ) : (
+                            <span className="badge" style={{ fontSize: '0.7rem', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '4px 8px', fontWeight: 600 }}>
+                              🔍 MONITORANDO
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Grid Duplo do Scanner */}
