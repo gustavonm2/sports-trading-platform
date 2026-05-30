@@ -1,37 +1,104 @@
-import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar } from 'lucide-react';
+import { Outlet, Link, useLocation } from 'react-router-dom';
+import { 
+  LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar, 
+  Zap, Shield, TrendingUp, CheckCircle 
+} from 'lucide-react';
 
 export default function Layout() {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const currentMode = searchParams.get('mode') || 'conservative';
+
+  const isLinkActive = (path: string, modeParam?: string) => {
+    if (location.pathname !== path) return false;
+    if (path === '/radar') {
+      return currentMode === (modeParam || 'conservative');
+    }
+    return true;
+  };
+
   return (
     <div className="app-layout">
       {/* Sidebar */}
-      <aside className="sidebar">
+      <aside className="sidebar" style={{ minWidth: 260 }}>
         <div className="sidebar-logo">
           <Activity className="pulse-indicator" style={{ width: 24, height: 24 }} color="var(--accent-primary)" />
           <span className="title-glow">TradePro</span>
         </div>
 
         <nav>
-          <NavLink to="/dashboard" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <Link 
+            to="/dashboard" 
+            className={`nav-item ${isLinkActive('/dashboard') ? 'active' : ''}`}
+          >
             <LayoutDashboard size={20} />
             Dashboard
-          </NavLink>
+          </Link>
           
-          <NavLink to="/radar" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <Link 
+            to="/radar" 
+            className={`nav-item ${isLinkActive('/radar', 'conservative') && location.search === '' ? 'active' : ''}`}
+          >
             <Activity size={20} />
             Radar Ao Vivo
-          </NavLink>
+          </Link>
 
-          <NavLink to="/prelive" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <Link 
+            to="/prelive" 
+            className={`nav-item ${isLinkActive('/prelive') ? 'active' : ''}`}
+          >
             <Calendar size={20} />
             Varredura Pré-Live
-          </NavLink>
+          </Link>
 
-          <NavLink to="/diary" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+          <Link 
+            to="/diary" 
+            className={`nav-item ${isLinkActive('/diary') ? 'active' : ''}`}
+          >
             <BookOpen size={20} />
             Diário & Banca
-          </NavLink>
+          </Link>
         </nav>
+
+        {/* Operation Modes Section */}
+        <div style={{ marginTop: 24, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', marginBottom: 12, paddingLeft: 12 }}>
+            Modos de Operação
+          </span>
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Link 
+              to="/radar?mode=apm_pure" 
+              className={`nav-item ${isLinkActive('/radar', 'apm_pure') ? 'active' : ''}`}
+            >
+              <Zap size={18} />
+              APM Puro (Favorito)
+            </Link>
+            
+            <Link 
+              to="/radar?mode=aggressive" 
+              className={`nav-item ${isLinkActive('/radar', 'aggressive') ? 'active' : ''}`}
+            >
+              <TrendingUp size={18} />
+              Agressivo
+            </Link>
+            
+            <Link 
+              to="/radar?mode=conservative" 
+              className={`nav-item ${isLinkActive('/radar', 'conservative') && location.search.includes('conservative') ? 'active' : ''}`}
+            >
+              <CheckCircle size={18} />
+              Conservador Clássico
+            </Link>
+            
+            <Link 
+              to="/radar?mode=defensive" 
+              className={`nav-item ${isLinkActive('/radar', 'defensive') ? 'active' : ''}`}
+            >
+              <Shield size={18} />
+              Conservador Defensivo
+            </Link>
+          </nav>
+        </div>
 
         {/* Status System - Mock */}
         <div style={{ marginTop: 'auto', padding: '16px', background: 'var(--bg-elevated)', borderRadius: 12 }}>
