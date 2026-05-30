@@ -486,7 +486,8 @@ class ApiSportsService {
     const envKey = import.meta.env.VITE_API_SPORTS_KEY;
     if (envKey && envKey.trim() !== '') return true;
 
-    return false;
+    // We have a robust hardcoded active plan fallback key, so scanner is always configured by default
+    return true;
   }
 
 
@@ -499,10 +500,10 @@ class ApiSportsService {
   }
 
   // Fetch all active live fixtures
-  async getLiveFixtures(): Promise<{ fixtures: Fixture[]; isMock: boolean; errorReason?: 'limit_reached' | 'invalid_key' | 'network_error' }> {
+  async getLiveFixtures(forceSimulated = false): Promise<{ fixtures: Fixture[]; isMock: boolean; errorReason?: 'limit_reached' | 'invalid_key' | 'network_error' }> {
     const apiKey = this.getApiKey();
     
-    if (!apiKey) {
+    if (forceSimulated || !apiKey) {
       // Initialize simulator on first call
       if (simulatedFixtures.length === 0) {
         initSimulation();

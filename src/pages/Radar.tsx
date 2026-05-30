@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { 
   Activity, Zap, Key, ShieldAlert,
   RefreshCw, CheckCircle, AlertCircle, PlayCircle,
@@ -37,6 +38,9 @@ interface Opportunity {
 }
 
 export default function Radar() {
+  const [searchParams] = useSearchParams();
+  const activeMode = searchParams.get('mode') || 'apm_pure';
+  
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [selectedFixture, setSelectedFixture] = useState<Fixture | null>(null);
   
@@ -48,6 +52,10 @@ export default function Radar() {
   const [minConfidence, setMinConfidence] = useState(65);
   const [activeTab, setActiveTab] = useState<'live' | 'prematch'>('live');
   const [showMatchesTable, setShowMatchesTable] = useState(false);
+  
+  // Premium filters
+  const [marketFilter, setMarketFilter] = useState<'all' | 'corners' | 'goals'>('all');
+  const [dataSourcePreference, setDataSourcePreference] = useState<'simulated' | 'real'>('simulated');
   
   // General status
   const [isApiMock, setIsApiMock] = useState(true);
@@ -143,7 +151,10 @@ export default function Radar() {
     try {
       const now = Date.now();
       
-      for (const fixture of activeFixtures) {
+      // Limit concurrent live scans to 6 games to protect API key quota and avoid hitting limits
+      const targetFixtures = activeFixtures.slice(0, 6);
+      
+      for (const fixture of targetFixtures) {
         try {
           // 1. Pre-Match Dossier is strictly static - fetch only ONCE!
           setAllDossiers(prevDossiers => {
@@ -179,11 +190,27 @@ export default function Radar() {
   const fetchLiveMatches = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
     try {
+      if (dataSourcePreference === 'simulated') {
+        // 1. Force simulated mode explicitly (perfect for zero-config testing and operation modes demos!)
+        const apiSportsResult = await apiSports.getLiveFixtures(true);
+        const apiSportsFixtures = apiSportsResult?.fixtures || [];
+        
+        setIsApiMock(true);
+        setApiErrorReason(null);
+        setActiveDataSource('apisports_simulated');
+        setFixtures(apiSportsFixtures);
+        
+        await scanAllLiveMatchStats(apiSportsFixtures);
+        setIsKeyConfigured(apiSports.isKeyConfigured());
+        return;
+      }
+
+      // Real-time mode fetching live fixtures
       // 1. Fetch live matches from Sportsmonks Premium
       const smResult = await sportsmonks.getLiveFixtures();
       
       // 2. Fetch live matches from API-Sports (used ONLY for ID mapping / Team Matching)
-      const apiSportsResult = await apiSports.getLiveFixtures();
+      const apiSportsResult = await apiSports.getLiveFixtures(false);
       const apiSportsFixtures = apiSportsResult?.fixtures || [];
       
       let finalFixtures: any[] = smResult?.fixtures || [];
@@ -209,7 +236,9 @@ export default function Radar() {
         });
         // Fetch pre-match dossiers in the background using mapped IDs
         const newDossierMap: Record<number, PreMatchDossier> = {};
-        for (const fixture of finalFixtures) {
+        // Rate-limit the mapping to only the top 6 games to prevent API key depletion
+        const targetFixtures = finalFixtures.slice(0, 6);
+        for (const fixture of targetFixtures) {
           try {
             const apiSportsId = mapping[fixture.id] || fixture.id;
             const dossierRes = await apiSports.getPreMatchDossier(apiSportsId);
@@ -242,9 +271,10 @@ export default function Radar() {
               mapping[sfFix.id] = matched.id;
             }
           });
-          // Fetch pre-match dossiers using mapped IDs
+          // Fetch pre-match dossiers using mapped IDs (rate-limited to 6)
           const newDossierMap: Record<number, PreMatchDossier> = {};
-          for (const fixture of finalFixtures) {
+          const targetFixtures = finalFixtures.slice(0, 6);
+          for (const fixture of targetFixtures) {
             try {
               const apiSportsId = mapping[fixture.id] || fixture.id;
               const dossierRes = await apiSports.getPreMatchDossier(apiSportsId);
@@ -274,7 +304,7 @@ export default function Radar() {
     } finally {
       if (isInitial) setLoading(false);
     }
-  }, [scanAllLiveMatchStats]);
+  }, [scanAllLiveMatchStats, dataSourcePreference]);
 
   // Synchronize or auto-select selectedFixture when fixtures list or allStats updates
   useEffect(() => {
@@ -318,19 +348,108 @@ export default function Radar() {
       const scoreHome = fixture.goalsHome;
       const scoreAway = fixture.goalsAway;
 
+      // Determine thresholds based on Active Operation Mode
+      // Modes: 'apm_pure' (APM Puro) | 'aggressive' (Agressivo) | 'conservative' (Conservador Clássico) | 'defensive' (Conservador Defensivo)
+      
+      let apm1Threshold = 1.1;
+      let cantoMinCorners = 3;
+      let cantoMinElapsedFirst = 37;
+      let cantoMaxElapsedFirst = 45;
+      let cantoMinElapsedSecond = 80;
+      let cantoMaxElapsedSecond = 90;
+      
+      let htMinElapsed = 12;
+      let htMaxElapsed = 32;
+      let htMinCombinedApm2 = 1.4;
+      let htMinShots = 3;
+      
+      let backFavMinApm1 = 1.2;
+      let backFavMinPossession = 60;
+      let backFavMinElapsed = 50;
+
+      if (activeMode === 'apm_pure') {
+        // Considers strictly standard APM (Attacks Per Minute) pressure rules, specifically where the favorite team is drawing or losing
+        apm1Threshold = 1.2;
+        cantoMinCorners = 4;
+        cantoMinElapsedFirst = 37;
+        cantoMaxElapsedFirst = 45;
+        cantoMinElapsedSecond = 80;
+        cantoMaxElapsedSecond = 90;
+        
+        htMinElapsed = 10;
+        htMaxElapsed = 35;
+        htMinCombinedApm2 = 1.5;
+        htMinShots = 4;
+        
+        backFavMinApm1 = 1.25;
+        backFavMinPossession = 60;
+        backFavMinElapsed = 45;
+      } else if (activeMode === 'aggressive') {
+        // Highly aggressive settings with lower thresholds to maximize entry volume
+        apm1Threshold = 0.8;
+        cantoMinCorners = 2;
+        cantoMinElapsedFirst = 33;
+        cantoMaxElapsedFirst = 45;
+        cantoMinElapsedSecond = 72;
+        cantoMaxElapsedSecond = 90;
+        
+        htMinElapsed = 8;
+        htMaxElapsed = 38;
+        htMinCombinedApm2 = 1.0;
+        htMinShots = 2;
+        
+        backFavMinApm1 = 0.9;
+        backFavMinPossession = 50;
+        backFavMinElapsed = 45;
+      } else if (activeMode === 'conservative') {
+        // Standard premium thresholds requiring robust validation
+        apm1Threshold = 1.2;
+        cantoMinCorners = 3;
+        cantoMinElapsedFirst = 37;
+        cantoMaxElapsedFirst = 45;
+        cantoMinElapsedSecond = 80;
+        cantoMaxElapsedSecond = 90;
+        
+        htMinCombinedApm2 = 1.4;
+        htMinShots = 3;
+        
+        backFavMinApm1 = 1.2;
+        backFavMinPossession = 60;
+        backFavMinElapsed = 50;
+      } else if (activeMode === 'defensive') {
+        // Ultra-safe filters with extremely high confidence thresholds
+        apm1Threshold = 1.4;
+        cantoMinCorners = 4;
+        cantoMinElapsedFirst = 38;
+        cantoMaxElapsedFirst = 45;
+        cantoMinElapsedSecond = 82;
+        cantoMaxElapsedSecond = 90;
+        
+        htMinElapsed = 15;
+        htMaxElapsed = 30;
+        htMinCombinedApm2 = 1.6;
+        htMinShots = 4;
+        
+        backFavMinApm1 = 1.4;
+        backFavMinPossession = 65;
+        backFavMinElapsed = 55;
+      }
+
       // 🎯 Strategy 1: CANTO LIMITE (Late Corners in 1st/2nd Half)
-      const isTimeCanto = (elapsed >= 37 && elapsed <= 45) || (elapsed >= 80 && elapsed <= 90);
+      const isTimeCanto = (elapsed >= cantoMinElapsedFirst && elapsed <= cantoMaxElapsedFirst) || 
+                          (elapsed >= cantoMinElapsedSecond && elapsed <= cantoMaxElapsedSecond);
       if (isTimeCanto && fixture.status !== 'HT') {
         
         // Evaluates Home Team pressure
-        if (stats.home.apm1 >= 1.1 && stats.home.corners >= 3) {
-          let confidence = 60 + Math.floor((stats.home.apm1 - 1.1) * 110) + (stats.home.corners * 2) + (stats.home.shotsOnGoal * 3);
+        const isHomeFavCanto = activeMode === 'apm_pure' ? (stats.home.possession >= 55 || stats.home.attacks > stats.away.attacks) : true;
+        if (isHomeFavCanto && stats.home.apm1 >= apm1Threshold && stats.home.corners >= cantoMinCorners) {
+          let confidence = 60 + Math.floor((stats.home.apm1 - apm1Threshold) * 110) + (stats.home.corners * 2) + (stats.home.shotsOnGoal * 3);
           let dossierBonusDetails = '';
 
           // CROSSOVER: Pre-Live validation corner averages and context
           if (dossier) {
             // High historical corner average bonus (+10%)
-            if (dossier.avgCornersHome >= 6.0) {
+            if (dossier.avgCornersHome >= 5.5) {
               confidence += 10;
               dossierBonusDetails += ` | Média Histórica de Cantos alta: ${dossier.avgCornersHome} (+10%)`;
             }
@@ -340,7 +459,7 @@ export default function Radar() {
               dossierBonusDetails += ` | Clima chuvoso propício (+5%)`;
             }
             // Title/Motivation necessity bonus (+5%)
-            if (dossier.motivationHome >= 85) {
+            if (dossier.motivationHome >= 75) {
               confidence += 5;
               dossierBonusDetails += ` | Necessidade crítica de resultado (+5%)`;
             }
@@ -361,12 +480,13 @@ export default function Radar() {
         }
         
         // Evaluates Away Team pressure
-        if (stats.away.apm1 >= 1.1 && stats.away.corners >= 3) {
-          let confidence = 60 + Math.floor((stats.away.apm1 - 1.1) * 110) + (stats.away.corners * 2) + (stats.away.shotsOnGoal * 3);
+        const isAwayFavCanto = activeMode === 'apm_pure' ? (stats.away.possession >= 55 || stats.away.attacks > stats.home.attacks) : true;
+        if (isAwayFavCanto && stats.away.apm1 >= apm1Threshold && stats.away.corners >= cantoMinCorners) {
+          let confidence = 60 + Math.floor((stats.away.apm1 - apm1Threshold) * 110) + (stats.away.corners * 2) + (stats.away.shotsOnGoal * 3);
           let dossierBonusDetails = '';
 
           if (dossier) {
-            if (dossier.avgCornersAway >= 6.0) {
+            if (dossier.avgCornersAway >= 5.5) {
               confidence += 10;
               dossierBonusDetails += ` | Média Histórica de Cantos alta: ${dossier.avgCornersAway} (+10%)`;
             }
@@ -374,7 +494,7 @@ export default function Radar() {
               confidence += 5;
               dossierBonusDetails += ` | Clima chuvoso propício (+5%)`;
             }
-            if (dossier.motivationAway >= 85) {
+            if (dossier.motivationAway >= 75) {
               confidence += 5;
               dossierBonusDetails += ` | Necessidade crítica de resultado (+5%)`;
             }
@@ -396,26 +516,26 @@ export default function Radar() {
       }
 
       // ⚽ Strategy 2: OVER 0.5 GOLS HT (Half-Time Goal Pressure)
-      const isTimeOverHT = elapsed >= 12 && elapsed <= 32 && scoreHome === 0 && scoreAway === 0;
+      const isTimeOverHT = elapsed >= htMinElapsed && elapsed <= htMaxElapsed && scoreHome === 0 && scoreAway === 0;
       if (isTimeOverHT) {
         const combinedApm2 = Number((stats.home.apm2 + stats.away.apm2).toFixed(2));
         const combinedShots = stats.home.shotsOnGoal + stats.away.shotsOnGoal;
         
-        if (combinedApm2 >= 1.4 && combinedShots >= 3) {
-          let confidence = 55 + Math.floor((combinedApm2 - 1.4) * 80) + (combinedShots * 4);
+        if (combinedApm2 >= htMinCombinedApm2 && combinedShots >= htMinShots) {
+          let confidence = 55 + Math.floor((combinedApm2 - htMinCombinedApm2) * 80) + (combinedShots * 4);
           let dossierBonusDetails = '';
 
           // CROSSOVER: Pre-Live goals averages and tactics
           if (dossier) {
             // High combined historical goal average (+10%)
-            if (dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway >= 3.5) {
+            if (dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway >= 3.0) {
               confidence += 10;
               dossierBonusDetails += ` | Alta média histórica de gols combinada (+10%)`;
             }
             // Active offensive formations bonus (+5%)
-            if (dossier.formationHome === '4-3-3' || dossier.formationAway === '4-3-3') {
+            if (dossier.formationHome === '4-3-3' || dossier.formationAway === '4-3-3' || dossier.formationHome === '4-3-1-2') {
               confidence += 5;
-              dossierBonusDetails += ` | Formações táticas agressivas (+5%)`;
+              dossierBonusDetails += ` | Formação tática agressiva (+5%)`;
             }
           }
 
@@ -435,26 +555,26 @@ export default function Radar() {
       }
 
       // 📈 Strategy 3: VIRADA DO FAVORITO (Back Favorite in Trouble)
-      const isTimeSecondHalf = elapsed >= 50;
+      const isTimeSecondHalf = elapsed >= backFavMinElapsed;
       if (isTimeSecondHalf && fixture.status !== 'HT') {
         
         // Evaluates if Home is favorite
-        const isHomeFav = stats.home.possession >= 60 || (stats.home.attacks > stats.away.attacks * 1.3);
+        const isHomeFav = stats.home.possession >= backFavMinPossession || (stats.home.attacks > stats.away.attacks * 1.3);
         const isHomeTrouble = scoreHome <= scoreAway; // Drawing or losing
 
-        if (isHomeFav && isHomeTrouble && stats.home.apm1 >= 1.2) {
-          let confidence = 65 + Math.floor((stats.home.apm1 - 1.2) * 60) + (stats.home.corners * 1);
+        if (isHomeFav && isHomeTrouble && stats.home.apm1 >= backFavMinApm1) {
+          let confidence = 65 + Math.floor((stats.home.apm1 - backFavMinApm1) * 60) + (stats.home.corners * 1);
           let dossierBonusDetails = '';
 
           // CROSSOVER: Pre-Live motivations, fatigue and rotation
           if (dossier) {
             // Relegation/Motivation necessity bonus (+10%)
-            if (dossier.motivationHome >= 90) {
+            if (dossier.motivationHome >= 80) {
               confidence += 10;
               dossierBonusDetails += ` | Motivação crítica por vitória (+10%)`;
             }
             // Opponent fatigue bonus (+5%)
-            if (dossier.fatigueAway >= 70) {
+            if (dossier.fatigueAway >= 65) {
               confidence += 5;
               dossierBonusDetails += ` | Oponente desgastado/com fadiga (+5%)`;
             }
@@ -480,19 +600,19 @@ export default function Radar() {
         }
 
         // Evaluates if Away is favorite
-        const isAwayFav = stats.away.possession >= 60 || (stats.away.attacks > stats.home.attacks * 1.3);
+        const isAwayFav = stats.away.possession >= backFavMinPossession || (stats.away.attacks > stats.home.attacks * 1.3);
         const isAwayTrouble = scoreAway <= scoreHome;
 
-        if (isAwayFav && isAwayTrouble && stats.away.apm1 >= 1.2) {
-          let confidence = 65 + Math.floor((stats.away.apm1 - 1.2) * 60) + (stats.away.corners * 1);
+        if (isAwayFav && isAwayTrouble && stats.away.apm1 >= backFavMinApm1) {
+          let confidence = 65 + Math.floor((stats.away.apm1 - backFavMinApm1) * 60) + (stats.away.corners * 1);
           let dossierBonusDetails = '';
 
           if (dossier) {
-            if (dossier.motivationAway >= 90) {
+            if (dossier.motivationAway >= 80) {
               confidence += 10;
               dossierBonusDetails += ` | Motivação crítica por vitória (+10%)`;
             }
-            if (dossier.fatigueHome >= 70) {
+            if (dossier.fatigueHome >= 65) {
               confidence += 5;
               dossierBonusDetails += ` | Oponente desgastado/com fadiga (+5%)`;
             }
@@ -532,7 +652,7 @@ export default function Radar() {
     });
 
     setOpportunities(activeOpps);
-  }, [fixtures, allStats, allDossiers, minConfidence, soundEnabled]);
+  }, [fixtures, allStats, allDossiers, minConfidence, soundEnabled, activeMode]);
 
   // Main polling effect for scanner (every 25 seconds for highly responsive scans)
   useEffect(() => {
@@ -573,8 +693,18 @@ export default function Radar() {
     setIsLockdown(true);
   };
 
-  // Filtered active opportunities
-  const filteredOpps = opportunities.filter(o => o.confidence >= minConfidence);
+  // Filtered active opportunities by confidence and granular market preference
+  const filteredOpps = opportunities
+    .filter(o => o.confidence >= minConfidence)
+    .filter(opp => {
+      if (marketFilter === 'corners') {
+        return opp.strategyName === 'Canto Limite';
+      }
+      if (marketFilter === 'goals') {
+        return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito';
+      }
+      return true;
+    });
 
   // If scanner is not configured and user hasn't chosen to bypass, show professional onboarding activation
   if (!isKeyConfigured && !bypassOnboarding) {
@@ -778,6 +908,124 @@ export default function Radar() {
           </div>
         </div>
       )}
+
+      {/* 🛠️ BARRA DE CONTROLE PREMIUM (Market Filters, Data Sources and Mode Status) */}
+      <div className="card glass-panel" style={{
+        marginBottom: 20,
+        padding: '12px 24px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        background: 'rgba(255, 255, 255, 0.7)',
+        border: '1px solid var(--border-color)',
+        borderRadius: 12,
+        flexWrap: 'wrap',
+        gap: 16
+      }}>
+        {/* Operation Mode */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Estratégia:</span>
+          <span style={{
+            fontWeight: 800,
+            fontSize: '0.9rem',
+            padding: '6px 12px',
+            borderRadius: 6,
+            background: activeMode === 'aggressive' ? 'rgba(239, 68, 68, 0.1)' : activeMode === 'apm_pure' ? 'var(--accent-glow)' : 'rgba(16, 185, 129, 0.1)',
+            color: activeMode === 'aggressive' ? '#ef4444' : activeMode === 'apm_pure' ? 'var(--accent-primary)' : '#10b981',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6
+          }}>
+            {activeMode === 'apm_pure' && <Zap size={14} />}
+            {activeMode === 'aggressive' && <TrendingUp size={14} />}
+            {activeMode === 'conservative' && <CheckCircle size={14} />}
+            {activeMode === 'defensive' && <ShieldAlert size={14} />}
+            {activeMode === 'apm_pure' && 'APM Puro'}
+            {activeMode === 'aggressive' && 'Agressivo'}
+            {activeMode === 'conservative' && 'Conservador Clássico'}
+            {activeMode === 'defensive' && 'Conservador Defensivo'}
+          </span>
+        </div>
+
+        {/* Market Filter */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Mercado:</span>
+          <div style={{ display: 'inline-flex', background: 'var(--bg-elevated)', padding: 3, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+            <button 
+              onClick={() => setMarketFilter('all')}
+              style={{
+                padding: '6px 12px', border: 'none', borderRadius: 6,
+                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+                background: marketFilter === 'all' ? 'var(--accent-primary)' : 'transparent',
+                color: marketFilter === 'all' ? '#fff' : 'var(--text-muted)',
+                transition: 'all 0.15s ease',
+                outline: 'none'
+              }}
+            >
+              Todos
+            </button>
+            <button 
+              onClick={() => setMarketFilter('corners')}
+              style={{
+                padding: '6px 12px', border: 'none', borderRadius: 6,
+                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+                background: marketFilter === 'corners' ? 'var(--accent-primary)' : 'transparent',
+                color: marketFilter === 'corners' ? '#fff' : 'var(--text-muted)',
+                transition: 'all 0.15s ease',
+                outline: 'none'
+              }}
+            >
+              Escanteios
+            </button>
+            <button 
+              onClick={() => setMarketFilter('goals')}
+              style={{
+                padding: '6px 12px', border: 'none', borderRadius: 6,
+                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+                background: marketFilter === 'goals' ? 'var(--accent-primary)' : 'transparent',
+                color: marketFilter === 'goals' ? '#fff' : 'var(--text-muted)',
+                transition: 'all 0.15s ease',
+                outline: 'none'
+              }}
+            >
+              Gols
+            </button>
+          </div>
+        </div>
+
+        {/* Data Source Preference */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Fonte de Dados:</span>
+          <div style={{ display: 'inline-flex', background: 'var(--bg-elevated)', padding: 3, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+            <button 
+              onClick={() => setDataSourcePreference('simulated')}
+              style={{
+                padding: '6px 12px', border: 'none', borderRadius: 6,
+                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+                background: dataSourcePreference === 'simulated' ? 'var(--accent-primary)' : 'transparent',
+                color: dataSourcePreference === 'simulated' ? '#fff' : 'var(--text-muted)',
+                transition: 'all 0.15s ease',
+                outline: 'none'
+              }}
+            >
+              ⚡ Simulado
+            </button>
+            <button 
+              onClick={() => setDataSourcePreference('real')}
+              style={{
+                padding: '6px 12px', border: 'none', borderRadius: 6,
+                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
+                background: dataSourcePreference === 'real' ? 'var(--accent-primary)' : 'transparent',
+                color: dataSourcePreference === 'real' ? '#fff' : 'var(--text-muted)',
+                transition: 'all 0.15s ease',
+                outline: 'none'
+              }}
+            >
+              📡 Real API
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* ⚠️ Alerta de Limite ou Erro da API Real */}
       {isApiMock && apiErrorReason && (
