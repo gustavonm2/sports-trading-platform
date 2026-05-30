@@ -306,8 +306,14 @@ export default function PreLive() {
   const loadRealGames = async () => {
     setIsLoading(true);
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+      const getLocalDateString = (d: Date) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+      const todayStr = getLocalDateString(new Date());
+      const tomorrowStr = getLocalDateString(new Date(new Date().setDate(new Date().getDate() + 1)));
       const targetStr = selectedDate === 'today' ? todayStr : tomorrowStr;
 
       const res = await apiSports.getUpcomingFixtures(targetStr);

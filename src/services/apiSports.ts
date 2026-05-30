@@ -601,9 +601,11 @@ class ApiSportsService {
 
       const rawFixtures = data.response || [];
       
-      // Filter scheduled or not started matches (NS = Not Started)
+      const now = Date.now();
+      // Filter scheduled or not started matches (NS = Not Started) that start in the future (or at most 15 minutes ago)
       const upcoming = rawFixtures
         .filter((f: any) => f.fixture.status.short === 'NS' || f.fixture.status.short === 'TBD')
+        .filter((f: any) => new Date(f.fixture.date).getTime() > now - 15 * 60 * 1000)
         .slice(0, 30) // Increased to top 30 matches for tomorrow's abundant schedules!
         .map((f: any) => {
           const kickoffDate = new Date(f.fixture.date);
