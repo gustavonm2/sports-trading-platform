@@ -513,7 +513,7 @@ class ApiSportsService {
     }
 
     try {
-      const response = await fetch('https://v3.football.api-sports.io/fixtures?live=all', {
+      const response = await fetch('/api-sports/fixtures?live=all', {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
@@ -580,7 +580,7 @@ class ApiSportsService {
 
     try {
       const targetDateStr = dateStr || new Date().toISOString().split('T')[0];
-      const response = await fetch(`https://v3.football.api-sports.io/fixtures?date=${targetDateStr}`, {
+      const response = await fetch(`/api-sports/fixtures?date=${targetDateStr}`, {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
@@ -650,7 +650,7 @@ class ApiSportsService {
     }
 
     try {
-      const response = await fetch(`https://v3.football.api-sports.io/fixtures/statistics?fixture=${fixtureId}`, {
+      const response = await fetch(`/api-sports/fixtures/statistics?fixture=${fixtureId}`, {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
@@ -695,7 +695,7 @@ class ApiSportsService {
 
     try {
       // QueryPredictions endpoint from API-Sports
-      const response = await fetch(`https://v3.football.api-sports.io/predictions?fixture=${fixtureId}`, {
+      const response = await fetch(`/api-sports/predictions?fixture=${fixtureId}`, {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,

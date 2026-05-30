@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api-sportsmonks/(.*)",
+      "destination": "https://api.sportmonks.com/$1"
+    },
+    {
+      "source": "/api-sofascore/(.*)",
+      "destination": "https://api.sofascore.app/$1"
+    },
+    {
+      "source": "/api-sports/(.*)",
+      "destination": "https://v3.football.api-sports.io/$1"
+    }
+  ]
+}
