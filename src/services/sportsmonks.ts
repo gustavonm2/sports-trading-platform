@@ -104,6 +104,8 @@ class SportsmonksService {
         if (!homePart || !awayPart) return; // Skip if participants are incomplete
 
         const elapsed = f.state?.elapsed || f.minute || 0;
+        const status = this.mapPeriodState(f.state?.state || '');
+        if (status === 'FT') return; // Skip finished matches!
         
         // Parse current scores
         let goalsHome = 0;

@@ -544,25 +544,28 @@ class ApiSportsService {
       }
 
       const rawFixtures = data.response || [];
+      const activeStatuses = ['1H', 'HT', '2H', 'ET', 'BT', 'P'];
       
-      const fixtures: Fixture[] = rawFixtures.map((f: any) => ({
-        id: f.fixture.id,
-        status: this.mapStatus(f.fixture.status.short),
-        elapsed: f.fixture.status.elapsed || 0,
-        homeTeam: {
-          id: f.teams.home.id,
-          name: f.teams.home.name,
-          logo: f.teams.home.logo,
-        },
-        awayTeam: {
-          id: f.teams.away.id,
-          name: f.teams.away.name,
-          logo: f.teams.away.logo,
-        },
-        goalsHome: f.goals.home ?? 0,
-        goalsAway: f.goals.away ?? 0,
-        leagueName: f.league.name,
-      }));
+      const fixtures: Fixture[] = rawFixtures
+        .filter((f: any) => activeStatuses.includes(f.fixture.status.short))
+        .map((f: any) => ({
+          id: f.fixture.id,
+          status: this.mapStatus(f.fixture.status.short),
+          elapsed: f.fixture.status.elapsed || 0,
+          homeTeam: {
+            id: f.teams.home.id,
+            name: f.teams.home.name,
+            logo: f.teams.home.logo,
+          },
+          awayTeam: {
+            id: f.teams.away.id,
+            name: f.teams.away.name,
+            logo: f.teams.away.logo,
+          },
+          goalsHome: f.goals.home ?? 0,
+          goalsAway: f.goals.away ?? 0,
+          leagueName: f.league.name,
+        }));
 
       return { fixtures, isMock: false };
     } catch (error) {

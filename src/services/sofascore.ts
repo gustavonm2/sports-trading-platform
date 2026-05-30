@@ -80,8 +80,10 @@ class SofascoreService {
       const fixtures: Fixture[] = [];
       const statsMap: Record<number, MatchStats> = {};
 
-      // Only scan the top 10 live games to keep performance lighting-fast
-      const activeEvents = events.slice(0, 10);
+      // Only scan active in-progress games and keep top 10 live games for lighting-fast performance
+      const activeEvents = events
+        .filter((event: any) => event.status?.type === 'inprogress' || [6, 31, 7, 41, 42, 32, 50].includes(event.status?.code))
+        .slice(0, 10);
 
       // Async fetch stats for all these live games in parallel
       await Promise.all(activeEvents.map(async (event: any) => {
