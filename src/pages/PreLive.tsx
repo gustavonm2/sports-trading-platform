@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { 
   Calendar, Search, ShieldAlert, Award, Compass, Thermometer,
-  BarChart2, Shield, AlertCircle, TrendingUp, Info, HelpCircle, ChevronRight, CheckCircle, RefreshCw
+  BarChart2, Shield, AlertCircle, TrendingUp, Info, ChevronRight, CheckCircle, RefreshCw
 } from 'lucide-react';
 import { apiSports } from '../services/apiSports';
 import type { PreMatchDossier } from '../services/apiSports';

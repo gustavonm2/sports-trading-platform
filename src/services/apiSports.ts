@@ -13,6 +13,7 @@ export interface Fixture {
   goalsHome: number;
   goalsAway: number;
   leagueName: string;
+  kickoffTime?: string;
 }
 
 export interface TeamStats {
@@ -55,11 +56,11 @@ export interface PreMatchDossier {
   tacticalStyleHome: string;
   tacticalStyleAway: string;
   // 6. Ritmo Médio
-  tempoHome: 'Frenético' | 'Controlado' | 'Lento';
-  tempoAway: 'Frenético' | 'Controlado' | 'Lento';
+  tempoHome: string;
+  tempoAway: string;
   // 7. Agressividade
-  aggressivenessHome: 'Alta' | 'Média' | 'Baixa';
-  aggressivenessAway: 'Alta' | 'Média' | 'Baixa';
+  aggressivenessHome: string;
+  aggressivenessAway: string;
   // 8. Formação Inicial
   formationHome: string;
   formationAway: string;
@@ -72,16 +73,16 @@ export interface PreMatchDossier {
   fatigueHome: number;
   fatigueAway: number;
   // 12. Rotação
-  rotationHome: 'Força Máxima' | 'Poupado/Misto' | 'Reservas';
-  rotationAway: 'Força Máxima' | 'Poupado/Misto' | 'Reservas';
+  rotationHome: string;
+  rotationAway: string;
   // 13. Necessidade do Resultado (0-100)
   motivationHome: number;
   motivationAway: number;
   // 14. Tabela/Classificação
   standingsHome: string;
   standingsAway: string;
-  formHome: string[];
-  formAway: string[];
+  formHome?: string[];
+  formAway?: string[];
   // 15. Liga
   leagueProfile: string;
   // 16. Desfalques

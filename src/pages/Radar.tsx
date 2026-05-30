@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  Activity, Zap, Search, ShieldAlert, Key, 
-  RefreshCw, CheckCircle, AlertTriangle, AlertCircle, PlayCircle,
+  Activity, Zap, Key, ShieldAlert,
+  RefreshCw, CheckCircle, AlertCircle, PlayCircle,
   Volume2, VolumeX, Bell, TrendingUp, Gauge, Trophy,
-  Compass, Thermometer, UserCheck, BarChart2, Shield, Calendar, Users
+  Compass, Thermometer, BarChart2, Shield
 } from 'lucide-react';
 import { apiSports } from '../services/apiSports';
 import { sportsmonks } from '../services/sportsmonks';
@@ -57,9 +57,6 @@ export default function Radar() {
   const [isLockdown, setIsLockdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  // Countdown for refresh
   const [countdown, setCountdown] = useState(25); // 25s scanner refresh
   
   // API Key settings
@@ -67,8 +64,6 @@ export default function Radar() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [isKeyConfigured, setIsKeyConfigured] = useState(apiSports.isKeyConfigured());
   const [bypassOnboarding, setBypassOnboarding] = useState(false);
-  const [smToApiSportsIds, setSmToApiSportsIds] = useState<Record<number, number>>({});
-
   // Gotten opportunities tracking
   const [gottenOppIds, setGottenOppIds] = useState<Set<string>>(new Set());
   const [defaultStake, setDefaultStake] = useState<number>(() => {
@@ -194,7 +189,7 @@ export default function Radar() {
       const apiSportsResult = await apiSports.getLiveFixtures();
       const apiSportsFixtures = apiSportsResult?.fixtures || [];
       
-      let finalFixtures = smResult?.fixtures || [];
+      let finalFixtures: any[] = smResult?.fixtures || [];
       let finalStats = smResult?.statsMap || {};
       
       if (finalFixtures.length > 0) {
@@ -215,8 +210,6 @@ export default function Radar() {
             mapping[smFix.id] = matched.id;
           }
         });
-        setSmToApiSportsIds(mapping);
-
         // Fetch pre-match dossiers in the background using mapped IDs
         const newDossierMap: Record<number, PreMatchDossier> = {};
         for (const fixture of finalFixtures) {
@@ -252,8 +245,6 @@ export default function Radar() {
               mapping[sfFix.id] = matched.id;
             }
           });
-          setSmToApiSportsIds(mapping);
-
           // Fetch pre-match dossiers using mapped IDs
           const newDossierMap: Record<number, PreMatchDossier> = {};
           for (const fixture of finalFixtures) {
@@ -273,18 +264,15 @@ export default function Radar() {
           setApiErrorReason(apiSportsResult?.errorReason || null);
           setActiveDataSource(apiSportsResult?.isMock ? 'apisports_simulated' : 'apisports_real');
           
-          // Scan stats in the background for API-Sports
           if (finalFixtures.length > 0) {
-            await scanAllLiveMatchStats(finalFixtures);
+            await scanAllLiveMatchStats(finalFixtures as any);
           }
         }
       }
       
-      setFixtures(finalFixtures);
+      setFixtures(finalFixtures as any);
       setIsKeyConfigured(apiSports.isKeyConfigured());
-      setError(null);
     } catch (err: any) {
-      setError("Erro ao varrer o radar de partidas.");
       console.error(err);
     } finally {
       if (isInitial) setLoading(false);

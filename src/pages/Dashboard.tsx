@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { TrendingUp, TrendingDown, DollarSign, Target, RefreshCw, AlertCircle, Plus, ArrowUpRight } from 'lucide-react';
 import { supabase } from '../services/supabase';
 
@@ -15,7 +15,6 @@ interface Trade {
 }
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [initialBankroll, setInitialBankroll] = useState<number>(() => {
     const saved = localStorage.getItem('trade_initial_bankroll');
@@ -23,7 +22,6 @@ export default function Dashboard() {
   });
   
   const [isLoading, setIsLoading] = useState(false);
-  const [usingFallback, setUsingFallback] = useState(false);
   const [showSqlGuide, setShowSqlGuide] = useState(false);
   
   // Aporte modal state
@@ -49,13 +47,11 @@ export default function Dashboard() {
 
       if (error) throw error;
       setTrades(data || []);
-      setUsingFallback(false);
       setShowSqlGuide(false);
     } catch (e) {
       console.warn("Supabase fetch failed in Dashboard, using local replica:", e);
       const localTrades = localStorage.getItem('trades_db_replica');
       setTrades(localTrades ? JSON.parse(localTrades) : []);
-      setUsingFallback(true);
       setShowSqlGuide(true);
     } finally {
       setIsLoading(false);

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   CheckCircle, XCircle, Clock, Trash2, Plus, AlertCircle, 
-  DollarSign, TrendingUp, Award, Percent, HelpCircle, ArrowUpRight
+  DollarSign, TrendingUp, Award, Percent, ArrowUpRight
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 
@@ -41,13 +41,11 @@ export default function Diary() {
   });
   const [status, setStatus] = useState<'GREEN' | 'RED' | 'PENDING'>('PENDING');
   
-  const [isLoading, setIsLoading] = useState(false);
   const [showSqlGuide, setShowSqlGuide] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
 
   // Load trades from Supabase (or fallback to localStorage)
   const fetchTrades = async () => {
-    setIsLoading(true);
     try {
       const { data, error } = await supabase
         .from('trades')
@@ -67,8 +65,6 @@ export default function Diary() {
       setTrades(localTrades ? JSON.parse(localTrades) : []);
       setUsingFallback(true);
       setShowSqlGuide(true);
-    } finally {
-      setIsLoading(false);
     }
   };
 
