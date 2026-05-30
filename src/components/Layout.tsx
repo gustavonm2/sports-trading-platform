@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { LayoutDashboard, Activity, BookOpen, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar } from 'lucide-react';
 
 export default function Layout() {
   return (
@@ -20,6 +20,11 @@ export default function Layout() {
           <NavLink to="/radar" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Activity size={20} />
             Radar Ao Vivo
+          </NavLink>
+
+          <NavLink to="/prelive" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Calendar size={20} />
+            Varredura Pré-Live
           </NavLink>
 
           <NavLink to="/diary" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>

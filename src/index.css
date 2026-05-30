@@ -1,26 +1,26 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700&display=swap');
 
 :root {
-  /* Premium Dark Mode Palette */
-  --bg-app: #09090b; /* Very dark background */
-  --bg-surface: #18181b; /* Slightly lighter surface */
-  --bg-elevated: #27272a; /* Elevated surface */
-  --bg-glass: rgba(24, 24, 27, 0.6); /* Glassmorphism surface */
+  /* Premium Light Mode Palette (White UI with Midnight Blue Accents) */
+  --bg-app: #f8fafc; /* Sleek slate-50 canvas background */
+  --bg-surface: #ffffff; /* Pure white surface */
+  --bg-elevated: #f1f5f9; /* Slate-100 for hovered items/inner segments */
+  --bg-glass: rgba(255, 255, 255, 0.75); /* High-end glassmorphism surface */
   
-  --text-primary: #f4f4f5;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
+  --text-primary: #0f172a; /* Deep Slate-900 for absolute readability */
+  --text-secondary: #475569; /* Slate-600 for body/subheadings */
+  --text-muted: #64748b; /* Slate-500 for small helper text */
   
-  --accent-primary: #3b82f6; /* Premium Blue */
-  --accent-glow: rgba(59, 130, 246, 0.5);
+  --accent-primary: #1e3a8a; /* Premium Midnight Blue as the primary brand */
+  --accent-glow: rgba(30, 58, 138, 0.06); /* Extremely subtle blue tint for hover/active */
   
-  --status-green: #10b981; /* Green for wins/profit */
-  --status-green-glow: rgba(16, 185, 129, 0.2);
-  --status-red: #ef4444; /* Red for loss/stop loss */
-  --status-red-glow: rgba(239, 68, 68, 0.2);
-  --status-yellow: #f59e0b; /* Yellow for cards/alerts */
+  --status-green: #059669; /* Rich Emerald-600 for winning trades */
+  --status-green-glow: rgba(5, 150, 105, 0.08);
+  --status-red: #dc2626; /* Deep Red-600 for losses/stop loss triggers */
+  --status-red-glow: rgba(220, 38, 38, 0.08);
+  --status-yellow: #d97706; /* Warm Amber-600 for warnings/cautions */
 
-  --border-color: #27272a;
+  --border-color: #e2e8f0; /* Thin, elegant Slate-200 border line */
   
   /* Typography */
   --font-sans: 'Inter', sans-serif;
@@ -47,19 +47,24 @@ h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
 
 .title-glow {
-  text-shadow: 0 0 20px var(--accent-glow);
+  background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 800;
 }
 
 /* Glassmorphism Utilities */
 .glass-panel {
   background: var(--bg-glass);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(30, 58, 138, 0.08);
   border-radius: 16px;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03);
 }
 
 /* Card Utilities */
@@ -68,13 +73,14 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 20px;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.02), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s ease;
 }
 
 .card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 24px -10px rgba(15, 23, 42, 0.08), 0 4px 12px -5px rgba(15, 23, 42, 0.03);
+  border-color: rgba(30, 58, 138, 0.15);
 }
 
 /* Buttons */
@@ -83,56 +89,67 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 10px 18px;
   border-radius: 8px;
-  font-weight: 500;
+  font-weight: 600;
   font-size: 0.875rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   border: none;
   font-family: var(--font-sans);
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  color: white;
-  box-shadow: 0 4px 12px var(--accent-glow);
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
 }
 
 .btn-primary:hover {
-  filter: brightness(1.1);
-  box-shadow: 0 6px 16px var(--accent-glow);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.3);
+  filter: brightness(1.05);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
 }
 
 .btn-outline {
-  background: transparent;
-  color: var(--text-primary);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   border: 1px solid var(--border-color);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
 .btn-outline:hover {
   background: var(--bg-elevated);
-  border-color: var(--text-secondary);
+  border-color: var(--text-muted);
+  color: var(--text-primary);
 }
 
 /* Stop Loss / Win Lock Screen */
 .lockdown-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(9, 9, 11, 0.95);
-  backdrop-filter: blur(20px);
+  background: rgba(248, 250, 252, 0.85); /* Elegant light backdrop overlay */
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   z-index: 9999;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  animation: fadeIn 0.4s ease-out forwards;
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .lockdown-content {
   text-align: center;
   max-width: 500px;
   padding: 40px;
+  background: #ffffff !important;
+  border: 1px solid rgba(30, 58, 138, 0.12) !important;
+  box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.12) !important;
 }
 
 .lockdown-icon {
@@ -148,18 +165,18 @@ h1, h2, h3, h4, h5, h6 {
 .lockdown-icon.win {
   background: var(--status-green-glow);
   color: var(--status-green);
-  box-shadow: 0 0 30px var(--status-green-glow);
+  box-shadow: 0 8px 24px var(--status-green-glow);
 }
 
 .lockdown-icon.loss {
   background: var(--status-red-glow);
   color: var(--status-red);
-  box-shadow: 0 0 30px var(--status-red-glow);
+  box-shadow: 0 8px 24px var(--status-red-glow);
 }
 
 @keyframes fadeIn {
   from { opacity: 0; backdrop-filter: blur(0px); }
-  to { opacity: 1; backdrop-filter: blur(20px); }
+  to { opacity: 1; backdrop-filter: blur(24px); }
 }
 
 /* Layout Utilities */
@@ -207,8 +224,9 @@ h1, h2, h3, h4, h5, h6 {
 
 .nav-item.active {
   background-color: var(--accent-glow);
-  color: var(--accent-primary);
-  border-left: 3px solid var(--accent-primary);
+  color: #1e3a8a; /* Deep accent */
+  font-weight: 600;
+  border-left: 3.5px solid var(--accent-primary);
 }
 
 .main-content {
@@ -240,7 +258,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .badge-green { background: var(--status-green-glow); color: var(--status-green); }
 .badge-red { background: var(--status-red-glow); color: var(--status-red); }
-.badge-yellow { background: rgba(245, 158, 11, 0.2); color: var(--status-yellow); }
+.badge-yellow { background: rgba(217, 119, 6, 0.1); color: var(--status-yellow); }
 
 /* Animation Utils */
 .pulse-indicator {
@@ -248,12 +266,12 @@ h1, h2, h3, h4, h5, h6 {
   height: 8px;
   border-radius: 50%;
   background-color: var(--status-green);
-  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.7);
   animation: pulse 2s infinite;
 }
 
 @keyframes pulse {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.4); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(5, 150, 105, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(5, 150, 105, 0); }
 }

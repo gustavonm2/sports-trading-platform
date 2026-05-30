@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Radar from './pages/Radar';
+import PreLive from './pages/PreLive';
 import Diary from './pages/Diary';
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="radar" element={<Radar />} />
+          <Route path="prelive" element={<PreLive />} />
           <Route path="diary" element={<Diary />} />
         </Route>
       </Routes>
