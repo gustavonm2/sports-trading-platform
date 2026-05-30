@@ -38,7 +38,7 @@ export interface MatchStats {
 const BASE_URL = '/api-sofascore/api/v1';
 
 // Calculate pressure index
-function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex'>): number {
+function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 'apm1' | 'apm2'>): number {
   const shotFactor = stats.shotsOnGoal * 2.5 + stats.shotsOffGoal * 1.0;
   const cornerFactor = stats.corners * 1.5;
   const dangerRatio = stats.attacks > 0 ? (stats.dangerousAttacks / stats.attacks) : 0;

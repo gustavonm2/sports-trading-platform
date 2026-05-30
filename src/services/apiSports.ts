@@ -115,7 +115,6 @@ function initSimulation() {
   }));
 
   simulatedFixtures.forEach(f => {
-    const isHalftime = f.status === "HT";
     const elapsed = f.elapsed || 1;
     
     // Seed customized values to guarantee strategies trigger for demonstration
@@ -339,7 +338,7 @@ function initSimulation() {
 }
 
 // Mathematically sound momentum/pressure formula
-export function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex'>): number {
+export function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 'apm1' | 'apm2'>): number {
   // Pressure Index formula:
   // (Dangerous Attacks/min in last 10m * 1.5) + (Shots on Target * 2.0) + (Corners * 1.0)
   // Since we fetch cumulative stats, we can approximate the momentum factor:
