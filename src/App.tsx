@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import Radar from './pages/Radar';
 import PreLive from './pages/PreLive';
 import Diary from './pages/Diary';
+import Scheduler from './pages/Scheduler';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="radar" element={<Radar />} />
           <Route path="prelive" element={<PreLive />} />
+          <Route path="scheduler" element={<Scheduler />} />
           <Route path="diary" element={<Diary />} />
         </Route>
       </Routes>

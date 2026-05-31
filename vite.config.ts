@@ -35,7 +35,22 @@ export default defineConfig({
       '/api-sports': {
         target: 'https://v3.football.api-sports.io',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api-sports/, '')
+        rewrite: (path) => path.replace(/^\/api-sports/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('host', 'v3.football.api-sports.io');
+            
+            // Bypass Cloudflare bot detection by stripping browser-specific headers
+            proxyReq.removeHeader('origin');
+            proxyReq.removeHeader('referer');
+            proxyReq.removeHeader('sec-ch-ua');
+            proxyReq.removeHeader('sec-ch-ua-mobile');
+            proxyReq.removeHeader('sec-ch-ua-platform');
+            proxyReq.removeHeader('sec-fetch-site');
+            proxyReq.removeHeader('sec-fetch-mode');
+            proxyReq.removeHeader('sec-fetch-dest');
+          });
+        }
       }
     }
   }

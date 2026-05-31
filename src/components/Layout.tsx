@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar, 
-  Zap, Shield, TrendingUp, CheckCircle 
+  Zap, Shield, TrendingUp, CheckCircle, Clock 
 } from 'lucide-react';
 
 export default function Layout() {
@@ -49,6 +49,14 @@ export default function Layout() {
           >
             <Calendar size={20} />
             Varredura Pré-Live
+          </Link>
+
+          <Link 
+            to="/scheduler" 
+            className={`nav-item ${isLinkActive('/scheduler') ? 'active' : ''}`}
+          >
+            <Clock size={20} />
+            Scheduler de Operação
           </Link>
 
           <Link 

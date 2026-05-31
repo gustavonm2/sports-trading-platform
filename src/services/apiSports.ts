@@ -107,20 +107,22 @@ export function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 
 // Main service class targeting the API-Sports / API-Football endpoints with permanently integrated Pro key
 class ApiSportsService {
   private getApiKey(): string {
-    // Permanently integrated and hardcoded active plan Pro API Key
-    return '1006612834b19b26953088378103a894';
+    // Return localStorage key if configured, otherwise fallback to permanently integrated active plan Pro API Key
+    return localStorage.getItem('api_sports_key') || '1006612834b19b26953088378103a894';
   }
 
   isKeyConfigured(): boolean {
-    return true; // Permanently integrated
+    return !!this.getApiKey();
   }
 
-  saveKeyLocally(_key: string) {
-    // No-op compatibility helper
+  saveKeyLocally(key: string) {
+    if (key) {
+      localStorage.setItem('api_sports_key', key);
+    }
   }
 
   clearKeyLocally() {
-    // No-op compatibility helper
+    localStorage.removeItem('api_sports_key');
   }
 
   // Fetch all active live fixtures
