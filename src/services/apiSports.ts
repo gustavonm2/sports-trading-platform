@@ -130,10 +130,13 @@ class ApiSportsService {
     const apiKey = this.getApiKey();
 
     try {
-      const response = await fetch(`/api-sports/fixtures?live=all&t=${Date.now()}`, {
+      const response = await fetch(`/api-sports/fixtures?live=all`, {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         },
       });
 
@@ -198,6 +201,9 @@ class ApiSportsService {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         },
       });
 
@@ -259,10 +265,13 @@ class ApiSportsService {
     const apiKey = this.getApiKey();
 
     try {
-      const response = await fetch(`/api-sports/fixtures/statistics?fixture=${fixtureId}&t=${Date.now()}`, {
+      const response = await fetch(`/api-sports/fixtures/statistics?fixture=${fixtureId}`, {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         },
       });
 
@@ -310,6 +319,9 @@ class ApiSportsService {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         },
       });
 
