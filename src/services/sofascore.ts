@@ -63,7 +63,7 @@ class SofascoreService {
   // Fetch live matches and statistics from Sofascore's completely free public JSON feed
   async getLiveFixtures(): Promise<{ fixtures: Fixture[]; statsMap: Record<number, MatchStats>; isMock: boolean }> {
     try {
-      const url = `${BASE_URL}/sport/football/events/live`;
+      const url = `${BASE_URL}/sport/football/events/live?t=${Date.now()}`;
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -89,7 +89,7 @@ class SofascoreService {
       // Async fetch stats for all these live games in parallel
       await Promise.all(activeEvents.map(async (event: any) => {
         try {
-          const statsUrl = `${BASE_URL}/event/${event.id}/statistics`;
+          const statsUrl = `${BASE_URL}/event/${event.id}/statistics?t=${Date.now()}`;
           const statsRes = await fetch(statsUrl, { method: 'GET' });
           let statItems: any[] = [];
 

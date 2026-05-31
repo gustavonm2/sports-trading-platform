@@ -130,7 +130,7 @@ class ApiSportsService {
     const apiKey = this.getApiKey();
 
     try {
-      const response = await fetch('/api-sports/fixtures?live=all', {
+      const response = await fetch(`/api-sports/fixtures?live=all&t=${Date.now()}`, {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
@@ -259,7 +259,7 @@ class ApiSportsService {
     const apiKey = this.getApiKey();
 
     try {
-      const response = await fetch(`/api-sports/fixtures/statistics?fixture=${fixtureId}`, {
+      const response = await fetch(`/api-sports/fixtures/statistics?fixture=${fixtureId}&t=${Date.now()}`, {
         method: 'GET',
         headers: {
           'x-apisports-key': apiKey,
