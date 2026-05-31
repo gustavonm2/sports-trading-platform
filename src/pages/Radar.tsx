@@ -26,6 +26,48 @@ function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefi
   return words1.some(w => words2.includes(w));
 }
 
+// Priority sorting helper based on league status to ensure premium matches are scanned first
+function getFixturePriority(leagueName: string | undefined): number {
+  if (!leagueName) return 0;
+  const name = leagueName.toLowerCase();
+  
+  if (
+    name.includes('premier league') || 
+    name.includes('la liga') || 
+    name.includes('serie a') || 
+    name.includes('bundesliga') || 
+    name.includes('champions league') || 
+    name.includes('libertadores') || 
+    name.includes('copa do brasil') ||
+    name.includes('brasileir')
+  ) {
+    return 100;
+  }
+  
+  if (
+    name.includes('championship') || 
+    name.includes('ligue 1') || 
+    name.includes('eredivisie') || 
+    name.includes('primeira liga') ||
+    name.includes('serie b') ||
+    name.includes('copa sudamericana')
+  ) {
+    return 70;
+  }
+  
+  if (
+    name.includes('youth') || 
+    name.includes('u19') || 
+    name.includes('sub-') || 
+    name.includes('sub19') ||
+    name.includes('under')
+  ) {
+    return 10;
+  }
+  
+  return 40;
+}
+
 interface Opportunity {
   id: string; // unique ID
   fixtureId: number;
@@ -139,8 +181,13 @@ export default function Radar() {
     try {
       const now = Date.now();
       
-      // Limit concurrent live scans to 6 games to protect API key quota and avoid hitting limits
-      const targetFixtures = activeFixtures.slice(0, 6);
+      // Sort fixtures by league priority so major games (like Brasileirão, Premier League) are scanned first!
+      const sortedFixtures = [...activeFixtures].sort(
+        (a, b) => getFixturePriority(b.leagueName) - getFixturePriority(a.leagueName)
+      );
+
+      // Increase concurrent scans to top 15 games to cover all major matches on Pro plan
+      const targetFixtures = sortedFixtures.slice(0, 15);
       
       for (const fixture of targetFixtures) {
         try {
@@ -156,9 +203,9 @@ export default function Radar() {
             return prevDossiers;
           });
           
-          // 2. Match Stats - query only if missing OR last queried > 60 seconds ago!
+          // 2. Match Stats - query only if missing OR last queried > 45 seconds ago!
           const lastFetch = statsLastFetchRef.current[fixture.id] || 0;
-          if (now - lastFetch > 60000 || !allStats[fixture.id]) {
+          if (now - lastFetch > 45000) {
             const statsRes = await apiSports.getMatchStats(fixture.id, fixture.elapsed);
             if (statsRes?.stats) {
               statsLastFetchRef.current[fixture.id] = now;
@@ -172,7 +219,7 @@ export default function Radar() {
     } finally {
       // Done scan
     }
-  }, [allStats]);
+  }, []);
 
   // Fetch all live matches
   const fetchLiveMatches = useCallback(async (isInitial = false) => {
