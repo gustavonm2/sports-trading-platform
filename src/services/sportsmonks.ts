@@ -33,6 +33,7 @@ export interface MatchStats {
   fixtureId: number;
   home: TeamStats;
   away: TeamStats;
+  hasTelemetry: boolean;
 }
 
 const SPORTSMONKS_API_TOKEN = 'I2JnAHeFNSdX7f1I77MgPAd6ev79fCFnLj6hRLJsPlNWpWTxDC2Ns4WN707J';
@@ -182,6 +183,13 @@ class SportsmonksService {
         const apm1Home = Number((apm2Home * (1 + pHomeIndex / 100)).toFixed(2));
         const apm1Away = Number((apm2Away * (1 + pAwayIndex / 100)).toFixed(2));
 
+        const hasTelemetry = stats.length > 0 && !(
+          homeStats.attacks === 0 && awayStats.attacks === 0 &&
+          homeStats.dangerousAttacks === 0 && awayStats.dangerousAttacks === 0 &&
+          homeStats.corners === 0 && awayStats.corners === 0 &&
+          homeStats.shotsOnGoal === 0 && awayStats.shotsOnGoal === 0
+        );
+
         statsMap[f.id] = {
           fixtureId: f.id,
           home: {
@@ -195,7 +203,8 @@ class SportsmonksService {
             pressureIndex: pAwayIndex,
             apm1: apm1Away,
             apm2: apm2Away
-          }
+          },
+          hasTelemetry
         };
       });
 

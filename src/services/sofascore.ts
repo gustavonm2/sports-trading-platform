@@ -33,6 +33,7 @@ export interface MatchStats {
   fixtureId: number;
   home: TeamStats;
   away: TeamStats;
+  hasTelemetry: boolean;
 }
 
 const BASE_URL = '/api-sofascore/api/v1';
@@ -152,25 +153,15 @@ class SofascoreService {
           const yellowCards = extractSofascoreStat(statItems, 'yellow card');
           const redCards = extractSofascoreStat(statItems, 'red card');
           
-          let attacks = extractSofascoreStat(statItems, 'attacks');
-          let dangerousAttacks = extractSofascoreStat(statItems, 'dangerous attacks');
+          const attacks = extractSofascoreStat(statItems, 'attacks');
+          const dangerousAttacks = extractSofascoreStat(statItems, 'dangerous attacks');
 
-          // If attacks/dangerous attacks are not provided by Sofascore for this league, generate highly realistic, momentum-based metrics
-          if (attacks.home === 0 && attacks.away === 0) {
-            const hPossession = possession.home || 50;
-            const aPossession = possession.away || 50;
-            attacks = {
-              home: Math.floor(hPossession * 1.4 + corners.home * 2.5 + elapsed * 0.4),
-              away: Math.floor(aPossession * 1.4 + corners.away * 2.5 + elapsed * 0.4)
-            };
-          }
-
-          if (dangerousAttacks.home === 0 && dangerousAttacks.away === 0) {
-            dangerousAttacks = {
-              home: Math.floor(attacks.home * 0.45 + shotsOnGoal.home * 2.2 + corners.home * 1.5),
-              away: Math.floor(attacks.away * 0.45 + shotsOnGoal.away * 2.2 + corners.away * 1.5)
-            };
-          }
+          const hasTelemetry = statItems.length > 0 && !(
+            attacks.home === 0 && attacks.away === 0 &&
+            dangerousAttacks.home === 0 && dangerousAttacks.away === 0 &&
+            corners.home === 0 && corners.away === 0 &&
+            shotsOnGoal.home === 0 && shotsOnGoal.away === 0
+          );
 
           const homeStats = {
             attacks: attacks.home,
@@ -217,7 +208,8 @@ class SofascoreService {
               pressureIndex: pAwayIndex,
               apm1: apm1Away,
               apm2: apm2Away
-            }
+            },
+            hasTelemetry
           };
         } catch (e) {
           console.error(`Error loading stats for Sofascore event ${event.id}:`, e);

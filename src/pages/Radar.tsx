@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { 
-  Activity, Zap, Key, ShieldAlert,
+  Activity, Zap, ShieldAlert,
   RefreshCw, CheckCircle, AlertCircle, PlayCircle,
   Volume2, VolumeX, Bell, TrendingUp, Gauge, Trophy,
-  Compass, ChevronDown, ChevronUp
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 import { apiSports } from '../services/apiSports';
 import { sportsmonks } from '../services/sportsmonks';
@@ -55,21 +55,13 @@ export default function Radar() {
   
   // Premium filters
   const [marketFilter, setMarketFilter] = useState<'all' | 'corners' | 'goals'>('all');
-  const [dataSourcePreference, setDataSourcePreference] = useState<'simulated' | 'real'>('simulated');
   
   // General status
-  const [isApiMock, setIsApiMock] = useState(true);
   const [apiErrorReason, setApiErrorReason] = useState<'limit_reached' | 'invalid_key' | 'network_error' | null>(null);
-  const [activeDataSource, setActiveDataSource] = useState<'sportsmonks' | 'sofascore' | 'apisports_real' | 'apisports_simulated'>('apisports_simulated');
+  const [activeDataSource, setActiveDataSource] = useState<'sportsmonks' | 'sofascore' | 'apisports_real' | 'apisports_simulated'>('apisports_real');
   const [isLockdown, setIsLockdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [countdown, setCountdown] = useState(25); // 25s scanner refresh
-  
-  // API Key settings
-  const [showConfig, setShowConfig] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [isKeyConfigured, setIsKeyConfigured] = useState(apiSports.isKeyConfigured());
-  const [bypassOnboarding, setBypassOnboarding] = useState(false);
   // Gotten opportunities tracking
   const [gottenOppIds, setGottenOppIds] = useState<Set<string>>(new Set());
   const [defaultStake, setDefaultStake] = useState<number>(() => {
@@ -140,11 +132,7 @@ export default function Radar() {
     }
   };
 
-  // Setup initial key input
-  useEffect(() => {
-    const stored = localStorage.getItem('api_sports_key') || '';
-    setApiKeyInput(stored);
-  }, []);
+
 
   // Fetch match stats and pre-match dossiers for all live matches in background to perform scans
   const scanAllLiveMatchStats = useCallback(async (activeFixtures: Fixture[]) => {
@@ -190,27 +178,14 @@ export default function Radar() {
   const fetchLiveMatches = useCallback(async (isInitial = false) => {
     if (isInitial) setLoading(true);
     try {
-      if (dataSourcePreference === 'simulated') {
-        // 1. Force simulated mode explicitly (perfect for zero-config testing and operation modes demos!)
-        const apiSportsResult = await apiSports.getLiveFixtures(true);
-        const apiSportsFixtures = apiSportsResult?.fixtures || [];
-        
-        setIsApiMock(true);
-        setApiErrorReason(null);
-        setActiveDataSource('apisports_simulated');
-        setFixtures(apiSportsFixtures);
-        
-        await scanAllLiveMatchStats(apiSportsFixtures);
-        setIsKeyConfigured(apiSports.isKeyConfigured());
-        return;
-      }
+
 
       // Real-time mode fetching live fixtures
       // 1. Fetch live matches from Sportsmonks Premium
       const smResult = await sportsmonks.getLiveFixtures();
       
       // 2. Fetch live matches from API-Sports (used ONLY for ID mapping / Team Matching)
-      const apiSportsResult = await apiSports.getLiveFixtures(false);
+      const apiSportsResult = await apiSports.getLiveFixtures();
       const apiSportsFixtures = apiSportsResult?.fixtures || [];
       
       let finalFixtures: any[] = smResult?.fixtures || [];
@@ -218,7 +193,6 @@ export default function Radar() {
       
       if (finalFixtures.length > 0) {
         // Sportsmonks Live Premium is active!
-        setIsApiMock(false);
         setApiErrorReason(null);
         setAllStats(finalStats);
         setActiveDataSource('sportsmonks');
@@ -254,7 +228,6 @@ export default function Radar() {
         const sfFixtures = sfResult?.fixtures || [];
         
         if (sfFixtures.length > 0) {
-          setIsApiMock(false);
           setApiErrorReason(null);
           setAllStats(sfResult.statsMap || {});
           setActiveDataSource('sofascore');
@@ -285,11 +258,10 @@ export default function Radar() {
           }
           setAllDossiers(prev => ({ ...prev, ...newDossierMap }));
         } else {
-          // 4. Ultimate Fallback: API-Sports Live / Sandbox Simulation
+          // 4. Ultimate Fallback: API-Sports Live
           finalFixtures = apiSportsFixtures;
-          setIsApiMock(apiSportsResult?.isMock ?? true);
           setApiErrorReason(apiSportsResult?.errorReason || null);
-          setActiveDataSource(apiSportsResult?.isMock ? 'apisports_simulated' : 'apisports_real');
+          setActiveDataSource('apisports_real');
           
           if (finalFixtures.length > 0) {
             await scanAllLiveMatchStats(finalFixtures as any);
@@ -298,13 +270,12 @@ export default function Radar() {
       }
       
       setFixtures(finalFixtures as any);
-      setIsKeyConfigured(apiSports.isKeyConfigured());
     } catch (err: any) {
       console.error(err);
     } finally {
       if (isInitial) setLoading(false);
     }
-  }, [scanAllLiveMatchStats, dataSourcePreference]);
+  }, [scanAllLiveMatchStats]);
 
   // Synchronize or auto-select selectedFixture when fixtures list or allStats updates
   useEffect(() => {
@@ -671,27 +642,7 @@ export default function Radar() {
     return () => clearInterval(interval);
   }, [fetchLiveMatches]);
 
-  // Credentials actions
-  const handleSaveKey = () => {
-    if (apiKeyInput.trim() !== '') {
-      apiSports.saveKeyLocally(apiKeyInput);
-      setIsKeyConfigured(true);
-      setShowConfig(false);
-      fetchLiveMatches(true);
-    }
-  };
 
-  const handleClearKey = () => {
-    apiSports.clearKeyLocally();
-    setApiKeyInput('');
-    setIsKeyConfigured(false);
-    setShowConfig(false);
-    fetchLiveMatches(true);
-  };
-
-  const triggerLockdown = () => {
-    setIsLockdown(true);
-  };
 
   // Filtered active opportunities by confidence and granular market preference
   const filteredOpps = opportunities
@@ -705,105 +656,6 @@ export default function Radar() {
       }
       return true;
     });
-
-  // If scanner is not configured and user hasn't chosen to bypass, show professional onboarding activation
-  if (!isKeyConfigured && !bypassOnboarding) {
-    return (
-      <div style={{ maxWidth: 800, margin: '40px auto', padding: '0 20px', animation: 'fadeIn 0.3s ease-out' }}>
-        <div className="card glass-panel" style={{ 
-          padding: 40,
-          background: 'linear-gradient(135deg, rgba(30,58,138,0.04) 0%, rgba(255,255,255,1) 100%)',
-          border: '1px solid rgba(30,58,138,0.1)',
-          boxShadow: '0 20px 40px rgba(0,0,0,0.04)',
-          borderRadius: 16,
-          textAlign: 'center'
-        }}>
-          
-          <div style={{ display: 'inline-flex', padding: 16, borderRadius: '50%', background: 'rgba(30,58,138,0.06)', color: 'var(--accent-primary)', marginBottom: 20 }}>
-            <Activity size={40} className="pulse-indicator" />
-          </div>
-
-          <h1 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>
-            Ativar Scanner de Trading Profissional
-          </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.05rem', maxWidth: 550, margin: '0 auto 30px', lineHeight: 1.6 }}>
-            O seu painel está 100% pronto para monitorar o mercado real. Insira sua chave da **API-Sports (API-Football)** para iniciar a leitura automática e disparar alertas em tempo real.
-          </p>
-
-          {/* Grid de Recursos Premium */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginBottom: 35, textAlign: 'left' }}>
-            <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid var(--border-color)' }}>
-              <div style={{ color: 'var(--status-green)', marginBottom: 12 }}><Zap size={20} /></div>
-              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 6 }}>Varredura Geral</h4>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>Monitora chutes, posse e escanteios de qualquer partida ativa do planeta.</p>
-            </div>
-            
-            <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid var(--border-color)' }}>
-              <div style={{ color: 'var(--accent-primary)', marginBottom: 12 }}><Compass size={20} /></div>
-              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 6 }}>16 Itens Pré-Live</h4>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>Cruza cansaço físico, clima, árbitro rigoroso e desfalques automaticamente.</p>
-            </div>
-
-            <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid var(--border-color)' }}>
-              <div style={{ color: 'var(--status-red)', marginBottom: 12 }}><Bell size={20} /></div>
-              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: 6 }}>Chimes Digitais</h4>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>Sintetizador eletrônico nativo avisa na hora certa de fazer a entrada.</p>
-            </div>
-          </div>
-
-          {/* Formulário de Ativação */}
-          <div style={{ background: 'rgba(30,58,138,0.02)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, marginBottom: 24 }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', marginBottom: 10, textAlign: 'left' }}>
-              Chave da API-Sports / API-Football
-            </span>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <input 
-                type="password"
-                placeholder="Insira sua API Key do API-Sports..."
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                style={{
-                  flex: 1,
-                  background: '#fff', border: '1px solid var(--border-color)', borderRadius: 8,
-                  padding: '12px 16px', color: 'var(--text-primary)', outline: 'none', fontFamily: 'monospace'
-                }}
-              />
-              <button 
-                className="btn btn-primary" 
-                style={{ padding: '0 24px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: 8 }}
-                onClick={handleSaveKey}
-              >
-                Ativar Scanner <Zap size={16} />
-              </button>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: '0.75rem' }}>
-              <a 
-                href="https://dashboard.api-sports.io/" 
-                target="_blank" 
-                rel="noreferrer" 
-                style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontWeight: 600 }}
-              >
-                🔑 Não tem uma chave? Obtenha uma grátis aqui!
-              </a>
-              <span style={{ color: 'var(--text-muted)' }}>Mantenha sua chave segura localmente</span>
-            </div>
-          </div>
-
-          {/* Continuar Simulando Fallback */}
-          <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 20 }}>
-            <button 
-              className="btn btn-outline" 
-              style={{ fontSize: '0.8rem', padding: '8px 16px', borderColor: 'var(--border-color)' }}
-              onClick={() => setBypassOnboarding(true)}
-            >
-              💡 Entrar no Modo de Simulação (Testar com Jogos Seedados)
-            </button>
-          </div>
-
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div>
@@ -836,23 +688,18 @@ export default function Radar() {
             
             {/* Status Connection Badges */}
             {activeDataSource === 'sportsmonks' && (
-              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', border: '1px solid rgba(124, 58, 237, 0.2)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700, cursor: 'pointer' }} onClick={() => setShowConfig(true)}>
+              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', border: '1px solid rgba(124, 58, 237, 0.2)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
                 <CheckCircle size={12} /> 📡 SPORTSMONKS LIVE (PREMIUM)
               </span>
             )}
             {activeDataSource === 'sofascore' && (
-              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700, cursor: 'pointer' }} onClick={() => setShowConfig(true)}>
+              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
                 <CheckCircle size={12} /> 📡 SOFASCORE LIVE (100% REAL)
               </span>
             )}
             {activeDataSource === 'apisports_real' && (
-              <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }} onClick={() => setShowConfig(true)}>
+              <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <CheckCircle size={12} /> 📡 API-SPORTS LIVE (ATIVO)
-              </span>
-            )}
-            {activeDataSource === 'apisports_simulated' && (
-              <span className="badge badge-yellow" style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }} onClick={() => setShowConfig(true)}>
-                <PlayCircle size={12} /> ⚡ MODO SIMULADO
               </span>
             )}
           </div>
@@ -864,50 +711,8 @@ export default function Radar() {
             <RefreshCw size={14} className={loading ? 'pulse-indicator' : ''} />
             Próxima varredura em {countdown}s
           </span>
-
-          <button className="btn btn-outline" style={{ display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => setShowConfig(!showConfig)}>
-            <Key size={16} />
-            API Key
-          </button>
-          
-          <button className="btn className-lock" style={{ background: '#ef4444', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }} onClick={triggerLockdown} title="Simular Meta Batida">
-            Testar Lockdown
-          </button>
         </div>
       </div>
-
-      {/* API Key Panel */}
-      {showConfig && (
-        <div className="card glass-panel" style={{ marginBottom: 24, padding: 24, animation: 'fadeIn 0.2s ease-out' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Key size={18} color="var(--accent-primary)" />
-              Configurações da Chave API-Sports
-            </h3>
-            <button className="btn btn-outline" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setShowConfig(false)}>Fechar</button>
-          </div>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 16, lineHeight: 1.5 }}>
-            Insira sua chave de API para varrer jogos reais. Deixe em branco para testar com nosso simulador ativo que gera gatilhos de pressão reais.
-          </p>
-          <div style={{ display: 'flex', gap: 12, maxWidth: 600 }}>
-            <input 
-              type="password"
-              placeholder="Sua API Key..."
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              style={{
-                flex: 1,
-                background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: 8,
-                padding: '10px 16px', color: 'var(--text-primary)', outline: 'none', fontFamily: 'monospace'
-              }}
-            />
-            <button className="btn btn-primary" onClick={handleSaveKey}>Salvar Chave</button>
-            {isKeyConfigured && (
-              <button className="btn btn-outline" style={{ color: 'var(--status-red)', borderColor: 'var(--status-red)' }} onClick={handleClearKey}>Remover Chave</button>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* 🛠️ BARRA DE CONTROLE PREMIUM (Market Filters, Data Sources and Mode Status) */}
       <div className="card glass-panel" style={{
@@ -992,43 +797,10 @@ export default function Radar() {
             </button>
           </div>
         </div>
-
-        {/* Data Source Preference */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Fonte de Dados:</span>
-          <div style={{ display: 'inline-flex', background: 'var(--bg-elevated)', padding: 3, borderRadius: 8, border: '1px solid var(--border-color)' }}>
-            <button 
-              onClick={() => setDataSourcePreference('simulated')}
-              style={{
-                padding: '6px 12px', border: 'none', borderRadius: 6,
-                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
-                background: dataSourcePreference === 'simulated' ? 'var(--accent-primary)' : 'transparent',
-                color: dataSourcePreference === 'simulated' ? '#fff' : 'var(--text-muted)',
-                transition: 'all 0.15s ease',
-                outline: 'none'
-              }}
-            >
-              ⚡ Simulado
-            </button>
-            <button 
-              onClick={() => setDataSourcePreference('real')}
-              style={{
-                padding: '6px 12px', border: 'none', borderRadius: 6,
-                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
-                background: dataSourcePreference === 'real' ? 'var(--accent-primary)' : 'transparent',
-                color: dataSourcePreference === 'real' ? '#fff' : 'var(--text-muted)',
-                transition: 'all 0.15s ease',
-                outline: 'none'
-              }}
-            >
-              📡 Real API
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* ⚠️ Alerta de Limite ou Erro da API Real */}
-      {isApiMock && apiErrorReason && (
+      {apiErrorReason && (
         <div className="card" style={{ 
           marginBottom: 20, 
           padding: '16px 20px', 
@@ -1044,16 +816,16 @@ export default function Radar() {
           </div>
           <div>
             <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--status-red)', marginBottom: 4 }}>
-              {apiErrorReason === 'limit_reached' ? 'Meta Limite Diária de Requisições Atingida!' : 'Erro na Chave de API Configurada!'}
+              {apiErrorReason === 'limit_reached' ? 'Meta Limite Diária de Requisições da API Atingida!' : 'Erro de Conexão com a API!'}
             </h4>
             <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
               {apiErrorReason === 'limit_reached' ? (
                 <span>
-                  A sua chave configurada atingiu o <strong>limite diário de chamadas gratuitas da API-Sports (100 requisições/dia)</strong>. O sistema ativou o <strong>Modo Simulado</strong> de segurança para garantir que você continue testando a plataforma com dados e triggers reais. Faça upgrade na sua conta em <a href="https://dashboard.api-sports.io/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>dashboard.api-sports.io</a>.
+                  A chave integrada atingiu o <strong>limite diário de chamadas gratuitas da API-Sports</strong>. Verifique o limite da sua conta de assinatura ou faça upgrade em <a href="https://dashboard.api-sports.io/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>dashboard.api-sports.io</a>.
                 </span>
               ) : (
                 <span>
-                  A chave de API salva retornou um erro de credencial inválida ou plano não assinado. O sistema ativou o <strong>Modo Simulado</strong>. Por favor, revise sua chave clicando no botão <strong>API Key</strong> no canto superior direito.
+                  Ocorreu um erro ao validar a chave de API integrada ou houve falha na rede de telemetria. Certifique-se de que sua conexão de internet está ativa e que a API Key integrada está ativa no painel do provedor de dados.
                 </span>
               )}
             </p>
@@ -1241,6 +1013,8 @@ export default function Radar() {
                         <td style={{ padding: '14px 8px', textAlign: 'center' }}>
                           {!stats ? (
                             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mapeando APM...</span>
+                          ) : !stats.hasTelemetry ? (
+                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
                           ) : (
                             <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
                               <span style={{ color: stats.home.apm1 >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
@@ -1258,6 +1032,8 @@ export default function Radar() {
                         <td style={{ padding: '14px 8px', textAlign: 'center' }}>
                           {!stats ? (
                             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+                          ) : !stats.hasTelemetry ? (
+                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
                           ) : (
                             <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
                               {stats.home.corners} - {stats.away.corners}
@@ -1269,6 +1045,8 @@ export default function Radar() {
                         <td style={{ padding: '14px 8px', textAlign: 'center' }}>
                           {!stats ? (
                             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+                          ) : !stats.hasTelemetry ? (
+                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
                           ) : (
                             <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
                               {stats.home.shotsOnGoal} - {stats.away.shotsOnGoal}
@@ -1280,6 +1058,8 @@ export default function Radar() {
                         <td style={{ padding: '14px 8px', textAlign: 'center' }}>
                           {!stats ? (
                             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+                          ) : !stats.hasTelemetry ? (
+                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
                           ) : (
                             <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
                               {stats.home.possession}% - {stats.away.possession}%
@@ -1624,27 +1404,24 @@ export default function Radar() {
                         ) : (
                           <div>
                             {/* Alert for empty stats in secondary/minor leagues */}
-                            {stats.home.corners === 0 && 
-                             stats.away.corners === 0 && 
-                             stats.home.dangerousAttacks === 0 && 
-                             stats.away.dangerousAttacks === 0 && (
-                              <div style={{
-                                background: 'rgba(217, 119, 6, 0.04)',
-                                border: '1px dashed var(--status-yellow)',
-                                padding: '10px 12px',
-                                borderRadius: 8,
-                                marginBottom: 16,
-                                fontSize: '0.75rem',
-                                color: 'var(--text-secondary)',
-                                lineHeight: 1.5,
-                                textAlign: 'left'
-                              }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--status-yellow)', fontWeight: 700, marginBottom: 4 }}>
-                                  <AlertCircle size={14} /> 
-                                  Limitação de Cobertura
-                                </div>
-                                Telemetria detalhada indisponível para esta divisão secundária. Ative o <strong>Modo Simulado</strong> na barra superior para dados simulados completos.
-                              </div>
+                            {!stats.hasTelemetry && (
+                               <div style={{
+                                 background: 'rgba(239, 68, 68, 0.05)',
+                                 border: '1px dashed var(--status-red)',
+                                 padding: '12px 14px',
+                                 borderRadius: 8,
+                                 marginBottom: 16,
+                                 fontSize: '0.8rem',
+                                 color: 'var(--text-secondary)',
+                                 lineHeight: 1.5,
+                                 textAlign: 'left'
+                               }}>
+                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--status-red)', fontWeight: 800, marginBottom: 4 }}>
+                                   <AlertCircle size={16} /> 
+                                   ⚠️ SEM TELEMETRIA (LIGA SEM COBERTURA DE DADOS)
+                                 </div>
+                                 Esta divisão/liga secundária não transmite cobertura de telemetria ao vivo pela API oficial. Todos os parâmetros estão zerados e mantidos sem criação de dados fictícios.
+                               </div>
                             )}
 
                             {/* Comparativo de Índices APM1 e APM2 */}
