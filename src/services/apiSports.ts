@@ -537,7 +537,28 @@ class ApiSportsService {
 
     const pressureIndex = calculatePressureIndex(tempStats);
     const el = elapsed > 0 ? elapsed : 1;
-    const apm2 = Number((tempStats.dangerousAttacks / el).toFixed(2));
+
+    /**
+     * APM HÍBRIDO: Usa dados nativos quando disponíveis, senão calcula IIM (Índice de Intensidade por Minuto)
+     * 
+     * Se a API fornece "Dangerous Attacks" nativamente → usa o valor real
+     * Se NÃO fornece (API-Sports nunca fornece) → calcula IIM a partir de dados reais:
+     *   IIM = (Chutes ao Gol × 3.0 + Chutes Fora × 1.2 + Escanteios × 2.0) / minutos
+     * 
+     * Isso NÃO é dado fabricado — é derivação matemática de dados reais da partida.
+     */
+    const hasNativeAttacks = tempStats.dangerousAttacks > 0 || tempStats.attacks > 0;
+    
+    let apm2: number;
+    if (hasNativeAttacks) {
+      // ✅ Dados nativos disponíveis (Sportmonks ou API que fornece attacks)
+      apm2 = Number((tempStats.dangerousAttacks / el).toFixed(2));
+    } else {
+      // 📊 IIM: Índice de Intensidade por Minuto (baseado em chutes + escanteios reais)
+      const intensityScore = (tempStats.shotsOnGoal * 3.0) + (tempStats.shotsOffGoal * 1.2) + (tempStats.corners * 2.0);
+      apm2 = Number((intensityScore / el).toFixed(2));
+    }
+    
     const apm1 = Number((apm2 * (1 + pressureIndex / 100)).toFixed(2));
 
     return {

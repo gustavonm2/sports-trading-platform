@@ -36,14 +36,16 @@ export interface MatchStats {
   hasTelemetry: boolean;
 }
 
-const SPORTSMONKS_API_TOKEN = 'I2JnAHeFNSdX7f1I77MgPAd6ev79fCFnLj6hRLJsPlNWpWTxDC2Ns4WN707J';
+const SPORTSMONKS_API_TOKEN = 'fzEpDBRBQwESuWNdH9rJCMXXq3auUTvzr1eo7cPToXR4IQHMn23sdErNUBwm';
 const BASE_URL = '/api-sportsmonks/v3/football';
 
 // Stat type IDs for Sportsmonks v3
+// Stat type IDs CORRETOS para Sportsmonks v3 (verificados na documentação oficial)
+// Bug anterior: ATTACKS era 42 (Shots Total), DANGEROUS_ATTACKS era 43 (Attacks)
 const STATS_MAP = {
   CORNERS: 34,
-  ATTACKS: 42,
-  DANGEROUS_ATTACKS: 43,
+  ATTACKS: 43,           // ✅ CORRETO: type_id 43 = Attacks
+  DANGEROUS_ATTACKS: 44, // ✅ CORRETO: type_id 44 = Dangerous Attacks
   POSSESSION: 45,
   YELLOW_CARDS: 86,
   RED_CARDS: 87,

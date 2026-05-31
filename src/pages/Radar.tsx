@@ -1517,9 +1517,18 @@ export default function Radar() {
                             )}
 
                             {/* Comparativo de Índices APM1 e APM2 */}
-                            <h4 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 10, fontWeight: 700 }}>
-                              📊 Índices de Ataque Avançados (APM)
+                            <h4 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 700 }}>
+                              📊 Índices de Intensidade (APM)
                             </h4>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {(stats.home.attacks > 0 || stats.away.attacks > 0) ? (
+                                <span style={{ color: 'var(--status-green)', fontWeight: 700 }}>✅ Ataques Nativos (Sportmonks)</span>
+                              ) : (stats.home.shotsOnGoal > 0 || stats.away.shotsOnGoal > 0 || stats.home.corners > 0 || stats.away.corners > 0) ? (
+                                <span style={{ fontWeight: 700 }} title="IIM = (Chutes ao Gol × 3.0 + Chutes Fora × 1.2 + Escanteios × 2.0) / minutos">📊 IIM — Calculado de chutes + escanteios reais</span>
+                              ) : (
+                                <span>Aguardando dados da partida...</span>
+                              )}
+                            </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
                               {/* APM Mandante */}
