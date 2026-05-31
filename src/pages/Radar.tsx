@@ -957,7 +957,7 @@ export default function Radar() {
                   <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Partida / Liga</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Placar / Tempo</th>
-                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>APM1 / APM2 (C / F)</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>IIM (C / F)</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Escanteios (C-F)</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Chutes Alvo (C-F)</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Posse (C-F)</th>
@@ -966,19 +966,35 @@ export default function Radar() {
                   </tr>
                 </thead>
                 <tbody>
-                  {fixtures.map(f => {
+                  {fixtures
+                    .filter(f => {
+                      // Ocultar jogos sem telemetria — não aparecem no sistema
+                      const stats = allStats[f.id];
+                      return stats && stats.hasTelemetry;
+                    })
+                    .map(f => {
                     const stats = allStats[f.id];
                     const dossier = allDossiers[f.id];
                     
                     // Check if this fixture has an active opportunity matching the criteria
                     const hasOpp = opportunities.some(opp => opp.fixtureId === f.id && opp.confidence >= minConfidence);
                     
+                    // 🔥 DETECÇÃO DE POTENCIAL: IIM está a ≥70% do threshold (esquentando)
+                    const iimThresholdRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : 1.1;
+                    const homeIIMRatio = stats.home.iim / iimThresholdRef;
+                    const awayIIMRatio = stats.away.iim / iimThresholdRef;
+                    const hasPotential = !hasOpp && (
+                      (homeIIMRatio >= 0.7 && stats.home.corners >= 2) ||
+                      (awayIIMRatio >= 0.7 && stats.away.corners >= 2) ||
+                      (stats.home.iim + stats.away.iim >= iimThresholdRef * 1.2 && stats.home.shotsOnGoal + stats.away.shotsOnGoal >= 2)
+                    );
+                    
                     return (
                       <tr 
                         key={`table-fixture-${f.id}`}
                         style={{ 
                           borderBottom: '1px solid var(--border-color)',
-                          background: hasOpp ? 'rgba(16, 185, 129, 0.04)' : 'transparent',
+                          background: hasOpp ? 'rgba(16, 185, 129, 0.06)' : hasPotential ? 'rgba(245, 158, 11, 0.04)' : 'transparent',
                           transition: 'background 0.15s ease'
                         }}
                       >
@@ -1071,12 +1087,59 @@ export default function Radar() {
                           )}
                         </td>
 
-                        {/* Status / Oportunidade */}
-                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                        {/* Status / Oportunidade + Links rápidos */}
+                        <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                           {hasOpp ? (
-                            <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'var(--status-green-glow)', color: 'var(--status-green)' }}>
-                              ⚡ GATILHO ATIVO
-                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                              <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'var(--status-green-glow)', color: 'var(--status-green)', animation: 'pulse 2s ease-in-out infinite' }}>
+                                ⚡ GATILHO ATIVO
+                              </span>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
+                                {getEnabledBookmakers().map(bk => (
+                                  <a
+                                    key={bk.id}
+                                    href={bk.liveUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      fontSize: '0.6rem', fontWeight: 800,
+                                      color: bk.color, background: bk.bgColor,
+                                      padding: '2px 6px', borderRadius: 4,
+                                      textDecoration: 'none', border: `1px solid ${bk.color}30`,
+                                      transition: 'all 0.15s ease'
+                                    }}
+                                    title={`Abrir ${bk.name} ao vivo`}
+                                  >
+                                    {bk.logo} {bk.shortName}
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          ) : hasPotential ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                              <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'rgba(245, 158, 11, 0.12)', color: 'var(--status-yellow)' }}>
+                                🔥 POTENCIAL
+                              </span>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
+                                {getEnabledBookmakers().slice(0, 3).map(bk => (
+                                  <a
+                                    key={bk.id}
+                                    href={bk.liveUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      fontSize: '0.55rem', fontWeight: 700,
+                                      color: bk.color, background: bk.bgColor,
+                                      padding: '1px 5px', borderRadius: 3,
+                                      textDecoration: 'none', opacity: 0.8
+                                    }}
+                                    title={`Preparar no ${bk.name}`}
+                                  >
+                                    {bk.logo} {bk.shortName}
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
                           ) : (
                             <span className="badge" style={{ fontSize: '0.7rem', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '4px 8px', fontWeight: 600 }}>
                               🔍 MONITORANDO
