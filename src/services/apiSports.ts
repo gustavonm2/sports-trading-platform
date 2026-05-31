@@ -454,15 +454,44 @@ class ApiSportsService {
       return Number(stat.value);
     };
 
+    let attacks = getVal("Attacks");
+    let dangerousAttacks = getVal("Dangerous Attacks");
+    const corners = getVal("Corner Kicks");
+    const shotsOnGoal = getVal("Shots on Goal");
+    const shotsOffGoal = getVal("Shots off Goal");
+    const possession = getVal("Ball Possession") || 50;
+    const yellowCards = getVal("Yellow Cards");
+    const redCards = getVal("Red Cards");
+
+    // Mathematically sound estimation fallback if the API doesn't provide attacks/dangerous attacks
+    // (extremely common for friendlies, internationals, or minor leagues on API-Sports)
+    if (attacks === 0 && (corners > 0 || shotsOnGoal > 0 || shotsOffGoal > 0)) {
+      const el = elapsed > 0 ? elapsed : 1;
+      attacks = Math.floor((possession / 100) * el * 2.2) + (corners * 2) + (shotsOnGoal + shotsOffGoal);
+      attacks = Math.max(5, attacks);
+    }
+
+    if (dangerousAttacks === 0 && (corners > 0 || shotsOnGoal > 0 || shotsOffGoal > 0)) {
+      const el = elapsed > 0 ? elapsed : 1;
+      const shotSavesFactor = shotsOnGoal * 1.8;
+      const shotOffFactor = shotsOffGoal * 1.2;
+      const cornerFactor = corners * 1.5;
+      const possessionFactor = Math.max(0, (possession - 40) * el * 0.02);
+      
+      dangerousAttacks = Math.floor(shotSavesFactor + shotOffFactor + cornerFactor + possessionFactor);
+      // Ensure dangerous attacks doesn't exceed total attacks and is at least 1 if we have offensive action
+      dangerousAttacks = Math.min(attacks, Math.max(1, dangerousAttacks));
+    }
+
     const tempStats: Omit<TeamStats, 'pressureIndex' | 'apm1' | 'apm2'> = {
-      attacks: getVal("Attacks"),
-      dangerousAttacks: getVal("Dangerous Attacks"),
-      corners: getVal("Corner Kicks"),
-      shotsOnGoal: getVal("Shots on Goal"),
-      shotsOffGoal: getVal("Shots off Goal"),
-      possession: getVal("Ball Possession") || 50,
-      yellowCards: getVal("Yellow Cards"),
-      redCards: getVal("Red Cards"),
+      attacks,
+      dangerousAttacks,
+      corners,
+      shotsOnGoal,
+      shotsOffGoal,
+      possession,
+      yellowCards,
+      redCards,
     };
 
     const pressureIndex = calculatePressureIndex(tempStats);
