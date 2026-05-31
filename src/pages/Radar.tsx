@@ -11,6 +11,7 @@ import { sportsmonks } from '../services/sportsmonks';
 import { sofascore } from '../services/sofascore';
 import type { Fixture, MatchStats, PreMatchDossier } from '../services/apiSports';
 import { supabase } from '../services/supabase';
+import { getEnabledBookmakers } from '../config/bookmakers';
 
 // Fuzzy team matching helper to link Sportsmonks/Sofascore matches to API-Sports dossiers
 function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefined | null): boolean {
@@ -1279,9 +1280,63 @@ export default function Radar() {
                       fontSize: '0.85rem', 
                       color: 'var(--status-green)',
                       lineHeight: 1.5,
-                      marginBottom: 16
+                      marginBottom: 14
                     }}>
                       <strong>💡 Sugestão de Entrada:</strong> {opp.suggestion}
+                    </div>
+
+                    {/* 🏦 Links Rápidos — Casas de Apostas */}
+                    <div style={{
+                      background: 'var(--bg-elevated)',
+                      borderRadius: 10,
+                      padding: '10px 14px',
+                      marginBottom: 14,
+                      border: '1px solid var(--border-color)',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Operar Agora</span>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Seção Ao Vivo ↗</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {getEnabledBookmakers().map(bk => (
+                          <a
+                            key={bk.id}
+                            href={bk.liveUrl}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            title={`Abrir ${bk.name} — Futebol Ao Vivo`}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '7px 14px',
+                              borderRadius: 8,
+                              background: bk.bgColor,
+                              border: `1px solid ${bk.color}33`,
+                              color: bk.color,
+                              fontSize: '0.78rem',
+                              fontWeight: 700,
+                              textDecoration: 'none',
+                              transition: 'all 0.15s ease',
+                              cursor: 'pointer',
+                            }}
+                            onMouseEnter={(e) => {
+                              (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)';
+                              (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 12px ${bk.color}22`;
+                              (e.currentTarget as HTMLElement).style.borderColor = `${bk.color}66`;
+                            }}
+                            onMouseLeave={(e) => {
+                              (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                              (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                              (e.currentTarget as HTMLElement).style.borderColor = `${bk.color}33`;
+                            }}
+                          >
+                            <span style={{ fontSize: '0.9rem' }}>{bk.logo}</span>
+                            {bk.name}
+                            <PlayCircle size={12} style={{ opacity: 0.7 }} />
+                          </a>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Ações */}
@@ -1327,16 +1382,6 @@ export default function Radar() {
                       >
                         {gottenOppIds.has(opp.id) ? 'PEGADA! 🟢' : 'PEGUEI ⚡'}
                       </button>
-
-                      <a 
-                        href="https://www.bet365.com" 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="btn btn-primary" 
-                        style={{ padding: '8px 16px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}
-                      >
-                        Operar Live <PlayCircle size={14} />
-                      </a>
                     </div>
 
                   </div>
