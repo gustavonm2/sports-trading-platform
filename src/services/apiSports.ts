@@ -356,80 +356,150 @@ class ApiSportsService {
     }
   }
 
+  /**
+   * parseRealDossier — Constrói o dossiê pré-jogo usando APENAS dados reais da API-Sports.
+   *
+   * ═══════════════════════════════════════════════════════════════
+   * CAMPOS FORNECIDOS PELA API /predictions (dados reais):
+   * ═══════════════════════════════════════════════════════════════
+   * ✅ predictions.percent.home/draw/away         → Probabilidades de vitória
+   * ✅ predictions.winner.comment                  → Texto de análise curta
+   * ✅ comparison.att/def/poisson_distribution/form/h2h/goals → Comparações percentuais
+   * ✅ teams.home/away.league.form                 → String de forma recente (ex: 'WWDLW')
+   * ✅ teams.home/away.league.goals.for/against.average.home/away → Médias de gols
+   * ✅ teams.home/away.league.fixtures.wins/draws/loses → Contagem V/E/D
+   *
+   * ═══════════════════════════════════════════════════════════════
+   * CAMPOS NÃO FORNECIDOS PELA API (preenchidos com marcadores):
+   * ═══════════════════════════════════════════════════════════════
+   * ❌ avgCornersHome/Away       → 0 (API não fornece médias de escanteios)
+   * ❌ tacticalStyleAway         → "" (API não fornece estilo tático detalhado)
+   * ❌ tempoHome/Away            → Mostra win% real em vez de análise tática inventada
+   * ❌ aggressivenessHome/Away   → "" (API não fornece dados de agressividade)
+   * ❌ formationHome/Away        → "Sem dados da API" (API não fornece formação neste endpoint)
+   * ❌ weather                   → "Sem dados da API" (API não fornece clima neste endpoint)
+   * ❌ refereeName               → "Sem dados da API" (API não fornece árbitro neste endpoint)
+   * ❌ refereeCardRate           → 0 (API não fornece taxa de cartões do árbitro)
+   * ❌ fatigueHome/Away          → 0 (API não fornece índice de fadiga)
+   * ❌ rotationHome/Away         → "Sem dados da API" (API não fornece dados de rotação)
+   * ❌ standingsHome/Away        → "Sem dados da API" (API não fornece classificação neste endpoint)
+   * ❌ leagueProfile             → "" (API não fornece perfil da liga)
+   * ❌ absencesHome/Away         → [] (API não fornece lesões neste endpoint)
+   */
   private parseRealDossier(fixtureId: number, pred: any): PreMatchDossier {
-    const percentHome = pred.predictions?.percent?.home ? parseInt(pred.predictions.percent.home.replace('%', ''), 10) : 33;
-    const percentAway = pred.predictions?.percent?.away ? parseInt(pred.predictions.percent.away.replace('%', ''), 10) : 33;
+    // ✅ DADOS REAIS: Probabilidades de vitória da API
+    const percentHome = pred.predictions?.percent?.home ? parseInt(pred.predictions.percent.home.replace('%', ''), 10) : 0;
+    const percentAway = pred.predictions?.percent?.away ? parseInt(pred.predictions.percent.away.replace('%', ''), 10) : 0;
 
-    // Parse comparison values
+    // ✅ DADOS REAIS: Comparações percentuais da API
     const getComp = (type: string, team: 'home' | 'away'): number => {
       const val = pred.comparison?.[type]?.[team];
-      if (!val) return 50;
+      if (!val) return 0;
       return parseInt(val.replace('%', ''), 10);
     };
 
-    // Construct form strings
-    const formHome = pred.teams?.home?.league?.form ? pred.teams.home.league.form.split('').slice(-5) : ["V", "E", "D"];
-    const formAway = pred.teams?.away?.league?.form ? pred.teams.away.league.form.split('').slice(-5) : ["V", "E", "D"];
+    // ✅ DADOS REAIS: Forma recente (últimos 5 jogos)
+    const formHome = pred.teams?.home?.league?.form
+      ? pred.teams.home.league.form.split('').slice(-5)
+      : [];
+    const formAway = pred.teams?.away?.league?.form
+      ? pred.teams.away.league.form.split('').slice(-5)
+      : [];
+
+    // ✅ DADOS REAIS: Médias de gols da liga (0 se ausente)
+    const avgGoalsScoredHome = Number(pred.teams?.home?.league?.goals?.for?.average?.home || 0);
+    const avgGoalsConcededHome = Number(pred.teams?.home?.league?.goals?.against?.average?.home || 0);
+    const avgGoalsScoredAway = Number(pred.teams?.away?.league?.goals?.for?.average?.away || 0);
+    const avgGoalsConcededAway = Number(pred.teams?.away?.league?.goals?.against?.average?.away || 0);
+
+    // ✅ DADOS REAIS: Posse estimada a partir das comparações (comparison.poisson_distribution)
+    const possHome = getComp('poisson_distribution', 'home');
+    const possAway = getComp('poisson_distribution', 'away');
+
+    // ✅ DADOS REAIS: Texto de análise do winner.comment (pode ser vazio)
+    const winnerComment = pred.predictions?.winner?.comment || '';
 
     return {
       fixtureId,
-      offensiveStrengthHome: getComp('att', 'home') || 75,
-      offensiveStrengthAway: getComp('att', 'away') || 75,
-      avgGoalsScoredHome: Number(pred.teams?.home?.league?.goals?.for?.average?.home || 1.8),
-      avgGoalsConcededHome: Number(pred.teams?.home?.league?.goals?.against?.average?.home || 1.0),
-      avgGoalsScoredAway: Number(pred.teams?.away?.league?.goals?.for?.average?.away || 1.4),
-      avgGoalsConcededAway: Number(pred.teams?.away?.league?.goals?.against?.average?.away || 1.2),
-      avgCornersHome: 5.5, // Default/estimated average from historical league profiles
-      avgCornersAway: 4.8,
-      avgPossessionHome: 50 + Math.floor((percentHome - percentAway) * 0.2),
-      avgPossessionAway: 50 + Math.floor((percentAway - percentHome) * 0.2),
-      tacticalStyleHome: pred.predictions?.winner?.comment || "Ataque Sustentado",
-      tacticalStyleAway: "Compactação Média com Transição",
-      tempoHome: percentHome > 45 ? "Frenético" : "Controlado",
-      tempoAway: percentAway > 45 ? "Frenético" : "Controlado",
-      aggressivenessHome: "Média",
-      aggressivenessAway: "Média",
-      formationHome: "4-3-3",
-      formationAway: "4-4-2",
-      weather: "Nublado, Clima Estável",
-      refereeName: "Árbitro Oficial Liga",
-      refereeCardRate: 4.2,
-      fatigueHome: 45,
-      fatigueAway: 42,
-      rotationHome: "Força Máxima",
-      rotationAway: "Força Máxima",
-      motivationHome: percentHome || 50,
-      motivationAway: percentAway || 50,
-      standingsHome: "Classificado Geral",
-      standingsAway: "Classificado Geral",
+      // ✅ Da API: comparison.att
+      offensiveStrengthHome: getComp('att', 'home'),
+      offensiveStrengthAway: getComp('att', 'away'),
+      // ✅ Da API: teams.X.league.goals.for/against.average
+      avgGoalsScoredHome,
+      avgGoalsConcededHome,
+      avgGoalsScoredAway,
+      avgGoalsConcededAway,
+      // ❌ API NÃO FORNECE: escanteios
+      avgCornersHome: 0,
+      avgCornersAway: 0,
+      // ✅ Da API: derivado de comparison.poisson_distribution
+      avgPossessionHome: possHome,
+      avgPossessionAway: possAway,
+      // ✅ Da API: predictions.winner.comment (apenas para home)
+      tacticalStyleHome: winnerComment,
+      // ❌ API NÃO FORNECE: estilo tático detalhado do visitante
+      tacticalStyleAway: '',
+      // ✅ Da API: mostra win% real em vez de rótulo inventado
+      tempoHome: percentHome > 0 ? `Win%: ${percentHome}%` : '',
+      tempoAway: percentAway > 0 ? `Win%: ${percentAway}%` : '',
+      // ❌ API NÃO FORNECE: agressividade
+      aggressivenessHome: '',
+      aggressivenessAway: '',
+      // ❌ API NÃO FORNECE: formação neste endpoint
+      formationHome: 'Sem dados da API',
+      formationAway: 'Sem dados da API',
+      // ❌ API NÃO FORNECE: clima
+      weather: 'Sem dados da API',
+      // ❌ API NÃO FORNECE: árbitro neste endpoint
+      refereeName: 'Sem dados da API',
+      refereeCardRate: 0,
+      // ❌ API NÃO FORNECE: fadiga
+      fatigueHome: 0,
+      fatigueAway: 0,
+      // ❌ API NÃO FORNECE: rotação
+      rotationHome: 'Sem dados da API',
+      rotationAway: 'Sem dados da API',
+      // ✅ Da API: predictions.percent (usado como proxy de motivação)
+      motivationHome: percentHome,
+      motivationAway: percentAway,
+      // ❌ API NÃO FORNECE: classificação neste endpoint
+      standingsHome: 'Sem dados da API',
+      standingsAway: 'Sem dados da API',
+      // ✅ Da API: teams.X.league.form
       formHome,
       formAway,
-      leagueProfile: "Campeonato Oficial - Mapeado pela IA",
+      // ❌ API NÃO FORNECE: perfil da liga
+      leagueProfile: '',
+      // ❌ API NÃO FORNECE: lesões neste endpoint
       absencesHome: [],
       absencesAway: [],
       hasPredictions: true
     };
   }
 
+  /**
+   * generateEmptyDossier — Dossiê vazio para quando não há dados da API.
+   * Todos os campos numéricos são 0, todos os textuais são "Sem dados da API".
+   */
   private generateEmptyDossier(fixtureId: number): PreMatchDossier {
     return {
       fixtureId,
-      offensiveStrengthHome: 50, offensiveStrengthAway: 50,
-      avgGoalsScoredHome: 1.5, avgGoalsConcededHome: 1.2,
-      avgGoalsScoredAway: 1.2, avgGoalsConcededAway: 1.5,
-      avgCornersHome: 5.0, avgCornersAway: 5.0,
-      avgPossessionHome: 50, avgPossessionAway: 50,
-      tacticalStyleHome: "Estilo Padrão", tacticalStyleAway: "Estilo Padrão",
-      tempoHome: "Controlado", tempoAway: "Controlado",
-      aggressivenessHome: "Média", aggressivenessAway: "Média",
-      formationHome: "4-3-3", formationAway: "4-3-3",
-      weather: "Sem dados", refereeName: "Sem escala", refereeCardRate: 4.0,
+      offensiveStrengthHome: 0, offensiveStrengthAway: 0,
+      avgGoalsScoredHome: 0, avgGoalsConcededHome: 0,
+      avgGoalsScoredAway: 0, avgGoalsConcededAway: 0,
+      avgCornersHome: 0, avgCornersAway: 0,
+      avgPossessionHome: 0, avgPossessionAway: 0,
+      tacticalStyleHome: '', tacticalStyleAway: '',
+      tempoHome: '', tempoAway: '',
+      aggressivenessHome: '', aggressivenessAway: '',
+      formationHome: 'Sem dados da API', formationAway: 'Sem dados da API',
+      weather: 'Sem dados da API', refereeName: 'Sem dados da API', refereeCardRate: 0,
       fatigueHome: 0, fatigueAway: 0,
-      rotationHome: "Força Máxima", rotationAway: "Força Máxima",
-      motivationHome: 50, motivationAway: 50,
-      standingsHome: "Mapeando", standingsAway: "Mapeando",
+      rotationHome: 'Sem dados da API', rotationAway: 'Sem dados da API',
+      motivationHome: 0, motivationAway: 0,
+      standingsHome: 'Sem dados da API', standingsAway: 'Sem dados da API',
       formHome: [], formAway: [],
-      leagueProfile: "Mapeamento IA", absencesHome: [], absencesAway: [],
+      leagueProfile: '', absencesHome: [], absencesAway: [],
       hasPredictions: false
     };
   }

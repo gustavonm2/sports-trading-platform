@@ -1,7 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Calendar, Search, ShieldAlert, Award, Compass, Thermometer,
-  BarChart2, Shield, AlertCircle, TrendingUp, Info, ChevronRight, CheckCircle, RefreshCw
+  BarChart2, Shield, AlertCircle, TrendingUp, Info, ChevronRight, CheckCircle, RefreshCw,
+  Radio
 } from 'lucide-react';
 import { apiSports } from '../services/apiSports';
 import type { PreMatchDossier } from '../services/apiSports';
@@ -16,284 +17,90 @@ interface PreLiveMatch {
   strategy: 'Cantos Limite' | 'Back Favorito' | 'Over Gols HT' | 'Rigor de Cartões';
   suggestion: string;
   dossier: PreMatchDossier;
+  dossierLoading?: boolean;
 }
 
-// Helper to generate statistically consistent pre-live dossiers for real upcoming matches dynamically
-function generateDynamicDossier(fixtureId: number, homeName: string, awayName: string): PreMatchDossier {
-  // Use a simple hash of names to seed the random statistics so they remain completely static for the same match!
-  const seed = (homeName.length + awayName.length + fixtureId) % 10;
-  
-  const motivationHome = 70 + (seed * 3) % 30;
-  const motivationAway = 65 + (seed * 4) % 35;
-  const offensiveStrengthHome = 68 + (seed * 2) % 30;
-  const offensiveStrengthAway = 65 + (seed * 3) % 30;
-  
-  const avgGoalsScoredHome = Number((1.2 + (seed * 0.15)).toFixed(1));
-  const avgGoalsConcededHome = Number((0.8 + (seed * 0.1)).toFixed(1));
-  const avgGoalsScoredAway = Number((1.0 + (seed * 0.12)).toFixed(1));
-  const avgGoalsConcededAway = Number((0.9 + (seed * 0.13)).toFixed(1));
-  
-  const avgCornersHome = Number((4.5 + (seed * 0.35)).toFixed(1));
-  const avgCornersAway = Number((4.0 + (seed * 0.3)).toFixed(1));
-  
-  const avgPossessionHome = 45 + (seed * 2) % 20;
-  const avgPossessionAway = 100 - avgPossessionHome;
-  
-  const tacticalStyles = [
-    'Ataque pelas pontas / Transição Rápida',
-    'Posse de bola paciente / Amplitude total',
-    'Bloqueio defensivo baixo / Contra-ataque veloz',
-    'Marcação sob pressão alta / Gegenpressing',
-    'Foco em bolas paradas e cruzamentos longos'
-  ];
-  
-  const weatherOptions = [
-    'Céu Limpo, 22°C (Excelente condição)',
-    'Nublado, 15°C (Gramado úmido)',
-    'Chuva Fraca, 12°C (Grama molhada/rápida)',
-    'Ensolarado, 28°C (Desgaste físico elevado)',
-    'Agradável, 18°C (Vento calmo)'
-  ];
+/**
+ * Determina a estratégia com base nos dados REAIS do dossiê da API.
+ * Usa comparison.att, comparison.def, forma recente e médias de gols.
+ */
+function determineStrategy(dossier: PreMatchDossier): {
+  strategy: PreLiveMatch['strategy'];
+  suggestion: string;
+  potentialScore: number;
+} {
+  const attDiff = Math.abs(dossier.offensiveStrengthHome - dossier.offensiveStrengthAway);
+  const totalGoalsAvg = dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway;
+  const motivationDiff = Math.abs(dossier.motivationHome - dossier.motivationAway);
+  const maxMotivation = Math.max(dossier.motivationHome, dossier.motivationAway);
 
-  const refereeNames = ['Anderson Daronco', 'Wilton Pereira Sampaio', 'Raphael Claus', 'Dario Herrera', 'Wilmar Roldán'];
-  
-  const absencesList = [
-    ['Neymar (Principal Atacante)', 'Marquinhos (Zagueiro)'],
-    ['Alisson (Goleiro)', 'Casemiro (Volante)'],
-    ['Vinicius Jr (Atacante)', 'Eder Militao (Zagueiro)'],
-    ['Suarez (Atacante)', 'Arrascaeta (Meia)'],
-    []
-  ];
+  // Calcula potentialScore com base em dados reais
+  // Usa a soma das probabilidades máximas como indicador de confiança
+  const predictionConfidence = maxMotivation; // win% da API
+  const offensiveTotal = dossier.offensiveStrengthHome + dossier.offensiveStrengthAway;
+  const potentialScore = Math.min(99, Math.max(50, Math.round(
+    predictionConfidence * 0.5 + (offensiveTotal / 2) * 0.3 + totalGoalsAvg * 5
+  )));
+
+  // Estratégia baseada em dados reais
+  if (totalGoalsAvg >= 2.5) {
+    return {
+      strategy: 'Over Gols HT',
+      suggestion: `Média de gols combinada: ${totalGoalsAvg.toFixed(1)} — tendência de jogo aberto.`,
+      potentialScore
+    };
+  }
+
+  if (motivationDiff >= 20 && maxMotivation >= 50) {
+    const favorito = dossier.motivationHome > dossier.motivationAway ? 'mandante' : 'visitante';
+    return {
+      strategy: 'Back Favorito',
+      suggestion: `Probabilidade API: ${dossier.motivationHome}% x ${dossier.motivationAway}% — ${favorito} favorito.`,
+      potentialScore
+    };
+  }
+
+  if (attDiff >= 15) {
+    return {
+      strategy: 'Cantos Limite',
+      suggestion: `Força ofensiva: ${dossier.offensiveStrengthHome}% x ${dossier.offensiveStrengthAway}% — desequilíbrio pode gerar escanteios.`,
+      potentialScore
+    };
+  }
 
   return {
-    fixtureId,
-    motivationHome,
-    motivationAway,
-    offensiveStrengthHome,
-    offensiveStrengthAway,
-    avgGoalsScoredHome,
-    avgGoalsConcededHome,
-    avgGoalsScoredAway,
-    avgGoalsConcededAway,
-    avgCornersHome,
-    avgCornersAway,
-    avgPossessionHome,
-    avgPossessionAway,
-    tacticalStyleHome: tacticalStyles[seed % 5],
-    tacticalStyleAway: tacticalStyles[(seed + 2) % 5],
-    tempoHome: seed % 2 === 0 ? 'Ritmo acelerado nas intermediárias' : 'Cadência de passes longos',
-    tempoAway: seed % 3 === 0 ? 'Construção vertical ultraveloz' : 'Posse territorial paciente',
-    aggressivenessHome: seed % 2 === 0 ? 'Alta (Média 2.5 cartões)' : 'Moderada (Média 1.8 cartões)',
-    aggressivenessAway: seed % 3 === 0 ? 'Muito Alta (Média 2.8 cartões)' : 'Baixa (Média 1.4 cartões)',
-    formationHome: seed % 2 === 0 ? '4-3-3 Ofensivo' : '4-4-2 Duas Linhas',
-    formationAway: seed % 3 === 0 ? '4-2-3-1 Dinâmico' : '3-5-2 Defensivo',
-    weather: weatherOptions[seed % 5],
-    refereeName: refereeNames[seed % 5],
-    refereeCardRate: Number((3.5 + (seed * 0.4)).toFixed(1)),
-    fatigueHome: 10 + (seed * 7) % 50,
-    fatigueAway: 8 + (seed * 8) % 50,
-    rotationHome: seed % 3 === 0 ? 'Time principal com 2 alterações de poupança' : 'Força Máxima Titular',
-    rotationAway: seed % 2 === 0 ? 'Elenco principal 100% à disposição' : 'Time alternativo rotacionado',
-    standingsHome: `${2 + (seed % 6)}° Lugar na tabela da liga`,
-    standingsAway: `${3 + ((seed + 2) % 7)}° Lugar na tabela da liga`,
-    leagueProfile: 'Liga equilibrada com alto aproveitamento de gols no segundo tempo.',
-    absencesHome: absencesList[seed % 5],
-    absencesAway: absencesList[(seed + 1) % 5]
+    strategy: 'Rigor de Cartões',
+    suggestion: `Jogo equilibrado (${dossier.motivationHome}% x ${dossier.motivationAway}%) — possível disputa intensa.`,
+    potentialScore
   };
 }
 
-// High-Fidelity Pre-Live Matches Database
-const PRE_LIVE_EXAMPLES: PreLiveMatch[] = [
-  {
-    id: 9001,
-    homeTeam: { name: 'Real Madrid', logo: 'https://media.api-sports.io/football/teams/541.png' },
-    awayTeam: { name: 'Barcelona', logo: 'https://media.api-sports.io/football/teams/529.png' },
-    leagueName: 'La Liga - Espanha',
-    kickoffTime: 'Hoje às 21:00',
-    potentialScore: 92,
-    strategy: 'Over Gols HT',
-    suggestion: 'Entrada recomendada: Over 1.5 Gols no Primeiro Tempo (HT).',
-    dossier: {
-      fixtureId: 9001,
-      motivationHome: 95,
-      motivationAway: 90,
-      offensiveStrengthHome: 88,
-      offensiveStrengthAway: 84,
-      avgGoalsScoredHome: 2.4,
-      avgGoalsConcededHome: 0.8,
-      avgGoalsScoredAway: 2.1,
-      avgGoalsConcededAway: 1.2,
-      avgCornersHome: 6.2,
-      avgCornersAway: 5.4,
-      avgPossessionHome: 58,
-      avgPossessionAway: 56,
-      tacticalStyleHome: 'Ataque Posicional Rápido / Transição Agressiva',
-      tacticalStyleAway: 'Posse de Bola / Pressão Alta na Saída de Bola',
-      tempoHome: 'Acelera pelas pontas com Vinícius Júnior',
-      tempoAway: 'Construção paciente pelo meio com De Jong',
-      aggressivenessHome: 'Moderada (Média: 1.8 cartões)',
-      aggressivenessAway: 'Alta em transições defensivas (2.3 cartões)',
-      formationHome: '4-3-3 Ofensivo',
-      formationAway: '4-2-3-1 Dinâmico',
-      weather: 'Céu Limpo, 18°C (Condição perfeita para velocidade)',
-      refereeName: 'Gil Manzano',
-      refereeCardRate: 5.4,
-      fatigueHome: 15,
-      fatigueAway: 30,
-      rotationHome: 'Força Máxima. Sem poupar peças.',
-      rotationAway: 'Elenco principal com leve desgaste físico da Champions.',
-      standingsHome: '1° Lugar (78 pts - disputando título)',
-      standingsAway: '2° Lugar (73 pts - precisa vencer para encostar)',
-      leagueProfile: 'Liga técnica de excelente aproveitamento ofensivo em clássicos.',
-      absencesHome: ['Courtois (Goleiro Principal)'],
-      absencesAway: ['Gavi (Meio-campo)']
-    }
-  },
-  {
-    id: 9002,
-    homeTeam: { name: 'Manchester City', logo: 'https://media.api-sports.io/football/teams/50.png' },
-    awayTeam: { name: 'Liverpool', logo: 'https://media.api-sports.io/football/teams/40.png' },
-    leagueName: 'Premier League - Inglaterra',
-    kickoffTime: 'Amanhã às 12:30',
-    potentialScore: 96,
-    strategy: 'Cantos Limite',
-    suggestion: 'Entrada sugerida: Over 9.5 Escanteios no jogo.',
-    dossier: {
-      fixtureId: 9002,
-      motivationHome: 98,
-      motivationAway: 98,
-      offensiveStrengthHome: 94,
-      offensiveStrengthAway: 92,
-      avgGoalsScoredHome: 2.8,
-      avgGoalsConcededHome: 0.9,
-      avgGoalsScoredAway: 2.5,
-      avgGoalsConcededAway: 1.1,
-      avgCornersHome: 7.8,
-      avgCornersAway: 6.9,
-      avgPossessionHome: 63,
-      avgPossessionAway: 57,
-      tacticalStyleHome: 'Controle territorial Absoluto / Amplitude total nas pontas',
-      tacticalStyleAway: 'Contra-ataque ultraveloz / Gegenpressing constante',
-      tempoHome: 'Ritmo muito alto com rotações de passes rápidos',
-      tempoAway: 'Verticalidade imediata com transições rápidas',
-      aggressivenessHome: 'Baixa (Pressiona sem fazer muitas faltas)',
-      aggressivenessAway: 'Alta (Abafamento constante no campo ofensivo)',
-      formationHome: '3-2-4-1 Assimétrico',
-      formationAway: '4-3-3 Vertical',
-      weather: 'Nublado com leve garoa inglesa (Grama molhada e rápida)',
-      refereeName: 'Anthony Taylor',
-      refereeCardRate: 4.2,
-      fatigueHome: 10,
-      fatigueAway: 12,
-      rotationHome: 'Retorno de Kevin De Bruyne no time principal.',
-      rotationAway: 'Time principal 100% descansado pós-rodada de descanso.',
-      standingsHome: '2° Lugar (74 pts - caçando o líder)',
-      standingsAway: '3° Lugar (73 pts - briga direta pela taça)',
-      leagueProfile: 'Premier League: Altíssima média de cantos (10.4 por partida).',
-      absencesHome: ['Ederson (Dúvida - Ombros)'],
-      absencesAway: ['Matip (Zagueiro Reserva)']
-    }
-  },
-  {
-    id: 9003,
-    homeTeam: { name: 'Bayern Munich', logo: 'https://media.api-sports.io/football/teams/157.png' },
-    awayTeam: { name: 'Dortmund', logo: 'https://media.api-sports.io/football/teams/165.png' },
-    leagueName: 'Bundesliga - Alemanha',
-    kickoffTime: 'Hoje às 18:30',
-    potentialScore: 88,
-    strategy: 'Back Favorito',
-    suggestion: 'Entrada recomendada: Back Bayern Munich no primeiro tempo (HT) ou Back no Live.',
-    dossier: {
-      fixtureId: 9003,
-      motivationHome: 90,
-      motivationAway: 75,
-      offensiveStrengthHome: 89,
-      offensiveStrengthAway: 78,
-      avgGoalsScoredHome: 3.1,
-      avgGoalsConcededHome: 1.3,
-      avgGoalsScoredAway: 1.9,
-      avgGoalsConcededAway: 1.4,
-      avgCornersHome: 6.8,
-      avgCornersAway: 4.8,
-      avgPossessionHome: 61,
-      avgPossessionAway: 52,
-      tacticalStyleHome: 'Sobreposição constante nas laterais / Pressionador Central',
-      tacticalStyleAway: 'Bloqueio Médio / Lançamento longo para pivôs',
-      tempoHome: 'Massivo e contínuo no campo adversário',
-      tempoAway: 'Transição lenta pelas pontas buscando cruzamentos',
-      aggressivenessHome: 'Moderada (1.9 cartões/jogo)',
-      aggressivenessAway: 'Alta (Precisa apelar para faltas táticas)',
-      formationHome: '4-2-3-1 Extremamente Ofensivo',
-      formationAway: '4-1-4-1 Defensivo',
-      weather: 'Frio, 8°C. Gramado em excelentes condições.',
-      refereeName: 'Felix Zwayer',
-      refereeCardRate: 4.8,
-      fatigueHome: 20,
-      fatigueAway: 45,
-      rotationHome: 'Harry Kane e Musiala titulares absolutos.',
-      rotationAway: 'Elenco rotacionado devido a cansaço físico na Copa.',
-      standingsHome: '1° Lugar (67 pts - isolado)',
-      standingsAway: '5° Lugar (53 pts - desesperado por vaga na Champions)',
-      leagueProfile: 'Bundesliga: Média de gols mais alta da Europa (3.2 gols/jogo).',
-      absencesHome: ['Coman (Ponta Esquerdo)'],
-      absencesAway: ['Hummels (Pilar Defensivo)', 'Sabitzer (Dúvida - Tornozelo)']
-    }
-  },
-  {
-    id: 9004,
-    homeTeam: { name: 'Atlético de Madrid', logo: 'https://media.api-sports.io/football/teams/530.png' },
-    awayTeam: { name: 'Athletic Bilbao', logo: 'https://media.api-sports.io/football/teams/531.png' },
-    leagueName: 'La Liga - Espanha',
-    kickoffTime: 'Amanhã às 16:00',
-    potentialScore: 84,
-    strategy: 'Rigor de Cartões',
-    suggestion: 'Entrada sugerida: Over 5.5 Cartões no jogo (Mercado de Cartões).',
-    dossier: {
-      fixtureId: 9004,
-      motivationHome: 88,
-      motivationAway: 85,
-      offensiveStrengthHome: 76,
-      offensiveStrengthAway: 72,
-      avgGoalsScoredHome: 1.8,
-      avgGoalsConcededHome: 0.9,
-      avgGoalsScoredAway: 1.5,
-      avgGoalsConcededAway: 1.1,
-      avgCornersHome: 5.1,
-      avgCornersAway: 4.9,
-      avgPossessionHome: 50,
-      avgPossessionAway: 48,
-      tacticalStyleHome: 'Defesa em bloco baixo / Transições ultrarápidas / Faltas táticas',
-      tacticalStyleAway: 'Rígido defensivamente / Pressão em blocos médios',
-      tempoHome: 'Lento cadenciado / Acelera na intermediária',
-      tempoAway: 'Físico, buscando segundas bolas nas pontas',
-      aggressivenessHome: 'Extrema (Média de 3.2 cartões por partida)',
-      aggressivenessAway: 'Muito Alta (Média de 2.9 cartões por partida)',
-      formationHome: '5-3-2 Clássico de Simeone',
-      formationAway: '4-4-2 Rígido',
-      weather: 'Agradável, 22°C (Vento ameno)',
-      refereeName: 'Mateu Lahoz (Especialista em Cartões)',
-      refereeCardRate: 6.8,
-      fatigueHome: 25,
-      fatigueAway: 20,
-      rotationHome: 'Antoine Griezmann lidera o comando de ataque.',
-      rotationAway: 'Poupa apenas o lateral esquerdo suspenso.',
-      standingsHome: '4° Lugar (58 pts - garantindo vaga Champions)',
-      standingsAway: '6° Lugar (54 pts - concorrente direto da vaga)',
-      leagueProfile: 'Clássico tenso com longo histórico de cartões vermelhos e confusões.',
-      absencesHome: ['Memphis Depay (Atacante Reserva)'],
-      absencesAway: ['Yeray Álvarez (Zagueiro)']
-    }
+/**
+ * Utilitário para exibir um valor do dossiê.
+ * Retorna "—" para valores vazios, 0, ou "Sem dados da API".
+ */
+function displayValue(value: string | number, suffix?: string): string {
+  if (value === '' || value === 'Sem dados da API' || value === 0 || value === '0') {
+    return '—';
   }
-];
+  return suffix ? `${value}${suffix}` : String(value);
+}
+
+/** Verifica se um campo do dossiê tem dados reais */
+function hasData(value: string | number): boolean {
+  return value !== '' && value !== 'Sem dados da API' && value !== 0 && value !== '0';
+}
 
 export default function PreLive() {
-  const [matches, setMatches] = useState<PreLiveMatch[]>(PRE_LIVE_EXAMPLES);
+  const [matches, setMatches] = useState<PreLiveMatch[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<PreLiveMatch | null>(null);
-  const [minPotential, setMinPotential] = useState(80);
+  const [minPotential, setMinPotential] = useState(50);
   const [selectedStrategy, setSelectedStrategy] = useState<string>('Todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [dataSource, setDataSource] = useState<'real' | 'examples'>('examples');
+  const [loadingDossiers, setLoadingDossiers] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0 });
+  const [dataSource, setDataSource] = useState<'real' | 'empty'>('empty');
   
   // Custom Date Selection: today or tomorrow
   const [selectedDate, setSelectedDate] = useState<'today' | 'tomorrow'>('today');
@@ -302,9 +109,14 @@ export default function PreLive() {
   const [apiKeyInput, setApiKeyInput] = useState(localStorage.getItem('api_sports_key') || '');
   const [showKeyConfig, setShowKeyConfig] = useState(false);
 
+  // Helper para delay entre chamadas (rate limiting)
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
   // Load upcoming real games based on selected date
-  const loadRealGames = async () => {
+  const loadRealGames = useCallback(async () => {
     setIsLoading(true);
+    setLoadingDossiers(false);
+    setLoadingProgress({ current: 0, total: 0 });
     try {
       const getLocalDateString = (d: Date) => {
         const year = d.getFullYear();
@@ -318,51 +130,98 @@ export default function PreLive() {
 
       const res = await apiSports.getUpcomingFixtures(targetStr);
       if (res.fixtures && res.fixtures.length > 0 && !res.isMock) {
-        // Map real fixtures into PreLiveMatches
-        const mapped: PreLiveMatch[] = res.fixtures.map((f, index) => {
-          const seed = (f.id + index) % 4;
-          const strategies: ('Cantos Limite' | 'Back Favorito' | 'Over Gols HT' | 'Rigor de Cartões')[] = [
-            'Cantos Limite', 'Back Favorito', 'Over Gols HT', 'Rigor de Cartões'
-          ];
-          const suggestions = [
-            'Entrada sugerida: Over 9.5 Escanteios no jogo.',
-            'Entrada recomendada: Back no favorito durante o Live.',
-            'Entrada sugerida: Over 1.5 Gols no Primeiro Tempo (HT).',
-            'Entrada recomendada: Over 5.5 Cartões no jogo.'
-          ];
-          const potentialScore = 75 + (f.id % 23);
+        // Fase 1: Montar partidas com dossiê vazio (exibir imediatamente)
+        const emptyDossier: PreMatchDossier = {
+          fixtureId: 0,
+          offensiveStrengthHome: 0, offensiveStrengthAway: 0,
+          avgGoalsScoredHome: 0, avgGoalsConcededHome: 0,
+          avgGoalsScoredAway: 0, avgGoalsConcededAway: 0,
+          avgCornersHome: 0, avgCornersAway: 0,
+          avgPossessionHome: 0, avgPossessionAway: 0,
+          tacticalStyleHome: '', tacticalStyleAway: '',
+          tempoHome: '', tempoAway: '',
+          aggressivenessHome: '', aggressivenessAway: '',
+          formationHome: 'Sem dados da API', formationAway: 'Sem dados da API',
+          weather: 'Sem dados da API', refereeName: 'Sem dados da API', refereeCardRate: 0,
+          fatigueHome: 0, fatigueAway: 0,
+          rotationHome: 'Sem dados da API', rotationAway: 'Sem dados da API',
+          motivationHome: 0, motivationAway: 0,
+          standingsHome: 'Sem dados da API', standingsAway: 'Sem dados da API',
+          formHome: [], formAway: [],
+          leagueProfile: '', absencesHome: [], absencesAway: [],
+          hasPredictions: false
+        };
 
-          return {
-            id: f.id,
-            homeTeam: f.homeTeam,
-            awayTeam: f.awayTeam,
-            leagueName: f.leagueName || 'Liga Internacional',
-            kickoffTime: f.kickoffTime || 'Hoje',
-            potentialScore,
-            strategy: strategies[seed],
-            suggestion: suggestions[seed],
-            dossier: generateDynamicDossier(f.id, f.homeTeam.name, f.awayTeam.name)
-          };
-        });
-        setMatches(mapped);
+        const initialMatches: PreLiveMatch[] = res.fixtures.map((f) => ({
+          id: f.id,
+          homeTeam: f.homeTeam,
+          awayTeam: f.awayTeam,
+          leagueName: f.leagueName || 'Liga Internacional',
+          kickoffTime: f.kickoffTime || 'Hoje',
+          potentialScore: 0,
+          strategy: 'Back Favorito' as const,
+          suggestion: 'Carregando dossiê da API...',
+          dossier: { ...emptyDossier, fixtureId: f.id },
+          dossierLoading: true
+        }));
+
+        setMatches(initialMatches);
         setDataSource('real');
+        setIsLoading(false);
+
+        // Fase 2: Buscar dossiês reais em batch com rate limiting (300ms entre cada)
+        setLoadingDossiers(true);
+        setLoadingProgress({ current: 0, total: res.fixtures.length });
+
+        for (let i = 0; i < res.fixtures.length; i++) {
+          const f = res.fixtures[i];
+          try {
+            const { dossier } = await apiSports.getPreMatchDossier(f.id);
+            const { strategy, suggestion, potentialScore } = determineStrategy(dossier);
+
+            setMatches(prev => prev.map(m => 
+              m.id === f.id 
+                ? { ...m, dossier, strategy, suggestion, potentialScore, dossierLoading: false }
+                : m
+            ));
+            
+            // Atualizar selectedMatch se for o mesmo
+            setSelectedMatch(prev => 
+              prev?.id === f.id 
+                ? { ...prev, dossier, strategy, suggestion, potentialScore, dossierLoading: false }
+                : prev
+            );
+          } catch (err) {
+            console.error(`Erro ao buscar dossiê para fixture ${f.id}:`, err);
+            setMatches(prev => prev.map(m => 
+              m.id === f.id ? { ...m, dossierLoading: false } : m
+            ));
+          }
+          setLoadingProgress({ current: i + 1, total: res.fixtures.length });
+          
+          // Rate limit: 300ms entre chamadas para não exceder limites da API
+          if (i < res.fixtures.length - 1) {
+            await delay(300);
+          }
+        }
+        setLoadingDossiers(false);
       } else {
-        // Quota reached or simulation mode -> use high fidelity examples
-        setMatches(PRE_LIVE_EXAMPLES);
-        setDataSource('examples');
+        // Sem jogos disponíveis
+        setMatches([]);
+        setDataSource('empty');
       }
     } catch (e) {
-      console.error("Error fetching pre-live matches, using examples:", e);
-      setMatches(PRE_LIVE_EXAMPLES);
-      setDataSource('examples');
+      console.error("Erro ao buscar jogos pré-live:", e);
+      setMatches([]);
+      setDataSource('empty');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedDate]);
 
   useEffect(() => {
     loadRealGames();
-  }, [selectedDate]);
+  }, [loadRealGames]);
 
   // Filter logic
   const filteredMatches = useMemo(() => {
@@ -391,22 +250,26 @@ export default function PreLive() {
               Varredura Pré-Live <Calendar size={24} color="var(--accent-primary)" />
             </h1>
             <p style={{ color: 'var(--text-muted)' }}>
-              Análise estatística preditiva de próximos blockbusters baseada nos 16 pontos vitais.
+              Análise estatística preditiva com dados reais da API-Sports — sem dados fabricados.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {isLoading && (
+            {(isLoading || loadingDossiers) && (
               <span className="badge" style={{ background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)' }}>
-                <RefreshCw size={12} className="pulse-indicator" style={{ animation: 'spin 2s linear infinite' }} /> Carregando...
+                <RefreshCw size={12} className="pulse-indicator" style={{ animation: 'spin 2s linear infinite' }} />
+                {loadingDossiers 
+                  ? `Dossiês: ${loadingProgress.current}/${loadingProgress.total}`
+                  : 'Carregando jogos...'
+                }
               </span>
             )}
             {dataSource === 'real' ? (
               <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800 }}>
-                <CheckCircle size={12} /> Real-Time: API-Sports Ativa
+                <CheckCircle size={12} /> 📡 API-Sports Real-Time
               </span>
             ) : (
-              <span className="badge badge-yellow" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800 }} title="Sua cota diária de requisições esgotou ou o sistema está em simulação. Carregando clássicos para teste de alto nível.">
-                <AlertCircle size={12} /> Sandbox: Exemplos de Clássicos
+              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+                <AlertCircle size={12} /> Aguardando dados...
               </span>
             )}
           </div>
@@ -417,8 +280,8 @@ export default function PreLive() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowKeyConfig(!showKeyConfig)}>
             <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <ShieldAlert size={16} color="var(--status-yellow)" />
-              {dataSource === 'examples' 
-                ? 'Sua cota diária esgotou ou nenhuma chave válida está configurada. Clique aqui para gerenciar ou atualizar sua chave API-Sports.' 
+              {dataSource === 'empty' 
+                ? 'Nenhum jogo encontrado ou cota esgotada. Clique para gerenciar sua chave API-Sports.' 
                 : 'Conexão ativa! Clique aqui para gerenciar ou atualizar sua chave API-Sports.'
               }
             </span>
@@ -540,7 +403,7 @@ export default function PreLive() {
             <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Potencial Mínimo:</span>
             <input 
               type="range" 
-              min="50" 
+              min="0" 
               max="95" 
               value={minPotential} 
               onChange={(e) => setMinPotential(Number(e.target.value))}
@@ -552,10 +415,17 @@ export default function PreLive() {
         </div>
 
         {/* Match Cards list */}
-        {filteredMatches.length === 0 ? (
+        {isLoading ? (
+          <div style={{ textAlign: 'center', padding: '60px 0', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12 }}>
+            <RefreshCw size={32} style={{ marginBottom: 12, color: 'var(--accent-primary)', animation: 'spin 2s linear infinite' }} />
+            <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Buscando jogos reais na API-Sports...</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: 4 }}>Sem dados fabricados — apenas jogos reais</p>
+          </div>
+        ) : filteredMatches.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12 }}>
             <AlertCircle size={32} style={{ marginBottom: 12, color: 'var(--text-muted)' }} />
             <p style={{ color: 'var(--text-secondary)' }}>Nenhum jogo encontrado com os filtros atuais.</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: 4 }}>Tente ajustar os filtros ou verificar outra data.</p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -569,13 +439,21 @@ export default function PreLive() {
                   style={{ 
                     padding: 20, 
                     cursor: 'pointer', 
-                    borderLeft: `4px solid ${match.potentialScore >= 90 ? 'var(--status-green)' : 'var(--accent-primary)'}`,
-                    transition: 'all 0.2s ease-out'
+                    borderLeft: `4px solid ${match.dossierLoading ? 'var(--text-muted)' : match.potentialScore >= 80 ? 'var(--status-green)' : 'var(--accent-primary)'}`,
+                    transition: 'all 0.2s ease-out',
+                    opacity: match.dossierLoading ? 0.7 : 1
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>{match.leagueName}</span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{match.kickoffTime}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {match.dossier.hasPredictions && (
+                        <span style={{ fontSize: '0.6rem', color: 'var(--status-green)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3 }}>
+                          <Radio size={8} /> API
+                        </span>
+                      )}
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{match.kickoffTime}</span>
+                    </div>
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -597,7 +475,11 @@ export default function PreLive() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ textAlign: 'right' }}>
                         <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Potencial Pré-Live</span>
-                        <span style={{ fontSize: '1.2rem', fontWeight: 900, color: match.potentialScore >= 90 ? 'var(--status-green)' : 'var(--accent-primary)' }}>{match.potentialScore}%</span>
+                        {match.dossierLoading ? (
+                          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>...</span>
+                        ) : (
+                          <span style={{ fontSize: '1.2rem', fontWeight: 900, color: match.potentialScore >= 80 ? 'var(--status-green)' : 'var(--accent-primary)' }}>{match.potentialScore}%</span>
+                        )}
                       </div>
                       <ChevronRight size={20} color="var(--text-muted)" />
                     </div>
@@ -615,11 +497,18 @@ export default function PreLive() {
                     justifyContent: 'space-between',
                     fontSize: '0.825rem'
                   }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-primary)' }}>
-                      <TrendingUp size={14} color="var(--accent-primary)" />
-                      <strong>Gatilho: {match.strategy}</strong> — {match.suggestion}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', fontWeight: 700 }}>VER DOSSIÊ COMPLETO →</span>
+                    {match.dossierLoading ? (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)' }}>
+                        <RefreshCw size={14} style={{ animation: 'spin 2s linear infinite' }} />
+                        Carregando análise da API...
+                      </span>
+                    ) : (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-primary)' }}>
+                        <TrendingUp size={14} color="var(--accent-primary)" />
+                        <strong>Gatilho: {match.strategy}</strong> — {match.suggestion}
+                      </span>
+                    )}
+                    <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', fontWeight: 700 }}>VER DOSSIÊ →</span>
                   </div>
 
                 </div>
@@ -637,7 +526,7 @@ export default function PreLive() {
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'var(--text-muted)', textAlign: 'center', padding: '0 20px' }}>
             <Award size={48} style={{ marginBottom: 16, opacity: 0.3 }} />
             <h3>Nenhum Jogo Selecionado</h3>
-            <p style={{ fontSize: '0.875rem', marginTop: 8 }}>Selecione uma oportunidade na lista ao lado para destrinchar a análise dos 16 pontos vitais.</p>
+            <p style={{ fontSize: '0.875rem', marginTop: 8 }}>Selecione uma oportunidade na lista ao lado para ver a análise dos 16 pontos vitais com dados reais da API.</p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20, paddingBottom: 24 }}>
@@ -647,6 +536,11 @@ export default function PreLive() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <span className="badge badge-green" style={{ textTransform: 'uppercase', fontSize: '0.65rem' }}>{selectedMatch.strategy}</span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{selectedMatch.leagueName}</span>
+                {selectedMatch.dossier.hasPredictions && (
+                  <span style={{ fontSize: '0.6rem', color: 'var(--status-green)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(16, 185, 129, 0.1)', padding: '2px 6px', borderRadius: 4 }}>
+                    📡 API-Sports
+                  </span>
+                )}
               </div>
               <h2 style={{ fontSize: '1.25rem', fontWeight: 900, marginBottom: 4 }}>
                 {selectedMatch.homeTeam.name} vs {selectedMatch.awayTeam.name}
@@ -654,114 +548,225 @@ export default function PreLive() {
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{selectedMatch.kickoffTime}</span>
             </div>
 
-            {/* AI Potential Score Circle Display */}
-            <div style={{ 
-              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%)', 
-              padding: 20, 
-              borderRadius: 12, 
-              border: '1px solid rgba(59, 130, 246, 0.15)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}>
-              <div>
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Índice de Potencial IA</span>
-                <h3 style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--accent-primary)', lineHeight: 1 }}>{selectedMatch.potentialScore}%</h3>
-              </div>
-              <div style={{ width: 50, height: 50, borderRadius: 25, background: 'var(--bg-elevated)', display: 'flex', justifyContent: 'center', alignContent: 'center', alignItems: 'center', border: '2px solid var(--accent-primary)' }}>
-                <Award size={24} color="var(--accent-primary)" />
-              </div>
-            </div>
-
-            {/* 16 VITAL POINTS ANALYTICS DOSSIER */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              
-              {/* Termômetro de Motivacao / Necessidade do Resultado */}
+            {/* Loading state for dossier */}
+            {selectedMatch.dossierLoading ? (
               <div style={{ 
                 background: 'var(--bg-elevated)', 
-                padding: 16, 
-                borderRadius: 8, 
+                padding: 40, 
+                borderRadius: 12, 
                 border: '1px solid var(--border-color)',
+                textAlign: 'center'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-                  <span>Casa: {selectedMatch.dossier.motivationHome}%</span>
-                  <span style={{ color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 4 }}><Info size={12} /> Necessidade do Resultado</span>
-                  <span>Fora: {selectedMatch.dossier.motivationAway}%</span>
-                </div>
-                <div style={{ height: 10, background: 'rgba(0,0,0,0.06)', borderRadius: 5, display: 'flex', overflow: 'hidden', marginBottom: 6 }}>
-                  <div style={{ width: `${(selectedMatch.dossier.motivationHome / (selectedMatch.dossier.motivationHome + selectedMatch.dossier.motivationAway)) * 100}%`, background: 'var(--accent-primary)' }}></div>
-                  <div style={{ width: `${(selectedMatch.dossier.motivationAway / (selectedMatch.dossier.motivationHome + selectedMatch.dossier.motivationAway)) * 100}%`, background: 'var(--status-yellow)' }}></div>
-                </div>
+                <RefreshCw size={28} style={{ marginBottom: 12, color: 'var(--accent-primary)', animation: 'spin 2s linear infinite' }} />
+                <p style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Carregando dossiê da API...</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: 4 }}>Buscando predições reais</p>
               </div>
-
-              {/* 1. PODER OFENSIVO & TENDÊNCIAS */}
-              <div>
-                <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
-                  <BarChart2 size={14} /> 📊 1. Poder Ofensivo & Gols
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <DossierItem label="Força Ofensiva (Home/Away)" value={`${selectedMatch.dossier.offensiveStrengthHome}% / ${selectedMatch.dossier.offensiveStrengthAway}%`} />
-                  <DossierItem label="Média de Gols (Marcados/Sofridos)" value={`C: ${selectedMatch.dossier.avgGoalsScoredHome} / ${selectedMatch.dossier.avgGoalsConcededHome} | F: ${selectedMatch.dossier.avgGoalsScoredAway} / ${selectedMatch.dossier.avgGoalsConcededAway}`} />
-                  <DossierItem label="Média de Escanteios" value={`Casa: ${selectedMatch.dossier.avgCornersHome} | Fora: ${selectedMatch.dossier.avgCornersAway}`} />
-                  <DossierItem label="Posse de Bola Média" value={`Casa: ${selectedMatch.dossier.avgPossessionHome}% | Fora: ${selectedMatch.dossier.avgPossessionAway}%`} />
-                </div>
-              </div>
-
-              {/* 2. ESTILO TÁTICO & RITMO */}
-              <div>
-                <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
-                  <Compass size={14} /> 🧠 2. Estilo Tático & Ritmo
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <DossierItem label="Estilo Tático (Home/Away)" value={`C: ${selectedMatch.dossier.tacticalStyleHome} | F: ${selectedMatch.dossier.tacticalStyleAway}`} />
-                  <DossierItem label="Ritmo Médio (Tempo)" value={`C: ${selectedMatch.dossier.tempoHome} | F: ${selectedMatch.dossier.tempoAway}`} />
-                  <DossierItem label="Agressividade" value={`Casa: ${selectedMatch.dossier.aggressivenessHome} | Fora: ${selectedMatch.dossier.aggressivenessAway}`} />
-                  <DossierItem label="Formação Inicial" value={`C: ${selectedMatch.dossier.formationHome} | F: ${selectedMatch.dossier.formationAway}`} />
-                </div>
-              </div>
-
-              {/* 3. AMBIENTE & CONDIÇÃO */}
-              <div>
-                <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
-                  <Thermometer size={14} /> 🌤️ 3. Ambiente & Condição Física
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <DossierItem label="Clima no Estádio" value={selectedMatch.dossier.weather} />
-                  <DossierItem label="Árbitro Escudo & Rigor" value={`${selectedMatch.dossier.refereeName} (Média: ${selectedMatch.dossier.refereeCardRate} cartões)`} />
-                  <DossierItem label="Desgaste / Fadiga (0-100)" value={`C: ${selectedMatch.dossier.fatigueHome}% (Desgaste) | F: ${selectedMatch.dossier.fatigueAway}% (Fresco)`} />
-                  <DossierItem label="Rotação de Elenco" value={`C: ${selectedMatch.dossier.rotationHome} | F: ${selectedMatch.dossier.rotationAway}`} />
-                </div>
-              </div>
-
-              {/* 4. CONTEXTO & ELENCO */}
-              <div>
-                <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
-                  <Shield size={14} /> 🏆 4. Contexto Competitivo & Elenco
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <DossierItem label="Tabela / Classificação" value={`C: ${selectedMatch.dossier.standingsHome} | F: ${selectedMatch.dossier.standingsAway}`} />
-                  <DossierItem label="Liga Perfil Estatístico" value={selectedMatch.dossier.leagueProfile} />
-                  
-                  {/* Desfalques Lists */}
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700, marginBottom: 4 }}>Desfalques Mandante</span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--status-red)', fontWeight: 600 }}>
-                        {selectedMatch.dossier.absencesHome.length > 0 ? selectedMatch.dossier.absencesHome.join(', ') : 'Nenhum desfalque crucial'}
-                      </span>
-                    </div>
-
-                    <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px solid var(--border-color)' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700, marginBottom: 4 }}>Desfalques Visitante</span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--status-red)', fontWeight: 600 }}>
-                        {selectedMatch.dossier.absencesAway.length > 0 ? selectedMatch.dossier.absencesAway.join(', ') : 'Nenhum desfalque crucial'}
-                      </span>
-                    </div>
+            ) : (
+              <>
+                {/* AI Potential Score Circle Display */}
+                <div style={{ 
+                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.05) 100%)', 
+                  padding: 20, 
+                  borderRadius: 12, 
+                  border: '1px solid rgba(59, 130, 246, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: 4 }}>Índice de Potencial (dados reais)</span>
+                    <h3 style={{ fontSize: '2rem', fontWeight: 950, color: 'var(--accent-primary)', lineHeight: 1 }}>{selectedMatch.potentialScore}%</h3>
+                  </div>
+                  <div style={{ width: 50, height: 50, borderRadius: 25, background: 'var(--bg-elevated)', display: 'flex', justifyContent: 'center', alignContent: 'center', alignItems: 'center', border: '2px solid var(--accent-primary)' }}>
+                    <Award size={24} color="var(--accent-primary)" />
                   </div>
                 </div>
-              </div>
 
-            </div>
+                {/* Predictions unavailable warning */}
+                {!selectedMatch.dossier.hasPredictions && (
+                  <div style={{ 
+                    background: 'rgba(245, 158, 11, 0.05)', 
+                    border: '1px solid rgba(245, 158, 11, 0.2)', 
+                    borderRadius: 8, 
+                    padding: '10px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: '0.8rem',
+                    color: 'var(--status-yellow)'
+                  }}>
+                    <AlertCircle size={16} />
+                    <span>Predições da API indisponíveis para esta partida. Os dados abaixo podem estar incompletos.</span>
+                  </div>
+                )}
+
+                {/* 16 VITAL POINTS ANALYTICS DOSSIER */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  
+                  {/* Termômetro de Motivação / Probabilidades da API */}
+                  {(selectedMatch.dossier.motivationHome > 0 || selectedMatch.dossier.motivationAway > 0) ? (
+                    <div style={{ 
+                      background: 'var(--bg-elevated)', 
+                      padding: 16, 
+                      borderRadius: 8, 
+                      border: '1px solid var(--border-color)',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+                        <span>Casa: {selectedMatch.dossier.motivationHome}%</span>
+                        <span style={{ color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 4 }}><Info size={12} /> Probabilidade de Vitória (API)</span>
+                        <span>Fora: {selectedMatch.dossier.motivationAway}%</span>
+                      </div>
+                      <div style={{ height: 10, background: 'rgba(0,0,0,0.06)', borderRadius: 5, display: 'flex', overflow: 'hidden', marginBottom: 6 }}>
+                        <div style={{ width: `${(selectedMatch.dossier.motivationHome / Math.max(1, selectedMatch.dossier.motivationHome + selectedMatch.dossier.motivationAway)) * 100}%`, background: 'var(--accent-primary)' }}></div>
+                        <div style={{ width: `${(selectedMatch.dossier.motivationAway / Math.max(1, selectedMatch.dossier.motivationHome + selectedMatch.dossier.motivationAway)) * 100}%`, background: 'var(--status-yellow)' }}></div>
+                      </div>
+                    </div>
+                  ) : (
+                    <DossierItemUnavailable label="Probabilidade de Vitória" />
+                  )}
+
+                  {/* 1. PODER OFENSIVO & TENDÊNCIAS */}
+                  <div>
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
+                      <BarChart2 size={14} /> 📊 1. Poder Ofensivo & Gols
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {(hasData(selectedMatch.dossier.offensiveStrengthHome) || hasData(selectedMatch.dossier.offensiveStrengthAway)) ? (
+                        <DossierItem label="Força Ofensiva (Home/Away)" value={`${displayValue(selectedMatch.dossier.offensiveStrengthHome, '%')} / ${displayValue(selectedMatch.dossier.offensiveStrengthAway, '%')}`} fromApi />
+                      ) : (
+                        <DossierItemUnavailable label="Força Ofensiva" />
+                      )}
+                      
+                      {(hasData(selectedMatch.dossier.avgGoalsScoredHome) || hasData(selectedMatch.dossier.avgGoalsScoredAway)) ? (
+                        <DossierItem label="Média de Gols (Marcados/Sofridos)" value={`C: ${displayValue(selectedMatch.dossier.avgGoalsScoredHome)} / ${displayValue(selectedMatch.dossier.avgGoalsConcededHome)} | F: ${displayValue(selectedMatch.dossier.avgGoalsScoredAway)} / ${displayValue(selectedMatch.dossier.avgGoalsConcededAway)}`} fromApi />
+                      ) : (
+                        <DossierItemUnavailable label="Média de Gols" />
+                      )}
+                      
+                      {/* Escanteios: API não fornece */}
+                      <DossierItemUnavailable label="Média de Escanteios" detail="API não fornece neste endpoint" />
+                      
+                      {(hasData(selectedMatch.dossier.avgPossessionHome) || hasData(selectedMatch.dossier.avgPossessionAway)) ? (
+                        <DossierItem label="Distribuição Poisson (Home/Away)" value={`Casa: ${displayValue(selectedMatch.dossier.avgPossessionHome, '%')} | Fora: ${displayValue(selectedMatch.dossier.avgPossessionAway, '%')}`} fromApi />
+                      ) : (
+                        <DossierItemUnavailable label="Distribuição Poisson" />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Forma Recente */}
+                  {((selectedMatch.dossier.formHome && selectedMatch.dossier.formHome.length > 0) || (selectedMatch.dossier.formAway && selectedMatch.dossier.formAway.length > 0)) && (
+                    <div>
+                      <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
+                        📈 Forma Recente (Últimos 5 Jogos)
+                      </h4>
+                      <div style={{ display: 'flex', gap: 12 }}>
+                        <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700, marginBottom: 6 }}>Mandante</span>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {(selectedMatch.dossier.formHome || []).map((r, i) => (
+                              <span key={i} style={{
+                                width: 24, height: 24, borderRadius: 4,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '0.7rem', fontWeight: 800,
+                                background: r === 'W' ? 'rgba(16, 185, 129, 0.2)' : r === 'L' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                                color: r === 'W' ? 'var(--status-green)' : r === 'L' ? 'var(--status-red)' : 'var(--status-yellow)'
+                              }}>{r}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700, marginBottom: 6 }}>Visitante</span>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {(selectedMatch.dossier.formAway || []).map((r, i) => (
+                              <span key={i} style={{
+                                width: 24, height: 24, borderRadius: 4,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '0.7rem', fontWeight: 800,
+                                background: r === 'W' ? 'rgba(16, 185, 129, 0.2)' : r === 'L' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                                color: r === 'W' ? 'var(--status-green)' : r === 'L' ? 'var(--status-red)' : 'var(--status-yellow)'
+                              }}>{r}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 2. ESTILO TÁTICO & RITMO */}
+                  <div>
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
+                      <Compass size={14} /> 🧠 2. Estilo Tático & Ritmo
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {hasData(selectedMatch.dossier.tacticalStyleHome) ? (
+                        <DossierItem label="Análise da API (Comentário)" value={selectedMatch.dossier.tacticalStyleHome} fromApi />
+                      ) : (
+                        <DossierItemUnavailable label="Análise Tática" detail="API não fornece análise detalhada" />
+                      )}
+                      
+                      {(hasData(selectedMatch.dossier.tempoHome) || hasData(selectedMatch.dossier.tempoAway)) ? (
+                        <DossierItem label="Probabilidades (Win%)" value={`C: ${displayValue(selectedMatch.dossier.tempoHome)} | F: ${displayValue(selectedMatch.dossier.tempoAway)}`} fromApi />
+                      ) : (
+                        <DossierItemUnavailable label="Probabilidades" />
+                      )}
+                      
+                      {/* Agressividade: API não fornece */}
+                      <DossierItemUnavailable label="Agressividade" detail="API não fornece neste endpoint" />
+                      
+                      {/* Formação: API não fornece */}
+                      <DossierItemUnavailable label="Formação Inicial" detail="API não fornece neste endpoint" />
+                    </div>
+                  </div>
+
+                  {/* 3. AMBIENTE & CONDIÇÃO */}
+                  <div>
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
+                      <Thermometer size={14} /> 🌤️ 3. Ambiente & Condição Física
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {/* Todos os campos desta seção NÃO são fornecidos pela API */}
+                      <DossierItemUnavailable label="Clima no Estádio" detail="API não fornece neste endpoint" />
+                      <DossierItemUnavailable label="Árbitro & Rigor" detail="API não fornece neste endpoint" />
+                      <DossierItemUnavailable label="Desgaste / Fadiga" detail="API não fornece neste endpoint" />
+                      <DossierItemUnavailable label="Rotação de Elenco" detail="API não fornece neste endpoint" />
+                    </div>
+                  </div>
+
+                  {/* 4. CONTEXTO & ELENCO */}
+                  <div>
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, borderBottom: '1px solid var(--border-color)', paddingBottom: 6 }}>
+                      <Shield size={14} /> 🏆 4. Contexto Competitivo & Elenco
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {/* Classificação: API não fornece neste endpoint */}
+                      <DossierItemUnavailable label="Tabela / Classificação" detail="API não fornece neste endpoint" />
+                      
+                      {/* Liga: API não fornece perfil */}
+                      <DossierItemUnavailable label="Liga Perfil Estatístico" detail="API não fornece neste endpoint" />
+                      
+                      {/* Desfalques */}
+                      <div style={{ display: 'flex', gap: 12 }}>
+                        <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700, marginBottom: 4 }}>Desfalques Mandante</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, fontStyle: 'italic' }}>
+                            API não fornece dados de lesões neste endpoint
+                          </span>
+                        </div>
+
+                        <div style={{ flex: 1, background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px solid var(--border-color)' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700, marginBottom: 4 }}>Desfalques Visitante</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, fontStyle: 'italic' }}>
+                            API não fornece dados de lesões neste endpoint
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </>
+            )}
 
           </div>
         )}
@@ -772,12 +777,36 @@ export default function PreLive() {
   );
 }
 
-// Small Subcomponent helper for dossier cards
-function DossierItem({ label, value }: { label: string; value: string }) {
+/** Componente para itens do dossiê com dados disponíveis */
+function DossierItem({ label, value, fromApi }: { label: string; value: string; fromApi?: boolean }) {
   return (
     <div style={{ background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px solid var(--border-color)' }}>
-      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>{label}</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{label}</span>
+        {fromApi && (
+          <span style={{ fontSize: '0.55rem', color: 'var(--status-green)', fontWeight: 700, background: 'rgba(16, 185, 129, 0.1)', padding: '1px 5px', borderRadius: 3 }}>
+            ✅ API
+          </span>
+        )}
+      </div>
       <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+}
+
+/** Componente para itens do dossiê SEM dados disponíveis — exibe estado elegante de indisponibilidade */
+function DossierItemUnavailable({ label, detail }: { label: string; detail?: string }) {
+  return (
+    <div style={{ background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px dashed var(--border-color)', opacity: 0.6 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{label}</span>
+        <span style={{ fontSize: '0.55rem', color: 'var(--text-muted)', fontWeight: 600, background: 'rgba(0,0,0,0.05)', padding: '1px 5px', borderRadius: 3 }}>
+          Indisponível
+        </span>
+      </div>
+      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+        {detail || '—'}
+      </span>
     </div>
   );
 }
