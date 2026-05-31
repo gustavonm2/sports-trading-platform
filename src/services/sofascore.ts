@@ -16,17 +16,21 @@ export interface Fixture {
 }
 
 export interface TeamStats {
-  attacks: number;
-  dangerousAttacks: number;
-  corners: number;
   shotsOnGoal: number;
   shotsOffGoal: number;
+  totalShots: number;
+  blockedShots: number;
+  shotsInsideBox: number;
+  corners: number;
+  fouls: number;
   possession: number;
   yellowCards: number;
   redCards: number;
+  goalkeeperSaves: number;
+  attacks: number;
+  dangerousAttacks: number;
   pressureIndex: number;
-  apm1: number;
-  apm2: number;
+  iim: number;
 }
 
 export interface MatchStats {
@@ -39,7 +43,7 @@ export interface MatchStats {
 const BASE_URL = '/api-sofascore/api/v1';
 
 // Calculate pressure index
-function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 'apm1' | 'apm2'>): number {
+function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 'iim'>): number {
   const shotFactor = stats.shotsOnGoal * 2.5 + stats.shotsOffGoal * 1.0;
   const cornerFactor = stats.corners * 1.5;
   const dangerRatio = stats.attacks > 0 ? (stats.dangerousAttacks / stats.attacks) : 0;
@@ -164,50 +168,55 @@ class SofascoreService {
           );
 
           const homeStats = {
-            attacks: attacks.home,
-            dangerousAttacks: dangerousAttacks.home,
-            corners: corners.home,
             shotsOnGoal: shotsOnGoal.home,
             shotsOffGoal: shotsOffGoal.home,
+            totalShots: 0,
+            blockedShots: 0,
+            shotsInsideBox: 0,
+            corners: corners.home,
+            fouls: 0,
             possession: possession.home || 50,
             yellowCards: yellowCards.home,
             redCards: redCards.home,
+            goalkeeperSaves: 0,
+            attacks: attacks.home,
+            dangerousAttacks: dangerousAttacks.home,
           };
 
           const awayStats = {
-            attacks: attacks.away,
-            dangerousAttacks: dangerousAttacks.away,
-            corners: corners.away,
             shotsOnGoal: shotsOnGoal.away,
             shotsOffGoal: shotsOffGoal.away,
+            totalShots: 0,
+            blockedShots: 0,
+            shotsInsideBox: 0,
+            corners: corners.away,
+            fouls: 0,
             possession: possession.away || 50,
             yellowCards: yellowCards.away,
             redCards: redCards.away,
+            goalkeeperSaves: 0,
+            attacks: attacks.away,
+            dangerousAttacks: dangerousAttacks.away,
           };
 
           const pHomeIndex = calculatePressureIndex(homeStats);
           const pAwayIndex = calculatePressureIndex(awayStats);
 
           const divisor = elapsed > 0 ? elapsed : 1;
-          const apm2Home = Number((homeStats.dangerousAttacks / divisor).toFixed(2));
-          const apm2Away = Number((awayStats.dangerousAttacks / divisor).toFixed(2));
-
-          const apm1Home = Number((apm2Home * (1 + pHomeIndex / 100)).toFixed(2));
-          const apm1Away = Number((apm2Away * (1 + pAwayIndex / 100)).toFixed(2));
+          const iimHome = Number((homeStats.dangerousAttacks / divisor).toFixed(2));
+          const iimAway = Number((awayStats.dangerousAttacks / divisor).toFixed(2));
 
           statsMap[event.id] = {
             fixtureId: event.id,
             home: {
               ...homeStats,
               pressureIndex: pHomeIndex,
-              apm1: apm1Home,
-              apm2: apm2Home
+              iim: iimHome
             },
             away: {
               ...awayStats,
               pressureIndex: pAwayIndex,
-              apm1: apm1Away,
-              apm2: apm2Away
+              iim: iimAway
             },
             hasTelemetry
           };

@@ -17,17 +17,24 @@ export interface Fixture {
 }
 
 export interface TeamStats {
-  attacks: number;
-  dangerousAttacks: number;
-  corners: number;
-  shotsOnGoal: number;
-  shotsOffGoal: number;
-  possession: number; // as percentage, e.g. 55
-  yellowCards: number;
-  redCards: number;
-  pressureIndex: number; // calculated mathematically
-  apm1: number; // dangerous attacks per minute in the last 10m
-  apm2: number; // dangerous attacks per minute overall
+  // ✅ Campos REAIS da API-Sports /fixtures/statistics
+  shotsOnGoal: number;       // Shots on Goal
+  shotsOffGoal: number;      // Shots off Goal
+  totalShots: number;        // Total Shots (NOVO)
+  blockedShots: number;      // Blocked Shots (NOVO)
+  shotsInsideBox: number;    // Shots insidebox (NOVO)
+  corners: number;           // Corner Kicks
+  fouls: number;             // Fouls (NOVO)
+  possession: number;        // Ball Possession (%)
+  yellowCards: number;       // Yellow Cards
+  redCards: number;           // Red Cards
+  goalkeeperSaves: number;   // Goalkeeper Saves (NOVO)
+  // ❌ Campos que a API NÃO fornece (mantidos para compatibilidade com Sportmonks)
+  attacks: number;           // Attacks — sempre 0 na API-Sports
+  dangerousAttacks: number;  // Dangerous Attacks — sempre 0 na API-Sports
+  // 📊 Campos CALCULADOS a partir dos dados reais
+  pressureIndex: number;     // Índice de pressão (0-100)
+  iim: number;               // IIM: Índice de Intensidade por Minuto (chutes+cantos/min)
 }
 
 export interface MatchStats {
@@ -93,7 +100,7 @@ export interface PreMatchDossier {
 }
 
 // Mathematically sound momentum/pressure formula
-export function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 'apm1' | 'apm2'>): number {
+export function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 'iim'>): number {
   const shotFactor = stats.shotsOnGoal * 2.5 + stats.shotsOffGoal * 1.0;
   const cornerFactor = stats.corners * 1.5;
   const dangerRatio = stats.attacks > 0 ? (stats.dangerousAttacks / stats.attacks) : 0;
@@ -524,56 +531,68 @@ class ApiSportsService {
       return Number(stat.value);
     };
 
-    const tempStats: Omit<TeamStats, 'pressureIndex' | 'apm1' | 'apm2'> = {
-      attacks: getVal("Attacks"),
-      dangerousAttacks: getVal("Dangerous Attacks"),
-      corners: getVal("Corner Kicks"),
-      shotsOnGoal: getVal("Shots on Goal"),
-      shotsOffGoal: getVal("Shots off Goal"),
-      possession: getVal("Ball Possession") || 50,
-      yellowCards: getVal("Yellow Cards"),
-      redCards: getVal("Red Cards"),
+    // ✅ TODOS os campos reais da API-Sports
+    const shotsOnGoal = getVal("Shots on Goal");
+    const shotsOffGoal = getVal("Shots off Goal");
+    const totalShots = getVal("Total Shots");
+    const blockedShots = getVal("Blocked Shots");
+    const shotsInsideBox = getVal("Shots insidebox");
+    const corners = getVal("Corner Kicks");
+    const fouls = getVal("Fouls");
+    const possession = getVal("Ball Possession") || 50;
+    const yellowCards = getVal("Yellow Cards");
+    const redCards = getVal("Red Cards");
+    const goalkeeperSaves = getVal("Goalkeeper Saves");
+
+    // ❌ Campos que a API-Sports NÃO fornece (apenas Sportmonks)
+    const attacks = getVal("Attacks");
+    const dangerousAttacks = getVal("Dangerous Attacks");
+
+    const tempStats = {
+      shotsOnGoal, shotsOffGoal, totalShots, blockedShots, shotsInsideBox,
+      corners, fouls, possession, yellowCards, redCards, goalkeeperSaves,
+      attacks, dangerousAttacks
     };
 
     const pressureIndex = calculatePressureIndex(tempStats);
     const el = elapsed > 0 ? elapsed : 1;
 
     /**
-     * APM HÍBRIDO: Usa dados nativos quando disponíveis, senão calcula IIM (Índice de Intensidade por Minuto)
+     * IIM: Índice de Intensidade por Minuto
+     * Calculado APENAS com dados reais da API-Sports:
+     *   IIM = (Chutes ao Gol × 3.0 + Chutes Fora × 1.2 + Escanteios × 2.0 + Chutes Bloqueados × 0.8) / minutos
      * 
-     * Se a API fornece "Dangerous Attacks" nativamente → usa o valor real
-     * Se NÃO fornece (API-Sports nunca fornece) → calcula IIM a partir de dados reais:
-     *   IIM = (Chutes ao Gol × 3.0 + Chutes Fora × 1.2 + Escanteios × 2.0) / minutos
-     * 
-     * Isso NÃO é dado fabricado — é derivação matemática de dados reais da partida.
+     * Se Sportmonks estiver disponível e fornecer dangerousAttacks nativos, usa esses.
      */
-    const hasNativeAttacks = tempStats.dangerousAttacks > 0 || tempStats.attacks > 0;
+    const hasNativeAttacks = dangerousAttacks > 0 || attacks > 0;
     
-    let apm2: number;
+    let iim: number;
     if (hasNativeAttacks) {
-      // ✅ Dados nativos disponíveis (Sportmonks ou API que fornece attacks)
-      apm2 = Number((tempStats.dangerousAttacks / el).toFixed(2));
+      iim = Number((dangerousAttacks / el).toFixed(2));
     } else {
-      // 📊 IIM: Índice de Intensidade por Minuto (baseado em chutes + escanteios reais)
-      const intensityScore = (tempStats.shotsOnGoal * 3.0) + (tempStats.shotsOffGoal * 1.2) + (tempStats.corners * 2.0);
-      apm2 = Number((intensityScore / el).toFixed(2));
+      const intensityScore = (shotsOnGoal * 3.0) + (shotsOffGoal * 1.2) + (corners * 2.0) + (blockedShots * 0.8);
+      iim = Number((intensityScore / el).toFixed(2));
     }
-    
-    const apm1 = Number((apm2 * (1 + pressureIndex / 100)).toFixed(2));
 
     return {
       ...tempStats,
       pressureIndex,
-      apm1,
-      apm2
+      iim
     };
   }
 
   private generateEmptyStats(fixtureId: number): MatchStats {
+    const emptyTeam: TeamStats = {
+      shotsOnGoal: 0, shotsOffGoal: 0, totalShots: 0, blockedShots: 0,
+      shotsInsideBox: 0, corners: 0, fouls: 0, possession: 50,
+      yellowCards: 0, redCards: 0, goalkeeperSaves: 0,
+      attacks: 0, dangerousAttacks: 0,
+      pressureIndex: 0, iim: 0
+    };
     return {
       fixtureId,
-      home: { attacks: 0, dangerousAttacks: 0, corners: 0, shotsOnGoal: 0, shotsOffGoal: 0, possession: 50, yellowCards: 0, redCards: 0, pressureIndex: 0, apm1: 0, apm2: 0 },
-      away: { attacks: 0, dangerousAttacks: 0, corners: 0, shotsOnGoal: 0, shotsOffGoal: 0, possession: 50, yellowCards: 0, redCards: 0, pressureIndex: 0, apm1: 0, apm2: 0 },
+      home: { ...emptyTeam },
+      away: { ...emptyTeam },
       hasTelemetry: false
     };
   }

@@ -367,121 +367,83 @@ export default function Radar() {
       const scoreHome = fixture.goalsHome;
       const scoreAway = fixture.goalsAway;
 
-      // Determine thresholds based on Active Operation Mode
-      // Modes: 'apm_pure' (APM Puro) | 'aggressive' (Agressivo) | 'conservative' (Conservador Clássico) | 'defensive' (Conservador Defensivo)
+      // ═══════════════════════════════════════════════════════════════
+      // THRESHOLDS baseados APENAS em dados reais da API-Sports
+      // ═══════════════════════════════════════════════════════════════
+      // Dados usados: IIM (chutes+cantos/min), corners, shotsOnGoal,
+      //               totalShots, shotsInsideBox, possession, fouls,
+      //               goalkeeperSaves, elapsed, placar
+      // ═══════════════════════════════════════════════════════════════
       
-      let apm1Threshold = 1.1;
-      let cantoMinCorners = 3;
-      let cantoMinElapsedFirst = 37;
-      let cantoMaxElapsedFirst = 45;
-      let cantoMinElapsedSecond = 80;
-      let cantoMaxElapsedSecond = 90;
+      let iimThreshold = 1.1;           // IIM mínimo para cantos
+      let cantoMinCorners = 3;          // Escanteios mínimos
+      let cantoMinElapsedFirst = 37;    // Janela 1°T início
+      let cantoMaxElapsedFirst = 45;    // Janela 1°T fim
+      let cantoMinElapsedSecond = 80;   // Janela 2°T início
+      let cantoMaxElapsedSecond = 90;   // Janela 2°T fim
       
-      let htMinElapsed = 12;
-      let htMaxElapsed = 32;
-      let htMinCombinedApm2 = 1.4;
-      let htMinShots = 3;
+      let htMinElapsed = 12;            // Over 0.5 HT: minuto mínimo
+      let htMaxElapsed = 32;            // Over 0.5 HT: minuto máximo
+      let htMinCombinedIIM = 1.4;       // Over 0.5 HT: IIM combinado mínimo
+      let htMinShots = 3;               // Over 0.5 HT: chutes ao gol mínimo
       
-      let backFavMinApm1 = 1.2;
-      let backFavMinPossession = 60;
-      let backFavMinElapsed = 50;
+      let backFavMinIIM = 1.2;          // Virada: IIM mínimo
+      let backFavMinPossession = 60;    // Virada: posse mínima
+      let backFavMinElapsed = 50;       // Virada: minuto mínimo
 
       if (activeMode === 'apm_pure') {
-        // Considers strictly standard APM (Attacks Per Minute) pressure rules, specifically where the favorite team is drawing or losing
-        apm1Threshold = 1.2;
+        iimThreshold = 1.2;
         cantoMinCorners = 4;
-        cantoMinElapsedFirst = 37;
-        cantoMaxElapsedFirst = 45;
-        cantoMinElapsedSecond = 80;
-        cantoMaxElapsedSecond = 90;
-        
-        htMinElapsed = 10;
-        htMaxElapsed = 35;
-        htMinCombinedApm2 = 1.5;
-        htMinShots = 4;
-        
-        backFavMinApm1 = 1.25;
-        backFavMinPossession = 60;
-        backFavMinElapsed = 45;
+        htMinElapsed = 10; htMaxElapsed = 35;
+        htMinCombinedIIM = 1.5; htMinShots = 4;
+        backFavMinIIM = 1.25; backFavMinPossession = 60; backFavMinElapsed = 45;
       } else if (activeMode === 'aggressive') {
-        // Highly aggressive settings with lower thresholds to maximize entry volume
-        apm1Threshold = 0.8;
+        iimThreshold = 0.8;
         cantoMinCorners = 2;
-        cantoMinElapsedFirst = 33;
-        cantoMaxElapsedFirst = 45;
-        cantoMinElapsedSecond = 72;
-        cantoMaxElapsedSecond = 90;
-        
-        htMinElapsed = 8;
-        htMaxElapsed = 38;
-        htMinCombinedApm2 = 1.0;
-        htMinShots = 2;
-        
-        backFavMinApm1 = 0.9;
-        backFavMinPossession = 50;
-        backFavMinElapsed = 45;
+        cantoMinElapsedFirst = 33; cantoMinElapsedSecond = 72;
+        htMinElapsed = 8; htMaxElapsed = 38;
+        htMinCombinedIIM = 1.0; htMinShots = 2;
+        backFavMinIIM = 0.9; backFavMinPossession = 50; backFavMinElapsed = 45;
       } else if (activeMode === 'conservative') {
-        // Standard premium thresholds requiring robust validation
-        apm1Threshold = 1.2;
-        cantoMinCorners = 3;
-        cantoMinElapsedFirst = 37;
-        cantoMaxElapsedFirst = 45;
-        cantoMinElapsedSecond = 80;
-        cantoMaxElapsedSecond = 90;
-        
-        htMinCombinedApm2 = 1.4;
-        htMinShots = 3;
-        
-        backFavMinApm1 = 1.2;
-        backFavMinPossession = 60;
-        backFavMinElapsed = 50;
+        iimThreshold = 1.2;
+        htMinCombinedIIM = 1.4; htMinShots = 3;
+        backFavMinIIM = 1.2; backFavMinPossession = 60; backFavMinElapsed = 50;
       } else if (activeMode === 'defensive') {
-        // Ultra-safe filters with extremely high confidence thresholds
-        apm1Threshold = 1.4;
+        iimThreshold = 1.4;
         cantoMinCorners = 4;
-        cantoMinElapsedFirst = 38;
-        cantoMaxElapsedFirst = 45;
-        cantoMinElapsedSecond = 82;
-        cantoMaxElapsedSecond = 90;
-        
-        htMinElapsed = 15;
-        htMaxElapsed = 30;
-        htMinCombinedApm2 = 1.6;
-        htMinShots = 4;
-        
-        backFavMinApm1 = 1.4;
-        backFavMinPossession = 65;
-        backFavMinElapsed = 55;
+        cantoMinElapsedFirst = 38; cantoMinElapsedSecond = 82;
+        htMinElapsed = 15; htMaxElapsed = 30;
+        htMinCombinedIIM = 1.6; htMinShots = 4;
+        backFavMinIIM = 1.4; backFavMinPossession = 65; backFavMinElapsed = 55;
       }
 
-      // 🎯 Strategy 1: CANTO LIMITE (Late Corners in 1st/2nd Half)
+      // ═══════════════════════════════════════════════════════════════
+      // 🎯 ESTRATÉGIA 1: CANTO LIMITE
+      // Critérios: IIM + Escanteios + Chutes ao Gol (todos dados reais)
+      // ═══════════════════════════════════════════════════════════════
       const isTimeCanto = (elapsed >= cantoMinElapsedFirst && elapsed <= cantoMaxElapsedFirst) || 
                           (elapsed >= cantoMinElapsedSecond && elapsed <= cantoMaxElapsedSecond);
       if (isTimeCanto && fixture.status !== 'HT') {
         
-        // Evaluates Home Team pressure
-        const isHomeFavCanto = activeMode === 'apm_pure' ? (stats.home.possession >= 55 || stats.home.attacks > stats.away.attacks) : true;
-        if (isHomeFavCanto && stats.home.apm1 >= apm1Threshold && stats.home.corners >= cantoMinCorners) {
-          let confidence = 60 + Math.floor((stats.home.apm1 - apm1Threshold) * 110) + (stats.home.corners * 2) + (stats.home.shotsOnGoal * 3);
+        // Avalia pressão do Mandante (APENAS dados reais)
+        const homeHasPressure = stats.home.iim >= iimThreshold && stats.home.corners >= cantoMinCorners;
+        if (homeHasPressure) {
+          let confidence = 60 
+            + Math.floor((stats.home.iim - iimThreshold) * 110)  // Bônus IIM
+            + (stats.home.corners * 2)                            // Bônus escanteios
+            + (stats.home.shotsOnGoal * 3)                        // Bônus chutes ao gol
+            + (stats.home.shotsInsideBox * 1);                    // Bônus chutes dentro da área
+          
+          // Bônus Dossiê: APENAS dados reais da API (probabilidade de vitória)
           let dossierBonusDetails = '';
-
-          // CROSSOVER: Pre-Live validation corner averages and context
-          if (dossier) {
-            // High historical corner average bonus (+10%)
-            if (dossier.avgCornersHome >= 5.5) {
-              confidence += 10;
-              dossierBonusDetails += ` | Média Histórica de Cantos alta: ${dossier.avgCornersHome} (+10%)`;
-            }
-            // Wet weather bonus (+5%)
-            if (dossier.weather.toLowerCase().includes('chuva') || dossier.weather.toLowerCase().includes('garoa')) {
-              confidence += 5;
-              dossierBonusDetails += ` | Clima chuvoso propício (+5%)`;
-            }
-            // Title/Motivation necessity bonus (+5%)
-            if (dossier.motivationHome >= 75) {
-              confidence += 5;
-              dossierBonusDetails += ` | Necessidade crítica de resultado (+5%)`;
-            }
+          if (dossier && dossier.motivationHome >= 60) {
+            confidence += 5;
+            dossierBonusDetails += ` | Win%: ${dossier.motivationHome}% (+5%)`;
+          }
+          // Bônus: média histórica de gols alta
+          if (dossier && (dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway) >= 3.0) {
+            confidence += 5;
+            dossierBonusDetails += ` | Média gols alta: ${(dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway).toFixed(1)} (+5%)`;
           }
 
           confidence = Math.min(100, confidence);
@@ -493,30 +455,28 @@ export default function Radar() {
             strategyName: 'Canto Limite',
             teamName: fixture.homeTeam.name,
             confidence,
-            details: `Pressão in-play excelente! APM1: ${stats.home.apm1} | Cantos: ${stats.home.corners} | Chutes no Gol: ${stats.home.shotsOnGoal}${dossierBonusDetails}`,
-            suggestion: `Entrar em "Canto Limite" da partida acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`
+            details: `IIM: ${stats.home.iim} | Cantos: ${stats.home.corners} | Chutes Gol: ${stats.home.shotsOnGoal} | Total Chutes: ${stats.home.totalShots} | Dentro Área: ${stats.home.shotsInsideBox}${dossierBonusDetails}`,
+            suggestion: `Entrar em "Canto Limite" acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`
           });
         }
         
-        // Evaluates Away Team pressure
-        const isAwayFavCanto = activeMode === 'apm_pure' ? (stats.away.possession >= 55 || stats.away.attacks > stats.home.attacks) : true;
-        if (isAwayFavCanto && stats.away.apm1 >= apm1Threshold && stats.away.corners >= cantoMinCorners) {
-          let confidence = 60 + Math.floor((stats.away.apm1 - apm1Threshold) * 110) + (stats.away.corners * 2) + (stats.away.shotsOnGoal * 3);
+        // Avalia pressão do Visitante
+        const awayHasPressure = stats.away.iim >= iimThreshold && stats.away.corners >= cantoMinCorners;
+        if (awayHasPressure) {
+          let confidence = 60 
+            + Math.floor((stats.away.iim - iimThreshold) * 110)
+            + (stats.away.corners * 2)
+            + (stats.away.shotsOnGoal * 3)
+            + (stats.away.shotsInsideBox * 1);
+          
           let dossierBonusDetails = '';
-
-          if (dossier) {
-            if (dossier.avgCornersAway >= 5.5) {
-              confidence += 10;
-              dossierBonusDetails += ` | Média Histórica de Cantos alta: ${dossier.avgCornersAway} (+10%)`;
-            }
-            if (dossier.weather.toLowerCase().includes('chuva') || dossier.weather.toLowerCase().includes('garoa')) {
-              confidence += 5;
-              dossierBonusDetails += ` | Clima chuvoso propício (+5%)`;
-            }
-            if (dossier.motivationAway >= 75) {
-              confidence += 5;
-              dossierBonusDetails += ` | Necessidade crítica de resultado (+5%)`;
-            }
+          if (dossier && dossier.motivationAway >= 60) {
+            confidence += 5;
+            dossierBonusDetails += ` | Win%: ${dossier.motivationAway}% (+5%)`;
+          }
+          if (dossier && (dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway) >= 3.0) {
+            confidence += 5;
+            dossierBonusDetails += ` | Média gols alta (+5%)`;
           }
 
           confidence = Math.min(100, confidence);
@@ -528,34 +488,34 @@ export default function Radar() {
             strategyName: 'Canto Limite',
             teamName: fixture.awayTeam.name,
             confidence,
-            details: `Pressão in-play excelente! APM1: ${stats.away.apm1} | Cantos: ${stats.away.corners} | Chutes no Gol: ${stats.away.shotsOnGoal}${dossierBonusDetails}`,
-            suggestion: `Entrar em "Canto Limite" da partida acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`
+            details: `IIM: ${stats.away.iim} | Cantos: ${stats.away.corners} | Chutes Gol: ${stats.away.shotsOnGoal} | Total Chutes: ${stats.away.totalShots} | Dentro Área: ${stats.away.shotsInsideBox}${dossierBonusDetails}`,
+            suggestion: `Entrar em "Canto Limite" acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`
           });
         }
       }
 
-      // ⚽ Strategy 2: OVER 0.5 GOLS HT (Half-Time Goal Pressure)
+      // ═══════════════════════════════════════════════════════════════
+      // ⚽ ESTRATÉGIA 2: OVER 0.5 GOLS HT
+      // Critérios: IIM combinado + Chutes ao Gol + Placar 0x0 (todos reais)
+      // ═══════════════════════════════════════════════════════════════
       const isTimeOverHT = elapsed >= htMinElapsed && elapsed <= htMaxElapsed && scoreHome === 0 && scoreAway === 0;
       if (isTimeOverHT) {
-        const combinedApm2 = Number((stats.home.apm2 + stats.away.apm2).toFixed(2));
+        const combinedIIM = Number((stats.home.iim + stats.away.iim).toFixed(2));
         const combinedShots = stats.home.shotsOnGoal + stats.away.shotsOnGoal;
+        const combinedTotalShots = stats.home.totalShots + stats.away.totalShots;
+        const combinedInsideBox = stats.home.shotsInsideBox + stats.away.shotsInsideBox;
         
-        if (combinedApm2 >= htMinCombinedApm2 && combinedShots >= htMinShots) {
-          let confidence = 55 + Math.floor((combinedApm2 - htMinCombinedApm2) * 80) + (combinedShots * 4);
+        if (combinedIIM >= htMinCombinedIIM && combinedShots >= htMinShots) {
+          let confidence = 55 
+            + Math.floor((combinedIIM - htMinCombinedIIM) * 80) 
+            + (combinedShots * 4)
+            + (combinedInsideBox * 2);
+          
+          // Bônus Dossiê: APENAS média de gols histórica (dado real da API)
           let dossierBonusDetails = '';
-
-          // CROSSOVER: Pre-Live goals averages and tactics
-          if (dossier) {
-            // High combined historical goal average (+10%)
-            if (dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway >= 3.0) {
-              confidence += 10;
-              dossierBonusDetails += ` | Alta média histórica de gols combinada (+10%)`;
-            }
-            // Active offensive formations bonus (+5%)
-            if (dossier.formationHome === '4-3-3' || dossier.formationAway === '4-3-3' || dossier.formationHome === '4-3-1-2') {
-              confidence += 5;
-              dossierBonusDetails += ` | Formação tática agressiva (+5%)`;
-            }
+          if (dossier && (dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway) >= 3.0) {
+            confidence += 10;
+            dossierBonusDetails += ` | Média gols: ${(dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway).toFixed(1)} (+10%)`;
           }
 
           confidence = Math.min(100, confidence);
@@ -567,41 +527,34 @@ export default function Radar() {
             strategyName: 'Over 0.5 Gols HT',
             teamName: 'Ambas',
             confidence,
-            details: `Volume in-play alucinante! APM2: ${combinedApm2} | Chutes no Alvo: ${combinedShots}${dossierBonusDetails}`,
+            details: `IIM combinado: ${combinedIIM} | Chutes Gol: ${combinedShots} | Total Chutes: ${combinedTotalShots} | Dentro Área: ${combinedInsideBox}${dossierBonusDetails}`,
             suggestion: `Fazer entrada no mercado de "Acima de 0.5 Gols HT" (Over 0.5 HT) com odd mínima de 1.70.`
           });
         }
       }
 
-      // 📈 Strategy 3: VIRADA DO FAVORITO (Back Favorite in Trouble)
+      // ═══════════════════════════════════════════════════════════════
+      // 📈 ESTRATÉGIA 3: VIRADA DO FAVORITO
+      // Critérios: IIM + Posse + Placar desfavorável (todos dados reais)
+      // ═══════════════════════════════════════════════════════════════
       const isTimeSecondHalf = elapsed >= backFavMinElapsed;
       if (isTimeSecondHalf && fixture.status !== 'HT') {
         
-        // Evaluates if Home is favorite
-        const isHomeFav = stats.home.possession >= backFavMinPossession || (stats.home.attacks > stats.away.attacks * 1.3);
-        const isHomeTrouble = scoreHome <= scoreAway; // Drawing or losing
+        // Avalia se Mandante é favorito (dados reais: posse + volume de chutes)
+        const isHomeFav = stats.home.possession >= backFavMinPossession || stats.home.totalShots > stats.away.totalShots * 1.5;
+        const isHomeTrouble = scoreHome <= scoreAway;
 
-        if (isHomeFav && isHomeTrouble && stats.home.apm1 >= backFavMinApm1) {
-          let confidence = 65 + Math.floor((stats.home.apm1 - backFavMinApm1) * 60) + (stats.home.corners * 1);
+        if (isHomeFav && isHomeTrouble && stats.home.iim >= backFavMinIIM) {
+          let confidence = 65 
+            + Math.floor((stats.home.iim - backFavMinIIM) * 60) 
+            + (stats.home.corners * 1)
+            + (stats.home.shotsInsideBox * 2);
+          
+          // Bônus Dossiê: APENAS probabilidade de vitória (dado real)
           let dossierBonusDetails = '';
-
-          // CROSSOVER: Pre-Live motivations, fatigue and rotation
-          if (dossier) {
-            // Relegation/Motivation necessity bonus (+10%)
-            if (dossier.motivationHome >= 80) {
-              confidence += 10;
-              dossierBonusDetails += ` | Motivação crítica por vitória (+10%)`;
-            }
-            // Opponent fatigue bonus (+5%)
-            if (dossier.fatigueAway >= 65) {
-              confidence += 5;
-              dossierBonusDetails += ` | Oponente desgastado/com fadiga (+5%)`;
-            }
-            // Full strength rotation check (+5%)
-            if (dossier.rotationHome === 'Força Máxima') {
-              confidence += 5;
-              dossierBonusDetails += ` | Escalação com Força Máxima (+5%)`;
-            }
+          if (dossier && dossier.motivationHome >= 60) {
+            confidence += 8;
+            dossierBonusDetails += ` | Win% API: ${dossier.motivationHome}% (+8%)`;
           }
 
           confidence = Math.min(100, confidence);
@@ -613,32 +566,25 @@ export default function Radar() {
             strategyName: 'Virada do Favorito',
             teamName: fixture.homeTeam.name,
             confidence,
-            details: `Favorito pressionando muito em desvantagem! APM1: ${stats.home.apm1} | Posse: ${stats.home.possession}%${dossierBonusDetails}`,
-            suggestion: `Entrar no mercado a favor da vitória "Back ${fixture.homeTeam.name}" ou buscar "Over Gols no Jogo".`
+            details: `IIM: ${stats.home.iim} | Posse: ${stats.home.possession}% | Chutes Gol: ${stats.home.shotsOnGoal} | Dentro Área: ${stats.home.shotsInsideBox}${dossierBonusDetails}`,
+            suggestion: `Entrar a favor de "${fixture.homeTeam.name}" ou buscar "Over Gols no Jogo".`
           });
         }
 
-        // Evaluates if Away is favorite
-        const isAwayFav = stats.away.possession >= backFavMinPossession || (stats.away.attacks > stats.home.attacks * 1.3);
+        // Avalia se Visitante é favorito
+        const isAwayFav = stats.away.possession >= backFavMinPossession || stats.away.totalShots > stats.home.totalShots * 1.5;
         const isAwayTrouble = scoreAway <= scoreHome;
 
-        if (isAwayFav && isAwayTrouble && stats.away.apm1 >= backFavMinApm1) {
-          let confidence = 65 + Math.floor((stats.away.apm1 - backFavMinApm1) * 60) + (stats.away.corners * 1);
+        if (isAwayFav && isAwayTrouble && stats.away.iim >= backFavMinIIM) {
+          let confidence = 65 
+            + Math.floor((stats.away.iim - backFavMinIIM) * 60) 
+            + (stats.away.corners * 1)
+            + (stats.away.shotsInsideBox * 2);
+          
           let dossierBonusDetails = '';
-
-          if (dossier) {
-            if (dossier.motivationAway >= 80) {
-              confidence += 10;
-              dossierBonusDetails += ` | Motivação crítica por vitória (+10%)`;
-            }
-            if (dossier.fatigueHome >= 65) {
-              confidence += 5;
-              dossierBonusDetails += ` | Oponente desgastado/com fadiga (+5%)`;
-            }
-            if (dossier.rotationAway === 'Força Máxima') {
-              confidence += 5;
-              dossierBonusDetails += ` | Escalação com Força Máxima (+5%)`;
-            }
+          if (dossier && dossier.motivationAway >= 60) {
+            confidence += 8;
+            dossierBonusDetails += ` | Win% API: ${dossier.motivationAway}% (+8%)`;
           }
 
           confidence = Math.min(100, confidence);
@@ -650,8 +596,8 @@ export default function Radar() {
             strategyName: 'Virada do Favorito',
             teamName: fixture.awayTeam.name,
             confidence,
-            details: `Favorito pressionando muito em desvantagem! APM1: ${stats.away.apm1} | Posse: ${stats.away.possession}%${dossierBonusDetails}`,
-            suggestion: `Entrar no mercado a favor da vitória "Back ${fixture.awayTeam.name}" ou buscar "Over Gols no Jogo".`
+            details: `IIM: ${stats.away.iim} | Posse: ${stats.away.possession}% | Chutes Gol: ${stats.away.shotsOnGoal} | Dentro Área: ${stats.away.shotsInsideBox}${dossierBonusDetails}`,
+            suggestion: `Entrar a favor de "${fixture.awayTeam.name}" ou buscar "Over Gols no Jogo".`
           });
         }
       }
@@ -1057,20 +1003,19 @@ export default function Radar() {
                           </div>
                         </td>
 
-                        {/* APM1 / APM2 */}
                         <td style={{ padding: '14px 8px', textAlign: 'center' }}>
                           {!stats ? (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mapeando APM...</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mapeando IIM...</span>
                           ) : !stats.hasTelemetry ? (
                             <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
                           ) : (
                             <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
-                              <span style={{ color: stats.home.apm1 >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
-                                {stats.home.apm1}/{stats.home.apm2}
+                              <span style={{ color: stats.home.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
+                                {stats.home.iim}
                               </span>
                               <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
-                              <span style={{ color: stats.away.apm1 >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
-                                {stats.away.apm1}/{stats.away.apm2}
+                              <span style={{ color: stats.away.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
+                                {stats.away.iim}
                               </span>
                             </div>
                           )}
@@ -1533,23 +1478,23 @@ export default function Radar() {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
                               {/* APM Mandante */}
                               <div style={{ background: 'var(--bg-elevated)', padding: 10, borderRadius: 8, textAlign: 'center', border: '1px solid var(--border-color)' }}>
-                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>APM1/APM2 (Mandante)</span>
+                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>IIM (Mandante)</span>
                                 <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-primary)', margin: '2px 0' }}>
-                                  {stats.home.apm1} <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ {stats.home.apm2}</span>
+                                  {stats.home.iim}
                                 </div>
-                                <span style={{ fontSize: '0.65rem', color: stats.home.apm1 >= 1.0 ? 'var(--status-green)' : 'var(--text-muted)', fontWeight: 600 }}>
-                                  {stats.home.apm1 >= 1.2 ? '🔥 Pressão Crítica' : stats.home.apm1 >= 0.9 ? '⚠️ Pressão Moderada' : 'Normal'}
+                                <span style={{ fontSize: '0.65rem', color: stats.home.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-muted)', fontWeight: 600 }}>
+                                  {stats.home.iim >= 1.2 ? '🔥 Pressão Crítica' : stats.home.iim >= 0.9 ? '⚠️ Pressão Moderada' : 'Normal'}
                                 </span>
                               </div>
 
-                              {/* APM Visitante */}
+                              {/* IIM Visitante */}
                               <div style={{ background: 'var(--bg-elevated)', padding: 10, borderRadius: 8, textAlign: 'center', border: '1px solid var(--border-color)' }}>
-                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>APM1/APM2 (Visitante)</span>
+                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>IIM (Visitante)</span>
                                 <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-primary)', margin: '2px 0' }}>
-                                  {stats.away.apm1} <span style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ {stats.away.apm2}</span>
+                                  {stats.away.iim}
                                 </div>
-                                <span style={{ fontSize: '0.65rem', color: stats.away.apm1 >= 1.0 ? 'var(--status-green)' : 'var(--text-muted)', fontWeight: 600 }}>
-                                  {stats.away.apm1 >= 1.2 ? '🔥 Pressão Crítica' : stats.away.apm1 >= 0.9 ? '⚠️ Pressão Moderada' : 'Normal'}
+                                <span style={{ fontSize: '0.65rem', color: stats.away.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-muted)', fontWeight: 600 }}>
+                                  {stats.away.iim >= 1.2 ? '🔥 Pressão Crítica' : stats.away.iim >= 0.9 ? '⚠️ Pressão Moderada' : 'Normal'}
                                 </span>
                               </div>
                             </div>

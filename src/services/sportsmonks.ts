@@ -16,17 +16,21 @@ export interface Fixture {
 }
 
 export interface TeamStats {
-  attacks: number;
-  dangerousAttacks: number;
-  corners: number;
   shotsOnGoal: number;
   shotsOffGoal: number;
+  totalShots: number;
+  blockedShots: number;
+  shotsInsideBox: number;
+  corners: number;
+  fouls: number;
   possession: number;
   yellowCards: number;
   redCards: number;
+  goalkeeperSaves: number;
+  attacks: number;
+  dangerousAttacks: number;
   pressureIndex: number;
-  apm1: number;
-  apm2: number;
+  iim: number;
 }
 
 export interface MatchStats {
@@ -66,7 +70,7 @@ function extractStatValue(stats: any[], participantId: number, typeId: number): 
 }
 
 // Calculate pressure momentum
-function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 'apm1' | 'apm2'>): number {
+function calculatePressureIndex(stats: Omit<TeamStats, 'pressureIndex' | 'iim'>): number {
   const shotFactor = stats.shotsOnGoal * 2.5 + stats.shotsOffGoal * 1.0;
   const cornerFactor = stats.corners * 1.5;
   const dangerRatio = stats.attacks > 0 ? (stats.dangerousAttacks / stats.attacks) : 0;
@@ -145,25 +149,35 @@ class SportsmonksService {
         const stats = f.statistics || [];
         
         const homeStats = {
-          attacks: extractStatValue(stats, homePart.id, STATS_MAP.ATTACKS),
-          dangerousAttacks: extractStatValue(stats, homePart.id, STATS_MAP.DANGEROUS_ATTACKS),
-          corners: extractStatValue(stats, homePart.id, STATS_MAP.CORNERS),
           shotsOnGoal: extractStatValue(stats, homePart.id, STATS_MAP.SHOTS_ON_TARGET),
           shotsOffGoal: extractStatValue(stats, homePart.id, STATS_MAP.SHOTS_OFF_TARGET),
+          totalShots: 0,
+          blockedShots: 0,
+          shotsInsideBox: 0,
+          corners: extractStatValue(stats, homePart.id, STATS_MAP.CORNERS),
+          fouls: 0,
           possession: extractStatValue(stats, homePart.id, STATS_MAP.POSSESSION) || 50,
           yellowCards: extractStatValue(stats, homePart.id, STATS_MAP.YELLOW_CARDS),
           redCards: extractStatValue(stats, homePart.id, STATS_MAP.RED_CARDS),
+          goalkeeperSaves: 0,
+          attacks: extractStatValue(stats, homePart.id, STATS_MAP.ATTACKS),
+          dangerousAttacks: extractStatValue(stats, homePart.id, STATS_MAP.DANGEROUS_ATTACKS),
         };
 
         const awayStats = {
-          attacks: extractStatValue(stats, awayPart.id, STATS_MAP.ATTACKS),
-          dangerousAttacks: extractStatValue(stats, awayPart.id, STATS_MAP.DANGEROUS_ATTACKS),
-          corners: extractStatValue(stats, awayPart.id, STATS_MAP.CORNERS),
           shotsOnGoal: extractStatValue(stats, awayPart.id, STATS_MAP.SHOTS_ON_TARGET),
           shotsOffGoal: extractStatValue(stats, awayPart.id, STATS_MAP.SHOTS_OFF_TARGET),
+          totalShots: 0,
+          blockedShots: 0,
+          shotsInsideBox: 0,
+          corners: extractStatValue(stats, awayPart.id, STATS_MAP.CORNERS),
+          fouls: 0,
           possession: extractStatValue(stats, awayPart.id, STATS_MAP.POSSESSION) || 50,
           yellowCards: extractStatValue(stats, awayPart.id, STATS_MAP.YELLOW_CARDS),
           redCards: extractStatValue(stats, awayPart.id, STATS_MAP.RED_CARDS),
+          goalkeeperSaves: 0,
+          attacks: extractStatValue(stats, awayPart.id, STATS_MAP.ATTACKS),
+          dangerousAttacks: extractStatValue(stats, awayPart.id, STATS_MAP.DANGEROUS_ATTACKS),
         };
 
         // Guarantee possession totals add up to 100
@@ -176,14 +190,12 @@ class SportsmonksService {
         }
 
         const divisor = elapsed > 0 ? elapsed : 1;
-        const apm2Home = Number((homeStats.dangerousAttacks / divisor).toFixed(2));
-        const apm2Away = Number((awayStats.dangerousAttacks / divisor).toFixed(2));
 
         const pHomeIndex = calculatePressureIndex(homeStats);
         const pAwayIndex = calculatePressureIndex(awayStats);
 
-        const apm1Home = Number((apm2Home * (1 + pHomeIndex / 100)).toFixed(2));
-        const apm1Away = Number((apm2Away * (1 + pAwayIndex / 100)).toFixed(2));
+        const iimHome = Number((homeStats.dangerousAttacks / divisor).toFixed(2));
+        const iimAway = Number((awayStats.dangerousAttacks / divisor).toFixed(2));
 
         const hasTelemetry = stats.length > 0 && !(
           homeStats.attacks === 0 && awayStats.attacks === 0 &&
@@ -197,14 +209,12 @@ class SportsmonksService {
           home: {
             ...homeStats,
             pressureIndex: pHomeIndex,
-            apm1: apm1Home,
-            apm2: apm2Home
+            iim: iimHome
           },
           away: {
             ...awayStats,
             pressureIndex: pAwayIndex,
-            apm1: apm1Away,
-            apm2: apm2Away
+            iim: iimAway
           },
           hasTelemetry
         };
