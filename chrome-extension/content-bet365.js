@@ -1,35 +1,28 @@
 /**
- * Bet365 Bridge — Content Script (bet365.com / bet365.bet.br)
+ * Bet365 Bridge — Content Script v1.2
  * 
- * v1.1 — Reescrito baseado no DOM real da Bet365 Brasil
+ * Parser REESCRITO para o layout real da Bet365 Brasil.
  * 
- * Lê passivamente as estatísticas ao vivo do DOM da Bet365.
- * NÃO faz requests HTTP extras, NÃO automatiza cliques.
- * Apenas lê o que já está renderizado na página.
+ * Abordagem: Em vez de varrer TODOS os textos da página (que pegava odds, xG etc),
+ * agora busca ESPECIFICAMENTE os containers de estatísticas.
  * 
- * Layout detectado da Bet365:
- *   - Abas: "Estat." "Estatísticas de Jogador" etc
- *   - Stats exibidos com: Label (ex "Ataques Perigosos")
- *   - Valores: número Home (esquerda) | número Away (direita)
- *   - Cada stat em um "row" container
+ * Layout da Bet365 (seção "Estat."):
+ *   Label: "Ataques Perigosos"
+ *   Abaixo: [homeValue] [icon] [awayValue]
+ * 
+ * Cada stat está em seu próprio container com label + 2 valores numéricos.
  */
 
 (function () {
   'use strict';
 
-  const SCAN_INTERVAL_MS = 8_000; // 8 segundos
+  const SCAN_INTERVAL_MS = 8_000;
   const STORAGE_KEY_PREFIX = 'bet365_bridge_';
 
-  // ─── Mapeamento de labels Bet365 → campo interno ───
-  // Suporta Português (BR), Inglês, Espanhol
+  // Labels conhecidos → campo interno
   const STAT_LABELS = {
-    // Português BR (principal)
     'ataques': 'attacks',
     'ataques perigosos': 'dangerousAttacks',
-    'finalizações | chutes ao gol': 'shotsOnGoal',
-    'finalizações | chutes fora do gol': 'shotsOffGoal',
-    'finalizações': 'totalShots',
-    'finalizacoes': 'totalShots',
     'chutes ao gol': 'shotsOnGoal',
     'chutes a gol': 'shotsOnGoal',
     'chutes no gol': 'shotsOnGoal',
@@ -39,12 +32,14 @@
     'escanteios': 'corners',
     'posse de bola': 'possession',
     '% de posse': 'possession',
-    'posse': 'possession',
+    'de posse': 'possession',
     'cartões amarelos': 'yellowCards',
     'cartoes amarelos': 'yellowCards',
     'cartões vermelhos': 'redCards',
     'cartoes vermelhos': 'redCards',
     'total de chutes': 'totalShots',
+    'finalizações': 'totalShots',
+    'finalizacoes': 'totalShots',
     'chutes bloqueados': 'blockedShots',
     'chutes dentro da área': 'shotsInsideBox',
     'chutes dentro da area': 'shotsInsideBox',
@@ -64,326 +59,341 @@
     'yellow cards': 'yellowCards',
     'red cards': 'redCards',
     'total shots': 'totalShots',
-    'shots blocked': 'blockedShots',
-    'blocked shots': 'blockedShots',
-    'shots inside box': 'shotsInsideBox',
     'fouls': 'fouls',
     'offsides': 'offsides',
-    'goalkeeper saves': 'goalkeeperSaves',
-    'goal kicks': 'goalKicks',
-    'throw ins': 'throwIns',
-    'throw-ins': 'throwIns',
-    // Espanhol
-    'ataques peligrosos': 'dangerousAttacks',
-    'tiros a puerta': 'shotsOnGoal',
-    'tiros fuera': 'shotsOffGoal',
-    'córners': 'corners',
-    'posesión': 'possession',
-    'posesion del balon': 'possession',
-    'tarjetas amarillas': 'yellowCards',
-    'tarjetas rojas': 'redCards',
   };
 
-  /**
-   * Normaliza texto para comparação de labels
-   */
+  // Limites razoáveis para validar dados
+  const STAT_MAX = {
+    attacks: 300,
+    dangerousAttacks: 200,
+    shotsOnGoal: 50,
+    shotsOffGoal: 50,
+    corners: 30,
+    possession: 100,
+    yellowCards: 15,
+    redCards: 5,
+    totalShots: 80,
+    blockedShots: 40,
+    shotsInsideBox: 50,
+    fouls: 50,
+    offsides: 20,
+    goalkeeperSaves: 30,
+    goalKicks: 30,
+    throwIns: 60,
+  };
+
   function normalizeLabel(text) {
     return text
       .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
       .trim()
       .replace(/\s+/g, ' ')
       .replace(/[%:]/g, '')
       .trim();
   }
 
-  /**
-   * Tenta encontrar o label de stat correspondente
-   */
   function matchStatLabel(text) {
     const normalized = normalizeLabel(text);
+    if (!normalized || normalized.length < 3 || normalized.length > 40) return null;
+    
+    // Rejeitar textos que são claramente NÃO labels de stat
+    // (odds, nomes de times, seções do site, etc.)
+    if (/\d/.test(normalized)) return null; // Labels não contêm números
+    if (normalized.includes('resultado') || normalized.includes('chance') || 
+        normalized.includes('gol') && !normalized.includes('chutes') && !normalized.includes('goleiro') ||
+        normalized.includes('mais de') || normalized.includes('menos de') ||
+        normalized.includes('empate') || normalized.includes('login') ||
+        normalized.includes('registre') || normalized.includes('odds')) {
+      return null;
+    }
     
     // Match direto
     if (STAT_LABELS[normalized]) return STAT_LABELS[normalized];
     
-    // Match parcial (o texto contém o label)
+    // Match parcial (label é substring do texto)
     for (const [label, field] of Object.entries(STAT_LABELS)) {
-      if (normalized === label || normalized.includes(label)) {
-        return field;
-      }
+      if (normalized === label) return field;
+    }
+    
+    // Match mais flexível: texto contém o label inteiro
+    for (const [label, field] of Object.entries(STAT_LABELS)) {
+      if (label.length >= 5 && normalized.includes(label)) return field;
     }
     
     return null;
   }
 
   /**
-   * Extrai todos os números de um texto
-   */
-  function extractNumbers(text) {
-    const matches = text.match(/\d+/g);
-    return matches ? matches.map(Number) : [];
-  }
-
-  /**
-   * ESTRATÉGIA PRINCIPAL: Varredura por texto visível
+   * PARSER PRINCIPAL v1.2
    * 
-   * A Bet365 usa classes CSS ofuscadas que mudam frequentemente.
-   * Em vez de depender de classes, buscamos por CONTEÚDO DE TEXTO:
-   * - Procuramos nós de texto com labels conhecidos (ex: "Ataques Perigosos")
-   * - Depois buscamos números adjacentes (home/away values)
+   * Estratégia: Buscar ELEMENTOS (não text nodes) que contenham labels de stat,
+   * depois subir no DOM até encontrar um container com exatamente 2 números.
    */
   function scanLiveStats() {
     const stats = [];
     const teamNames = { home: '', away: '' };
 
     try {
-      // 1. Extrair nomes dos times do header/título
       extractTeamNamesFromPage(teamNames);
 
-      // 2. Coletar todos os nós de texto visíveis na página
-      const textElements = [];
-      const walker = document.createTreeWalker(
-        document.body,
-        NodeFilter.SHOW_TEXT,
-        {
-          acceptNode: function(node) {
-            // Pular elementos invisíveis
-            const parent = node.parentElement;
-            if (!parent) return NodeFilter.FILTER_REJECT;
-            const style = window.getComputedStyle(parent);
-            if (style.display === 'none' || style.visibility === 'hidden') {
-              return NodeFilter.FILTER_REJECT;
-            }
-            const text = node.textContent.trim();
-            if (text.length === 0 || text.length > 100) return NodeFilter.FILTER_REJECT;
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        }
-      );
+      // 1. Buscar todos os elementos "pequenos" que contêm apenas texto de label
+      const candidates = document.querySelectorAll('div, span, td, th, p, label');
+      
+      for (const el of candidates) {
+        // Pular elementos grandes (com muitos filhos = containers)
+        if (el.children.length > 3) continue;
+        
+        // Pegar texto direto do elemento (sem filhos profundos)
+        const directText = getDirectText(el);
+        if (!directText) continue;
 
-      while (walker.nextNode()) {
-        textElements.push({
-          text: walker.currentNode.textContent.trim(),
-          node: walker.currentNode
-        });
-      }
-
-      // 3. Para cada elemento de texto, verificar se é um label de stat
-      for (let i = 0; i < textElements.length; i++) {
-        const fieldName = matchStatLabel(textElements[i].text);
+        const fieldName = matchStatLabel(directText);
         if (!fieldName) continue;
+        if (stats.find(s => s.field === fieldName)) continue; // Já encontrado
 
-        // Buscar números próximos (antes e depois)
-        let homeVal = null;
-        let awayVal = null;
-
-        // Procurar números ANTES do label (valor Home)
-        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
-          const nums = extractNumbers(textElements[j].text);
-          if (nums.length === 1 && nums[0] <= 999) {
-            homeVal = nums[0];
-            break;
-          }
-        }
-
-        // Procurar números DEPOIS do label (valor Away)
-        for (let j = i + 1; j <= Math.min(textElements.length - 1, i + 5); j++) {
-          const nums = extractNumbers(textElements[j].text);
-          if (nums.length === 1 && nums[0] <= 999) {
-            awayVal = nums[0];
-            break;
-          }
-        }
-
-        // Se não encontrou com busca direcional, tentar DOM siblings
-        if (homeVal === null || awayVal === null) {
-          const values = findValuesNearLabel(textElements[i].node);
-          if (values) {
-            homeVal = values.home;
-            awayVal = values.away;
-          }
-        }
-
-        if (homeVal !== null && awayVal !== null) {
-          // Evitar duplicatas (mesmo campo encontrado mais de uma vez)
-          if (!stats.find(s => s.field === fieldName)) {
-            stats.push({
-              field: fieldName,
-              home: homeVal,
-              away: awayVal,
-              label: textElements[i].text.trim()
-            });
-          }
+        // 2. Subir no DOM para encontrar o "stat row" container
+        const values = findValuesInParent(el, fieldName);
+        if (values) {
+          stats.push({
+            field: fieldName,
+            home: values.home,
+            away: values.away,
+            label: directText
+          });
         }
       }
 
-      // 4. ESTRATÉGIA EXTRA: buscar por padrões "número texto número" em containers
+      // Estratégia extra: buscar pelo padrão innerText completo do painel de stats
       if (stats.length < 2) {
-        findStatsFromContainers(stats);
+        findStatsByInnerText(stats);
       }
 
     } catch (err) {
-      console.warn('[Bet365 Bridge] Erro ao escanear:', err.message);
+      console.warn('[Bet365 Bridge] Erro:', err.message);
     }
 
     return { stats, teamNames };
   }
 
   /**
-   * Encontra valores Home/Away perto de um nó de label no DOM
-   * Sobe até o container pai e busca números entre os filhos
+   * Pega texto diretamente de um elemento (excluindo filhos com muitos nós)
    */
-  function findValuesNearLabel(labelNode) {
-    let container = labelNode.parentElement;
-    
-    // Subir até 5 níveis para encontrar o container de stat row
-    for (let level = 0; level < 5; level++) {
-      if (!container || !container.parentElement) break;
-      container = container.parentElement;
-      
-      // Pegar todo o texto deste container
-      const fullText = container.textContent || '';
-      const numbers = extractNumbers(fullText);
-      
-      // Se tem exatamente 2 números, provavelmente são home/away
-      if (numbers.length === 2) {
-        return { home: numbers[0], away: numbers[1] };
-      }
-      
-      // Se tem mais que 2, pegar os dois mais periféricos
-      if (numbers.length > 2) {
-        // Buscar os números de forma posicional (esquerda/direita)
-        const children = container.children;
-        const values = getLeftRightValues(children);
-        if (values) return values;
-      }
-    }
-    
-    return null;
-  }
-
-  /**
-   * Obtém valores esquerda/direita de um container com filhos
-   */
-  function getLeftRightValues(children) {
-    if (children.length < 2) return null;
-    
-    const firstNums = extractNumbers(children[0].textContent || '');
-    const lastNums = extractNumbers(children[children.length - 1].textContent || '');
-    
-    if (firstNums.length >= 1 && lastNums.length >= 1) {
-      return { home: firstNums[0], away: lastNums[0] };
-    }
-    
-    // Tentar segundo e penúltimo
-    if (children.length >= 3) {
-      const secNums = extractNumbers(children[1].textContent || '');
-      const penNums = extractNumbers(children[children.length - 2].textContent || '');
-      if (secNums.length >= 1 && penNums.length >= 1) {
-        return { home: secNums[0], away: penNums[0] };
-      }
-    }
-    
-    return null;
-  }
-
-  /**
-   * ESTRATÉGIA 2: Buscar containers que pareçam ter o padrão de stat rows
-   * Procura por divs que tenham exatamente: número | texto | número
-   */
-  function findStatsFromContainers(stats) {
-    // Buscar todos elementos que contêm texto de stat label
-    const allElements = document.querySelectorAll('div, span, td, li, p');
-    
-    for (const el of allElements) {
-      // Pegar filhos diretos (não recursivo)
-      const directText = [];
+  function getDirectText(el) {
+    // Se o elemento tem poucos filhos, pegar textContent
+    if (el.childNodes.length <= 3) {
+      let text = '';
       for (const child of el.childNodes) {
         if (child.nodeType === Node.TEXT_NODE) {
-          const t = child.textContent.trim();
-          if (t) directText.push(t);
-        } else if (child.nodeType === Node.ELEMENT_NODE) {
-          const t = child.textContent.trim();
-          if (t) directText.push(t);
+          text += child.textContent;
+        }
+      }
+      text = text.trim();
+      // Se não achou texto direto, usar textContent se o elemento é pequeno
+      if (!text && el.textContent && el.textContent.trim().length < 40) {
+        text = el.textContent.trim();
+      }
+      return text || null;
+    }
+    return null;
+  }
+
+  /**
+   * A partir de um elemento label, sobe no DOM procurando um container
+   * que tenha exatamente 2 valores numéricos (home e away)
+   */
+  function findValuesInParent(labelEl, fieldName) {
+    let container = labelEl.parentElement;
+    const maxVal = STAT_MAX[fieldName] || 999;
+
+    for (let level = 0; level < 6; level++) {
+      if (!container) break;
+
+      // Pegar todos os números neste container
+      const numbers = getAllNumbersFromElement(container);
+      
+      // Filtrar números razoáveis para este tipo de stat
+      const validNumbers = numbers.filter(n => n >= 0 && n <= maxVal);
+
+      if (validNumbers.length === 2) {
+        return { home: validNumbers[0], away: validNumbers[1] };
+      }
+
+      // Se encontrou mais que 2, talvez seja um container pai demais
+      // Tentar com os filhos imediatos
+      if (validNumbers.length > 2 && container.children.length >= 2) {
+        const result = extractFromDirectChildren(container, maxVal);
+        if (result) return result;
+      }
+
+      container = container.parentElement;
+    }
+
+    return null;
+  }
+
+  /**
+   * Extrai números dos filhos diretos de um container (primeiro = home, último = away)
+   */
+  function extractFromDirectChildren(container, maxVal) {
+    const children = Array.from(container.children);
+    
+    // Procurar o primeiro e último filho que contenham um número
+    let homeVal = null;
+    let awayVal = null;
+    
+    for (const child of children) {
+      const text = child.textContent.trim();
+      const num = parseInt(text, 10);
+      if (!isNaN(num) && num >= 0 && num <= maxVal && text === String(num)) {
+        if (homeVal === null) {
+          homeVal = num;
+        } else {
+          awayVal = num;
+        }
+      }
+    }
+
+    // Se não encontrou iterando filhos, tentar pelo texto posicional
+    if (homeVal === null || awayVal === null) {
+      const allText = container.textContent || '';
+      // Procurar padrão: "número ... label ... número"
+      const nums = [];
+      const regex = /\b(\d{1,3})\b/g;
+      let m;
+      while ((m = regex.exec(allText)) !== null) {
+        const val = parseInt(m[1], 10);
+        if (val <= maxVal) nums.push(val);
+      }
+      if (nums.length >= 2) {
+        return { home: nums[0], away: nums[nums.length - 1] };
+      }
+    }
+
+    if (homeVal !== null && awayVal !== null) {
+      return { home: homeVal, away: awayVal };
+    }
+    return null;
+  }
+
+  /**
+   * Extrai todos os números de um elemento (texto completo)
+   * Só pega números "isolados" (não parte de odds como "1.40")
+   */
+  function getAllNumbersFromElement(el) {
+    const text = el.textContent || '';
+    const numbers = [];
+    // Match apenas números inteiros isolados (não decimais como odds 1.40, 10.00)
+    const regex = /(?<!\d)(?<!\.)(\d{1,3})(?!\.\d)(?!\d)/g;
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+      numbers.push(parseInt(m[1], 10));
+    }
+    return numbers;
+  }
+
+  /**
+   * ESTRATÉGIA 2: Buscar por innerText do body inteiro
+   * Procura pelo padrão: "Ataques Perigosos\n41\n39" ou similar
+   */
+  function findStatsByInnerText(stats) {
+    const bodyText = document.body.innerText || '';
+    const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
+    
+    for (let i = 0; i < lines.length; i++) {
+      const fieldName = matchStatLabel(lines[i]);
+      if (!fieldName || stats.find(s => s.field === fieldName)) continue;
+      
+      const maxVal = STAT_MAX[fieldName] || 999;
+      
+      // Olhar as próximas linhas para encontrar 2 números
+      let homeVal = null;
+      let awayVal = null;
+      
+      for (let j = i + 1; j <= Math.min(i + 4, lines.length - 1); j++) {
+        const num = parseInt(lines[j], 10);
+        if (!isNaN(num) && num >= 0 && num <= maxVal && lines[j] === String(num)) {
+          if (homeVal === null) homeVal = num;
+          else if (awayVal === null) { awayVal = num; break; }
         }
       }
       
-      // Padrão esperado: 3+ partes (número, label, número)
-      if (directText.length >= 3) {
-        // Tentar extrair: primeiro é home, meio é label, último é away
-        const homeNum = parseFloat(directText[0].replace('%', ''));
-        const awayNum = parseFloat(directText[directText.length - 1].replace('%', ''));
-        
-        if (!isNaN(homeNum) && !isNaN(awayNum)) {
-          // Juntar as partes do meio como label
-          const middleParts = directText.slice(1, -1);
-          const labelText = middleParts.join(' ');
-          const fieldName = matchStatLabel(labelText);
-          
-          if (fieldName && !stats.find(s => s.field === fieldName)) {
-            stats.push({
-              field: fieldName,
-              home: homeNum,
-              away: awayNum,
-              label: labelText.trim()
-            });
+      // Também olhar para trás
+      if (homeVal === null) {
+        for (let j = i - 1; j >= Math.max(0, i - 3); j--) {
+          const num = parseInt(lines[j], 10);
+          if (!isNaN(num) && num >= 0 && num <= maxVal && lines[j] === String(num)) {
+            homeVal = num;
+            break;
           }
         }
       }
+      
+      // Também procurar na mesma linha: "83 Ataques 97" → linha anterior/seguinte
+      if (homeVal === null || awayVal === null) {
+        // Checar se a linha do label contém números
+        const inlineMatch = lines[i].match(/(\d{1,3})/g);
+        if (inlineMatch && inlineMatch.length >= 2) {
+          const vals = inlineMatch.map(Number).filter(n => n <= maxVal);
+          if (vals.length >= 2) {
+            homeVal = vals[0];
+            awayVal = vals[vals.length - 1];
+          }
+        }
+      }
+      
+      if (homeVal !== null && awayVal !== null) {
+        stats.push({ field: fieldName, home: homeVal, away: awayVal, label: lines[i] });
+      }
     }
   }
 
   /**
-   * Extrai nomes dos times da página
+   * Extrai nomes dos times
    */
   function extractTeamNamesFromPage(result) {
-    // Método 1: Título da página
-    const title = document.title || '';
-    let match = title.match(/(.+?)\s+(?:v|vs|x)\s+(.+?)(?:\s*[-|]|$)/i);
-    if (match) {
-      result.home = match[1].trim().substring(0, 30);
-      result.away = match[2].trim().substring(0, 30);
-      return;
-    }
-
-    // Método 2: Procurar padrão "Time A v Time B" no body
-    const allText = document.body.innerText || '';
-    match = allText.match(/^(.{3,25})\s+v\s+(.{3,25})$/m);
+    // Método 1: Procurar no body inteiro pelo padrão "Time A v Time B"
+    const bodyText = document.body.innerText || '';
+    let match = bodyText.match(/^(.{2,30}?)\s+v\s+(.{2,30})$/m);
     if (match) {
       result.home = match[1].trim();
       result.away = match[2].trim();
       return;
     }
 
-    // Método 3: URL hash pode conter referência ao jogo
-    const hash = window.location.hash || '';
-    // bet365 URLs: #/IP/EV15134342746C1
-    // Não contém nomes, mas podemos extrair do breadcrumb
-    const breadcrumb = document.querySelector('[class*="breadcrumb"], [class*="Breadcrumb"]');
-    if (breadcrumb) {
-      const bcText = breadcrumb.textContent || '';
-      match = bcText.match(/(.+?)\s+(?:v|vs|x)\s+(.+)/i);
+    // Método 2: Título da página
+    const title = document.title || '';
+    match = title.match(/(.+?)\s+(?:v|vs|x)\s+(.+?)(?:\s*[-|]|$)/i);
+    if (match) {
+      result.home = match[1].trim().substring(0, 30);
+      result.away = match[2].trim().substring(0, 30);
+      return;
+    }
+
+    // Método 3: Procurar headers
+    const headers = document.querySelectorAll('h1, h2, h3, [class*="header"], [class*="Header"]');
+    for (const h of headers) {
+      const text = h.textContent.trim();
+      match = text.match(/^(.{2,25})\s+(?:v|vs|x)\s+(.{2,25})$/i);
       if (match) {
-        result.home = match[1].trim().substring(0, 30);
-        result.away = match[2].trim().substring(0, 30);
+        result.home = match[1].trim();
+        result.away = match[2].trim();
+        return;
       }
     }
   }
 
-  /**
-   * Salva dados no chrome.storage
-   */
+  // ─── Storage ───
   function saveToStorage(stats, teamNames) {
     if (stats.length === 0) return;
-
+    
     const normalize = (name) => name
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '')
-      .substring(0, 15);
+      .toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15);
 
     const matchKey = `${STORAGE_KEY_PREFIX}${normalize(teamNames.home || 'unknown')}_${normalize(teamNames.away || 'unknown')}`;
 
-    const home = {};
-    const away = {};
+    const home = {}, away = {};
     for (const stat of stats) {
       home[stat.field] = stat.home;
       away[stat.field] = stat.away;
@@ -418,7 +428,7 @@
     }
   }
 
-  // ─── LOOP PRINCIPAL ───
+  // ─── Main Loop ───
   let scanCount = 0;
 
   function runScan() {
@@ -427,47 +437,34 @@
 
     if (stats.length > 0) {
       saveToStorage(stats, teamNames);
+      console.log(`[Bet365 Bridge] ✅ Scan #${scanCount} — ${teamNames.home} vs ${teamNames.away} — ${stats.length} stats:`);
+      stats.forEach(s => console.log(`  ${s.label}: ${s.home} | ${s.away} (${s.field})`));
 
-      // Log detalhado
-      console.log(`[Bet365 Bridge] ✅ Scan #${scanCount} — ${stats.length} stats extraídos:`);
-      stats.forEach(s => {
-        console.log(`  ${s.label}: ${s.home} | ${s.away}`);
-      });
-
-      // Notificar background
       if (typeof chrome !== 'undefined' && chrome.runtime) {
         chrome.runtime.sendMessage({
-          type: 'BET365_SCAN_UPDATE',
-          matchCount: 1,
-          scanNumber: scanCount
+          type: 'BET365_SCAN_UPDATE', matchCount: 1, scanNumber: scanCount
         }).catch(() => {});
       }
     } else {
-      console.log(`[Bet365 Bridge] 🔍 Scan #${scanCount} — Nenhuma stat encontrada. Verifique se a aba "Estat." está aberta.`);
+      console.log(`[Bet365 Bridge] 🔍 Scan #${scanCount} — Nenhuma stat encontrada.`);
       
-      // Debug: mostrar textos que parecem labels
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-      const candidates = [];
-      while (walker.nextNode()) {
-        const text = walker.currentNode.textContent.trim().toLowerCase();
-        if (text.includes('ataques') || text.includes('attacks') || text.includes('perigosos') || text.includes('dangerous')) {
-          candidates.push(walker.currentNode.textContent.trim());
-        }
-      }
+      // Debug: listar textos que parecem labels
+      const bodyText = document.body.innerText || '';
+      const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
+      const candidates = lines.filter(l => {
+        const low = l.toLowerCase();
+        return (low.includes('ataques') || low.includes('posse') || 
+                low.includes('escanteio') || low.includes('chutes') ||
+                low.includes('attacks') || low.includes('dangerous'));
+      });
       if (candidates.length > 0) {
-        console.log('[Bet365 Bridge] 🔎 Textos candidatos encontrados:', candidates);
+        console.log('[Bet365 Bridge] 🔎 Labels candidatos:', candidates.slice(0, 10));
       }
     }
   }
 
-  // Iniciar scanner
-  console.log('[Bet365 Bridge] 🟢 Content script v1.1 carregado em', window.location.hostname);
-  console.log('[Bet365 Bridge] ℹ️  Abra a aba "Estat." no jogo ao vivo para que as stats sejam detectadas.');
-  
-  // Primeiro scan após 3s (dar tempo pro DOM carregar)
+  console.log('[Bet365 Bridge] 🟢 v1.2 carregado em', window.location.hostname);
   setTimeout(runScan, 3000);
-  
-  // Scans subsequentes
   setInterval(runScan, SCAN_INTERVAL_MS);
 
 })();
