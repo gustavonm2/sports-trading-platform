@@ -1080,6 +1080,7 @@ export default function Radar() {
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Partida / Liga</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Placar / Tempo</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>IIM (C / F)</th>
+                    <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>APM (C / F)</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Escanteios (C-F)</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Chutes Alvo (C-F)</th>
                     <th style={{ padding: '12px 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', textAlign: 'center' }}>Posse (C-F)</th>
@@ -1162,6 +1163,34 @@ export default function Radar() {
                                 {stats.away.iim}
                               </span>
                             </div>
+                          )}
+                        </td>
+
+                        {/* APM - Ataques Perigosos por Minuto (dados da Bet365 Bridge) */}
+                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+                          {!stats ? (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+                          ) : !stats.hasTelemetry ? (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+                          ) : (stats.home.dangerousAttacks > 0 || stats.away.dangerousAttacks > 0) ? (() => {
+                            // Calcular minutos do tempo atual (HT ou ST)
+                            const halfElapsed = f.status === '2H' ? Math.max(f.elapsed - 45, 1) : Math.max(f.elapsed, 1);
+                            const homeAPM = Math.round((stats.home.dangerousAttacks / halfElapsed) * 100) / 100;
+                            const awayAPM = Math.round((stats.away.dangerousAttacks / halfElapsed) * 100) / 100;
+                            return (
+                              <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
+                                <span style={{ color: homeAPM >= 1.0 ? '#ef4444' : homeAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>
+                                  {homeAPM}
+                                </span>
+                                <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
+                                <span style={{ color: awayAPM >= 1.0 ? '#ef4444' : awayAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>
+                                  {awayAPM}
+                                </span>
+                                <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, marginTop: 2 }}>🔗 BRIDGE</div>
+                              </div>
+                            );
+                          })() : (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>s/ bridge</span>
                           )}
                         </td>
 
