@@ -979,11 +979,17 @@ export default function Radar() {
                     // Check if this fixture has an active opportunity matching the criteria
                     const hasOpp = opportunities.some(opp => opp.fixtureId === f.id && opp.confidence >= minConfidence);
                     
-                    // 🔥 DETECÇÃO DE POTENCIAL: IIM está a ≥70% do threshold (esquentando)
+                    // 🔥 DETECÇÃO DE POTENCIAL: IIM esquentando + contexto válido para entrada
                     const iimThresholdRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : 1.1;
                     const homeIIMRatio = stats.home.iim / iimThresholdRef;
                     const awayIIMRatio = stats.away.iim / iimThresholdRef;
-                    const hasPotential = !hasOpp && (
+                    
+                    // Filtros de contexto: só marca potencial se faz sentido apostar
+                    const isValidTime = f.elapsed <= 85 && f.status !== 'HT';        // Não nos minutos finais
+                    const totalGoals = f.goalsHome + f.goalsAway;
+                    const isOpenGame = totalGoals <= 4;                                // Jogo não está goleado
+                    
+                    const hasPotential = !hasOpp && isValidTime && isOpenGame && (
                       (homeIIMRatio >= 0.7 && stats.home.corners >= 2) ||
                       (awayIIMRatio >= 0.7 && stats.away.corners >= 2) ||
                       (stats.home.iim + stats.away.iim >= iimThresholdRef * 1.2 && stats.home.shotsOnGoal + stats.away.shotsOnGoal >= 2)
