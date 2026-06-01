@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar, 
-  Zap, Shield, TrendingUp, CheckCircle, Clock 
+  Zap, Shield, TrendingUp, CheckCircle, Clock, Filter, Download
 } from 'lucide-react';
 
 export default function Layout() {
@@ -105,6 +105,43 @@ export default function Layout() {
               <Shield size={18} />
               Conservador Defensivo
             </Link>
+
+            <Link 
+              to="/radar?mode=funnel" 
+              className={`nav-item ${isLinkActive('/radar', 'funnel') ? 'active' : ''}`}
+            >
+              <Filter size={18} />
+              Funil (Minutos Finais)
+            </Link>
+          </nav>
+        </div>
+
+        {/* Ferramentas Section */}
+        <div style={{ marginTop: 20, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase', marginBottom: 12, paddingLeft: 12 }}>
+            Ferramentas
+          </span>
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <a 
+              href="https://github.com/gustavonm2/sports-trading-platform/tree/main/chrome-extension"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="nav-item"
+              style={{ textDecoration: 'none' }}
+            >
+              <Download size={18} />
+              Bet365 Bridge
+              <span style={{ 
+                marginLeft: 'auto', 
+                fontSize: '0.6rem', 
+                fontWeight: 800, 
+                background: 'rgba(16, 185, 129, 0.1)', 
+                color: '#10b981', 
+                padding: '2px 6px', 
+                borderRadius: 4,
+                lineHeight: 1.3
+              }}>EXTENSÃO</span>
+            </a>
           </nav>
         </div>
 
