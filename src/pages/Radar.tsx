@@ -1632,6 +1632,21 @@ export default function Radar() {
                     {opp.details}
                   </div>
 
+                  {/* Ataques Perigosos (Bet365 Bridge) */}
+                  {(() => {
+                    const s = allStats[opp.fixtureId];
+                    if (s && (s.home.dangerousAttacks > 0 || s.away.dangerousAttacks > 0)) {
+                      return (
+                        <div style={{ display: 'flex', gap: 12, marginBottom: 10, padding: '8px 10px', background: 'rgba(16, 185, 129, 0.04)', border: '1px solid rgba(16, 185, 129, 0.12)', borderRadius: 6, alignItems: 'center', fontSize: '0.75rem' }}>
+                          <span style={{ color: '#10b981', fontWeight: 800, fontSize: '0.65rem', whiteSpace: 'nowrap' }}>🔗 BET365</span>
+                          <span style={{ color: 'var(--text-secondary)' }}>At. Perigosos: <strong style={{ color: 'var(--status-red)' }}>{s.home.dangerousAttacks}</strong>-<strong style={{ color: 'var(--status-red)' }}>{s.away.dangerousAttacks}</strong></span>
+                          <span style={{ color: 'var(--text-secondary)' }}>Ataques: <strong>{s.home.attacks}</strong>-<strong>{s.away.attacks}</strong></span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
                   {/* Sugestão */}
                   <div style={{ background: 'rgba(5,150,105,0.04)', border: '1px dashed rgba(5,150,105,0.15)', borderRadius: 6, padding: '8px 10px', fontSize: '0.78rem', color: 'var(--status-green)', lineHeight: 1.4, marginBottom: 10 }}>
                     <strong>💡</strong> {opp.suggestion}
@@ -1718,6 +1733,9 @@ export default function Radar() {
                       <span>Cantos: <strong>{s.home.corners}-{s.away.corners}</strong></span>
                       <span>Chutes Gol: <strong>{s.home.shotsOnGoal}-{s.away.shotsOnGoal}</strong></span>
                       <span>Posse: <strong>{s.home.possession}%-{s.away.possession}%</strong></span>
+                      {(s.home.dangerousAttacks > 0 || s.away.dangerousAttacks > 0) && (
+                        <span style={{ color: '#10b981' }}>🔗 At.Perig: <strong style={{ color: 'var(--status-red)' }}>{s.home.dangerousAttacks}-{s.away.dangerousAttacks}</strong></span>
+                      )}
                     </div>
 
                     {/* Progress bar to trigger */}

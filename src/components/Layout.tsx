@@ -123,9 +123,8 @@ export default function Layout() {
           </span>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <a 
-              href="https://github.com/gustavonm2/sports-trading-platform/tree/main/chrome-extension"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="/bet365-bridge.zip"
+              download="bet365-bridge.zip"
               className="nav-item"
               style={{ textDecoration: 'none' }}
             >
@@ -140,7 +139,7 @@ export default function Layout() {
                 padding: '2px 6px', 
                 borderRadius: 4,
                 lineHeight: 1.3
-              }}>EXTENSÃO</span>
+              }}>DOWNLOAD</span>
             </a>
           </nav>
         </div>
