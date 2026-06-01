@@ -12,6 +12,8 @@ import { sofascore } from '../services/sofascore';
 import type { Fixture, MatchStats, PreMatchDossier } from '../services/apiSports';
 import { supabase } from '../services/supabase';
 import { getEnabledBookmakers } from '../config/bookmakers';
+import { onBet365Data, findBet365Match, mergeStats, calculateEnrichedIIM } from '../services/bet365Bridge';
+import type { Bet365BridgePayload, Bet365MatchData } from '../services/bet365Bridge';
 
 // Fuzzy team matching helper to link Sportsmonks/Sofascore matches to API-Sports dossiers
 function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefined | null): boolean {
@@ -111,6 +113,10 @@ export default function Radar() {
     const saved = localStorage.getItem('trade_default_stake');
     return saved ? Number(saved) : 200;
   });
+
+  // Bet365 Bridge state
+  const [bet365Bridge, setBet365Bridge] = useState<Bet365BridgePayload | null>(null);
+  const bet365DataRef = useRef<Bet365MatchData[]>([]);
 
   const handlePeguei = async (opp: Opportunity) => {
     if (gottenOppIds.has(opp.id)) return;
@@ -702,7 +708,50 @@ export default function Radar() {
     return () => clearInterval(interval);
   }, [fetchLiveMatches]);
 
+  // ─── Bet365 Bridge Listener ───
+  useEffect(() => {
+    const cleanup = onBet365Data((payload) => {
+      setBet365Bridge(payload);
+      bet365DataRef.current = payload.matches;
 
+      // Merge dados da Bet365 com allStats existentes
+      if (payload.connected && payload.matches.length > 0) {
+        setAllStats(prevStats => {
+          const updated = { ...prevStats };
+          
+          for (const [fixtureId, stats] of Object.entries(updated)) {
+            const fId = Number(fixtureId);
+            const fixture = fixtures.find(f => f.id === fId);
+            if (!fixture) continue;
+
+            const bet365Match = findBet365Match(
+              fixture.homeTeam.name,
+              fixture.awayTeam.name,
+              payload.matches
+            );
+
+            if (bet365Match) {
+              const merged = mergeStats(stats, bet365Match);
+              
+              // Recalcular IIM enriquecido
+              const elapsed = fixture.elapsed || 1;
+              const hasBet365 = (bet365Match.home?.dangerousAttacks || 0) > 0 || 
+                                (bet365Match.away?.dangerousAttacks || 0) > 0;
+              
+              merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBet365);
+              merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBet365);
+              
+              updated[fId] = merged;
+            }
+          }
+          
+          return updated;
+        });
+      }
+    });
+
+    return cleanup;
+  }, [fixtures]);
 
   // Filtered active opportunities by confidence and granular market preference
   const filteredOpps = opportunities
@@ -760,6 +809,11 @@ export default function Radar() {
             {activeDataSource === 'apisports_real' && (
               <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <CheckCircle size={12} /> 📡 API-SPORTS LIVE (ATIVO)
+              </span>
+            )}
+            {bet365Bridge?.connected && (
+              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.7rem', padding: '3px 8px', borderRadius: 4, fontWeight: 800, animation: 'pulse 2s ease-in-out infinite' }}>
+                🔗 BET365 BRIDGE ({bet365Bridge.matchCount} jogos)
               </span>
             )}
           </div>

@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Bet365 Bridge — Sports Trading",
+  "version": "1.0.0",
+  "description": "Lê estatísticas ao vivo da Bet365 e envia para a plataforma de trading esportivo.",
+  "permissions": ["storage"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.bet365.com/*",
+        "*://*.bet365.es/*",
+        "*://*.bet365.com.br/*"
+      ],
+      "js": ["content-bet365.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost:*/*",
+        "https://*.vercel.app/*"
+      ],
+      "js": ["content-platform.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

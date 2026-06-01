@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      padding: 16px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .header h1 {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.active { background: #10b981; box-shadow: 0 0 6px #10b981; }
+    .status-dot.inactive { background: #6b7280; }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      font-size: 12px;
+      border-bottom: 1px solid #1e293b22;
+    }
+    .status-label { color: #94a3b8; font-weight: 600; }
+    .status-value { color: #e2e8f0; font-weight: 700; }
+    .status-value.green { color: #10b981; }
+    .status-value.yellow { color: #f59e0b; }
+    .status-value.red { color: #ef4444; }
+    .match-list {
+      margin-top: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .match-item {
+      background: #1e293b;
+      padding: 8px 10px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 11px;
+    }
+    .match-item .teams {
+      font-weight: 700;
+      margin-bottom: 2px;
+      font-size: 12px;
+    }
+    .match-item .meta {
+      color: #94a3b8;
+      font-size: 10px;
+    }
+    .empty {
+      text-align: center;
+      padding: 20px;
+      color: #6b7280;
+      font-size: 12px;
+    }
+    .footer {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #1e293b;
+      font-size: 10px;
+      color: #475569;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="status-dot" id="statusDot"></span>
+    <h1>Bet365 Bridge</h1>
+  </div>
+
+  <div class="status-row">
+    <span class="status-label">Status</span>
+    <span class="status-value" id="statusText">Verificando...</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Jogos Mapeados</span>
+    <span class="status-value" id="matchCount">0</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Último Scan</span>
+    <span class="status-value" id="lastScan">—</span>
+  </div>
+  <div class="status-row">
+    <span class="status-label">Total de Scans</span>
+    <span class="status-value" id="scanCount">0</span>
+  </div>
+
+  <div class="match-list" id="matchList">
+    <div class="empty">Abra um jogo ao vivo na Bet365 para começar a capturar dados.</div>
+  </div>
+
+  <div class="footer">
+    Sports Trading Platform — Extensão de Enriquecimento
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
