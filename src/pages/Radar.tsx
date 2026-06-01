@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { 
   Activity, Zap, ShieldAlert,
-  RefreshCw, CheckCircle, AlertCircle, PlayCircle,
-  Volume2, VolumeX, Bell, TrendingUp, Gauge, Trophy,
-  ChevronDown, ChevronUp
+  RefreshCw, CheckCircle, PlayCircle,
+  Volume2, VolumeX, Bell, TrendingUp, Gauge,
+  ChevronDown, ChevronUp, Filter
 } from 'lucide-react';
 import { apiSports } from '../services/apiSports';
 import { sportsmonks } from '../services/sportsmonks';
@@ -73,7 +73,7 @@ interface Opportunity {
   id: string; // unique ID
   fixtureId: number;
   match: Fixture;
-  strategyName: 'Canto Limite' | 'Over 0.5 Gols HT' | 'Virada do Favorito';
+  strategyName: 'Canto Limite' | 'Over 0.5 Gols HT' | 'Virada do Favorito' | 'Funil';
   teamName: string;
   confidence: number;
   details: string;
@@ -93,8 +93,8 @@ export default function Radar() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [minConfidence, setMinConfidence] = useState(65);
-  const [activeTab, setActiveTab] = useState<'live' | 'prematch'>('live');
   const [showMatchesTable, setShowMatchesTable] = useState(false);
+  const [alertFilter, setAlertFilter] = useState<'all' | 'entrada' | 'potencial'>('all');
   
   // Premium filters
   const [marketFilter, setMarketFilter] = useState<'all' | 'corners' | 'goals'>('all');
@@ -415,6 +415,15 @@ export default function Radar() {
         htMinElapsed = 15; htMaxElapsed = 30;
         htMinCombinedIIM = 1.6; htMinShots = 4;
         backFavMinIIM = 1.4; backFavMinPossession = 65; backFavMinElapsed = 55;
+      } else if (activeMode === 'funnel') {
+        // Técnica do Funil: pressão nos minutos finais de cada tempo
+        iimThreshold = 1.0;
+        cantoMinCorners = 2;
+        cantoMinElapsedFirst = 38; cantoMaxElapsedFirst = 45;
+        cantoMinElapsedSecond = 85; cantoMaxElapsedSecond = 90;
+        htMinElapsed = 38; htMaxElapsed = 45;
+        htMinCombinedIIM = 1.2; htMinShots = 2;
+        backFavMinIIM = 1.0; backFavMinPossession = 50; backFavMinElapsed = 85;
       }
 
       // ═══════════════════════════════════════════════════════════════
@@ -601,6 +610,63 @@ export default function Radar() {
           });
         }
       }
+
+      // ═══════════════════════════════════════════════════════════════
+      // 🔻 ESTRATÉGIA 4: FUNIL (Pressão nos minutos finais)
+      // Critérios: Janela final + IIM do dominante + empatando/perdendo por 1
+      // ═══════════════════════════════════════════════════════════════
+      if (activeMode === 'funnel') {
+        const isFunilWindow = (elapsed >= 38 && elapsed <= 45 && fixture.status === '1H') ||
+                              (elapsed >= 85 && elapsed <= 90 && fixture.status === '2H');
+        
+        if (isFunilWindow) {
+          // Identifica time dominante (maior IIM)
+          const homeDominant = stats.home.iim > stats.away.iim;
+          const dominantIIM = homeDominant ? stats.home.iim : stats.away.iim;
+          const dominantName = homeDominant ? fixture.homeTeam.name : fixture.awayTeam.name;
+          const dominantGoals = homeDominant ? scoreHome : scoreAway;
+          const opponentGoals = homeDominant ? scoreAway : scoreHome;
+          const dominantStats = homeDominant ? stats.home : stats.away;
+          
+          // Condição do placar: empatando OU perdendo por 1
+          const isDrawing = dominantGoals === opponentGoals;
+          const isLosingByOne = (opponentGoals - dominantGoals) === 1;
+          const isWinning = dominantGoals > opponentGoals;
+          
+          // NÃO gerar alerta se dominante está ganhando
+          if (!isWinning && dominantIIM >= iimThreshold && (isDrawing || isLosingByOne)) {
+            const situacao = isDrawing ? 'Empatando' : 'Perdendo por 1';
+            let confidence = 65
+              + Math.floor((dominantIIM - iimThreshold) * 100)
+              + (dominantStats.shotsOnGoal * 3)
+              + (dominantStats.shotsInsideBox * 2)
+              + (dominantStats.corners * 2);
+            
+            let dossierBonusDetails = '';
+            const dossier = allDossiers[fixture.id];
+            if (dossier) {
+              const dominantMotivation = homeDominant ? dossier.motivationHome : dossier.motivationAway;
+              if (dominantMotivation >= 55) {
+                confidence += 8;
+                dossierBonusDetails += ` | Win%: ${dominantMotivation}% (+8%)`;
+              }
+            }
+            
+            confidence = Math.min(100, confidence);
+            
+            activeOpps.push({
+              id: `${fixture.id}-funil-${homeDominant ? 'home' : 'away'}`,
+              fixtureId: fixture.id,
+              match: fixture,
+              strategyName: 'Funil',
+              teamName: dominantName,
+              confidence,
+              details: `🔻 FUNIL ${fixture.status === '1H' ? '1°T' : '2°T'} | ${situacao} | IIM: ${dominantIIM} | Chutes Gol: ${dominantStats.shotsOnGoal} | Cantos: ${dominantStats.corners} | Dentro Área: ${dominantStats.shotsInsideBox}${dossierBonusDetails}`,
+              suggestion: `Pressão alta nos minutos finais! ${dominantName} ${situacao.toLowerCase()} com intensidade elevada. Buscar Over Gols ou Canto próximo.`
+            });
+          }
+        }
+      }
     });
 
     // Sound alerts triggers
@@ -646,7 +712,7 @@ export default function Radar() {
         return opp.strategyName === 'Canto Limite';
       }
       if (marketFilter === 'goals') {
-        return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito';
+        return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito' || opp.strategyName === 'Funil';
       }
       return true;
     });
@@ -729,8 +795,8 @@ export default function Radar() {
             fontSize: '0.9rem',
             padding: '6px 12px',
             borderRadius: 6,
-            background: activeMode === 'aggressive' ? 'rgba(239, 68, 68, 0.1)' : activeMode === 'apm_pure' ? 'var(--accent-glow)' : 'rgba(16, 185, 129, 0.1)',
-            color: activeMode === 'aggressive' ? '#ef4444' : activeMode === 'apm_pure' ? 'var(--accent-primary)' : '#10b981',
+            background: activeMode === 'aggressive' ? 'rgba(239, 68, 68, 0.1)' : activeMode === 'apm_pure' ? 'var(--accent-glow)' : activeMode === 'funnel' ? 'rgba(168, 85, 247, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+            color: activeMode === 'aggressive' ? '#ef4444' : activeMode === 'apm_pure' ? 'var(--accent-primary)' : activeMode === 'funnel' ? '#a855f7' : '#10b981',
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6
@@ -739,10 +805,12 @@ export default function Radar() {
             {activeMode === 'aggressive' && <TrendingUp size={14} />}
             {activeMode === 'conservative' && <CheckCircle size={14} />}
             {activeMode === 'defensive' && <ShieldAlert size={14} />}
+            {activeMode === 'funnel' && <Filter size={14} />}
             {activeMode === 'apm_pure' && 'APM Puro'}
             {activeMode === 'aggressive' && 'Agressivo'}
             {activeMode === 'conservative' && 'Conservador Clássico'}
             {activeMode === 'defensive' && 'Conservador Defensivo'}
+            {activeMode === 'funnel' && 'Funil'}
           </span>
         </div>
 
@@ -1405,323 +1473,249 @@ export default function Radar() {
           )}
         </div>
 
-        {/* Coluna Direita: Análise Tática Integrada & Pressão (War Room Feed) */}
+        {/* Coluna Direita: CENTRAL DE ALERTAS */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <TrendingUp size={20} color="var(--accent-primary)" />
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>War Room: Dossiês Ativos</h2>
+              <Bell size={20} color="var(--status-yellow)" />
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Central de Alertas</h2>
+              <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', padding: '2px 8px' }}>
+                {(() => {
+                  const potentialAlerts = fixtures.filter(f => {
+                    const s = allStats[f.id];
+                    if (!s || !s.hasTelemetry) return false;
+                    const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
+                    const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
+                    const hR = s.home.iim / thRef; const aR = s.away.iim / thRef;
+                    const vt = f.elapsed <= 85 && f.status !== 'HT';
+                    const og = f.goalsHome + f.goalsAway <= 4;
+                    return !hasOpp && vt && og && (
+                      (hR >= 0.7 && s.home.corners >= 2) || (aR >= 0.7 && s.away.corners >= 2) ||
+                      (s.home.iim + s.away.iim >= thRef * 1.2 && s.home.shotsOnGoal + s.away.shotsOnGoal >= 2)
+                    );
+                  });
+                  return filteredOpps.length + potentialAlerts.length;
+                })()}
+              </span>
             </div>
-            
-            {filteredOpps.length > 0 && (
-              <div style={{ display: 'flex', background: 'var(--bg-elevated)', padding: 4, borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                <button 
-                  onClick={() => setActiveTab('live')}
-                  style={{
-                    padding: '6px 12px', border: 'none', borderRadius: 6,
-                    fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
-                    background: activeTab === 'live' ? 'var(--accent-primary)' : 'transparent',
-                    color: activeTab === 'live' ? '#fff' : 'var(--text-muted)',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  Live
-                </button>
-                <button 
-                  onClick={() => setActiveTab('prematch')}
-                  style={{
-                    padding: '6px 12px', border: 'none', borderRadius: 6,
-                    fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
-                    background: activeTab === 'prematch' ? 'var(--accent-primary)' : 'transparent',
-                    color: activeTab === 'prematch' ? '#fff' : 'var(--text-muted)',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  Pré-Live
-                </button>
-              </div>
-            )}
-          </div>
 
-          {filteredOpps.length === 0 ? (
-            <div className="card glass-panel" style={{ height: '350px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, color: 'var(--text-muted)', textAlign: 'center', padding: 30 }}>
-              <Gauge size={48} style={{ opacity: 0.3 }} />
-              <div>
-                <h3 style={{ color: 'var(--text-primary)', marginBottom: 6 }}>Radar de Oportunidades</h3>
-                <p style={{ fontSize: '0.875rem' }}>Nenhum dossiê ativo disponível no momento. O bot continuará monitorando as partidas em tempo real para encontrar oportunidades lucrativas.</p>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxHeight: 'calc(100vh - 180px)', overflowY: 'auto', paddingRight: 4 }}>
-              {filteredOpps.map(opp => {
-                const stats = allStats[opp.fixtureId];
-                const dossier = allDossiers[opp.fixtureId];
-                const isSelected = selectedFixture?.id === opp.fixtureId;
-                
+            {/* Filtros: Todos / Fazer Entrada / Potencial */}
+            <div style={{ display: 'flex', background: 'var(--bg-elevated)', padding: 3, borderRadius: 8, border: '1px solid var(--border-color)' }}>
+              {(['all', 'entrada', 'potencial'] as const).map(fKey => {
+                const labels: Record<string, string> = { all: 'Todos', entrada: '⚡ Entrada', potencial: '🔥 Potencial' };
                 return (
-                  <div 
-                    key={`dossier-${opp.id}`} 
-                    className="card glass-panel" 
-                    style={{ 
-                      padding: 24, 
-                      boxShadow: isSelected ? '0 8px 30px rgba(30, 58, 138, 0.08)' : '0 8px 30px rgba(0,0,0,0.03)',
-                      border: isSelected ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)',
-                      transition: 'all 0.3s ease',
-                      position: 'relative'
+                  <button
+                    key={fKey}
+                    onClick={() => setAlertFilter(fKey)}
+                    style={{
+                      padding: '5px 10px', border: 'none', borderRadius: 6,
+                      fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer',
+                      background: alertFilter === fKey ? (fKey === 'entrada' ? 'var(--status-green)' : fKey === 'potencial' ? 'var(--status-yellow)' : 'var(--accent-primary)') : 'transparent',
+                      color: alertFilter === fKey ? '#fff' : 'var(--text-muted)',
+                      transition: 'all 0.15s ease', outline: 'none'
                     }}
                   >
-                    {/* Header Jogo */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: 16, marginBottom: 20 }}>
-                      <div>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-                          {opp.match.leagueName}
-                        </span>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>
-                          {opp.match.homeTeam.name} <span style={{ color: 'var(--accent-primary)', fontWeight: 500 }}>vs</span> {opp.match.awayTeam.name}
-                        </h3>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ 
-                          fontSize: '1.3rem', 
-                          fontWeight: 800, 
-                          color: 'var(--text-primary)', 
-                          background: 'var(--bg-elevated)', 
-                          padding: '4px 10px', 
-                          borderRadius: 8,
-                          display: 'inline-block' 
-                        }}>
-                          {opp.match.goalsHome} - {opp.match.goalsAway}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--status-green)', fontWeight: 600, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
-                          <span className="pulse-indicator" style={{ background: 'var(--status-green)' }}></span>
-                          {opp.match.elapsed}' Minutos
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* TAB CONTENT: LIVE TELEMETRY */}
-                    {activeTab === 'live' && (
-                      <div>
-                        {!stats ? (
-                          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-                            <RefreshCw size={24} className="pulse-indicator" style={{ animation: 'spin 2s linear infinite', marginBottom: 8 }} />
-                            <p>Acessando estatísticas em tempo real...</p>
-                          </div>
-                        ) : (
-                          <div>
-                            {/* Alert for empty stats in secondary/minor leagues */}
-                            {!stats.hasTelemetry && (
-                               <div style={{
-                                 background: 'rgba(239, 68, 68, 0.05)',
-                                 border: '1px dashed var(--status-red)',
-                                 padding: '12px 14px',
-                                 borderRadius: 8,
-                                 marginBottom: 16,
-                                 fontSize: '0.8rem',
-                                 color: 'var(--text-secondary)',
-                                 lineHeight: 1.5,
-                                 textAlign: 'left'
-                               }}>
-                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--status-red)', fontWeight: 800, marginBottom: 4 }}>
-                                   <AlertCircle size={16} /> 
-                                   ⚠️ SEM TELEMETRIA (LIGA SEM COBERTURA DE DADOS)
-                                 </div>
-                                 Esta divisão/liga secundária não transmite cobertura de telemetria ao vivo pela API oficial. Todos os parâmetros estão zerados e mantidos sem criação de dados fictícios.
-                               </div>
-                            )}
-
-                            {/* Comparativo de Índices APM1 e APM2 */}
-                            <h4 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 700 }}>
-                              📊 Índices de Intensidade (APM)
-                            </h4>
-                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {(stats.home.attacks > 0 || stats.away.attacks > 0) ? (
-                                <span style={{ color: 'var(--status-green)', fontWeight: 700 }}>✅ Ataques Nativos (Sportmonks)</span>
-                              ) : (stats.home.shotsOnGoal > 0 || stats.away.shotsOnGoal > 0 || stats.home.corners > 0 || stats.away.corners > 0) ? (
-                                <span style={{ fontWeight: 700 }} title="IIM = (Chutes ao Gol × 3.0 + Chutes Fora × 1.2 + Escanteios × 2.0) / minutos">📊 IIM — Calculado de chutes + escanteios reais</span>
-                              ) : (
-                                <span>Aguardando dados da partida...</span>
-                              )}
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                              {/* APM Mandante */}
-                              <div style={{ background: 'var(--bg-elevated)', padding: 10, borderRadius: 8, textAlign: 'center', border: '1px solid var(--border-color)' }}>
-                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>IIM (Mandante)</span>
-                                <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-primary)', margin: '2px 0' }}>
-                                  {stats.home.iim}
-                                </div>
-                                <span style={{ fontSize: '0.65rem', color: stats.home.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-muted)', fontWeight: 600 }}>
-                                  {stats.home.iim >= 1.2 ? '🔥 Pressão Crítica' : stats.home.iim >= 0.9 ? '⚠️ Pressão Moderada' : 'Normal'}
-                                </span>
-                              </div>
-
-                              {/* IIM Visitante */}
-                              <div style={{ background: 'var(--bg-elevated)', padding: 10, borderRadius: 8, textAlign: 'center', border: '1px solid var(--border-color)' }}>
-                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', textTransform: 'uppercase' }}>IIM (Visitante)</span>
-                                <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-primary)', margin: '2px 0' }}>
-                                  {stats.away.iim}
-                                </div>
-                                <span style={{ fontSize: '0.65rem', color: stats.away.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-muted)', fontWeight: 600 }}>
-                                  {stats.away.iim >= 1.2 ? '🔥 Pressão Crítica' : stats.away.iim >= 0.9 ? '⚠️ Pressão Moderada' : 'Normal'}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Momentum Gauge Horizontal de Pressão */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-                              <div style={{ background: 'var(--bg-elevated)', padding: '8px 10px', borderRadius: 8 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>
-                                  <span>Pressão Casa</span>
-                                  <strong style={{ color: 'var(--text-primary)' }}>{stats.home.pressureIndex}%</strong>
-                                </div>
-                                <div style={{ height: 4, background: 'rgba(0,0,0,0.06)', borderRadius: 2, overflow: 'hidden' }}>
-                                  <div style={{ width: `${stats.home.pressureIndex}%`, height: '100%', background: stats.home.pressureIndex >= 30 ? 'var(--status-green)' : 'var(--accent-primary)' }}></div>
-                                </div>
-                              </div>
-
-                              <div style={{ background: 'var(--bg-elevated)', padding: '8px 10px', borderRadius: 8 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>
-                                  <span>Pressão Fora</span>
-                                  <strong style={{ color: 'var(--text-primary)' }}>{stats.away.pressureIndex}%</strong>
-                                </div>
-                                <div style={{ height: 4, background: 'rgba(0,0,0,0.06)', borderRadius: 2, overflow: 'hidden' }}>
-                                  <div style={{ width: `${stats.away.pressureIndex}%`, height: '100%', background: stats.away.pressureIndex >= 30 ? 'var(--status-green)' : 'var(--accent-primary)' }}></div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Comparativo Geral de Live Stats */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                              <StatRow label="Escanteios (Cantos)" homeVal={stats.home.corners} awayVal={stats.away.corners} />
-                              <StatRow label="Ataques Perigosos" homeVal={stats.home.dangerousAttacks} awayVal={stats.away.dangerousAttacks} highlightHigher />
-                              <StatRow label="Chutes no Alvo" homeVal={stats.home.shotsOnGoal} awayVal={stats.away.shotsOnGoal} highlightHigher />
-                              <StatRow label="Chutes para Fora" homeVal={stats.home.shotsOffGoal} awayVal={stats.away.shotsOffGoal} />
-                              
-                              {/* Posse de Bola Progress */}
-                              <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>
-                                  <span>{stats.home.possession}%</span>
-                                  <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Posse de Bola</span>
-                                  <span>{stats.away.possession}%</span>
-                                </div>
-                                <div style={{ width: '100%', height: 6, background: 'rgba(0,0,0,0.06)', borderRadius: 3, display: 'flex', overflow: 'hidden' }}>
-                                  <div style={{ width: `${stats.home.possession}%`, height: '100%', background: 'var(--accent-primary)' }}></div>
-                                  <div style={{ width: `${stats.away.possession}%`, height: '100%', background: 'var(--status-yellow)' }}></div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* TAB CONTENT: PRE-LIVE DOSSIER */}
-                    {activeTab === 'prematch' && (
-                      <div>
-                        {!dossier ? (
-                          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
-                            <AlertCircle size={24} style={{ marginBottom: 8 }} />
-                            <p>Mapeando dossiê pré-live estruturado...</p>
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                            {/* Termômetro de Motivacao / Favoritismo IA */}
-                            <div style={{ 
-                              background: 'var(--bg-elevated)', 
-                              padding: 10, 
-                              borderRadius: 8, 
-                              border: '1px solid var(--border-color)',
-                            }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-                                <span>Motiv: {dossier.motivationHome}%</span>
-                                <span style={{ color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 4 }}><Trophy size={10} /> Necessidade do Resultado</span>
-                                <span>Motiv: {dossier.motivationAway}%</span>
-                              </div>
-                              <div style={{ height: 6, background: 'rgba(0,0,0,0.06)', borderRadius: 3, display: 'flex', overflow: 'hidden' }}>
-                                <div style={{ width: `${(dossier.motivationHome / (dossier.motivationHome + dossier.motivationAway)) * 100}%`, background: 'var(--accent-primary)' }}></div>
-                                <div style={{ width: `${(dossier.motivationAway / (dossier.motivationHome + dossier.motivationAway)) * 100}%`, background: 'var(--status-yellow)' }}></div>
-                              </div>
-                            </div>
-
-                            {/* 1. PODER OFENSIVO & TENDÊNCIAS */}
-                            <div>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                                <DossierItem label="Força Ofensiva (H/A)" value={`${dossier.offensiveStrengthHome}% / ${dossier.offensiveStrengthAway}%`} />
-                                <DossierItem label="Média Gols (M/S)" value={`C: ${dossier.avgGoalsScoredHome}/${dossier.avgGoalsConcededHome} | F: ${dossier.avgGoalsScoredAway}/${dossier.avgGoalsConcededAway}`} />
-                                <DossierItem label="Média de Cantos" value={`Casa: ${dossier.avgCornersHome} | Fora: ${dossier.avgCornersAway}`} />
-                                <DossierItem label="Formação Escalação" value={`M: ${dossier.formationHome} | V: ${dossier.formationAway}`} />
-                              </div>
-                            </div>
-
-                            {/* 2. AMBIENTE & CONDIÇÃO */}
-                            <div>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                                <DossierItem label="Clima no Estádio" value={dossier.weather} />
-                                <DossierItem label="Desgaste / Fadiga" value={`C: ${dossier.fatigueHome}% | F: ${dossier.fatigueAway}%`} />
-                                <DossierItem label="Estilo Casa" value={dossier.tacticalStyleHome.substring(0, 20)} />
-                                <DossierItem label="Estilo Fora" value={dossier.tacticalStyleAway.substring(0, 20)} />
-                              </div>
-                            </div>
-
-                            {/* Desfalques Lists */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                              <div style={{ background: 'var(--bg-elevated)', padding: 8, borderRadius: 6, border: '1px solid var(--border-color)' }}>
-                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Desfalques Mandante</span>
-                                <span style={{ fontSize: '0.75rem', color: 'var(--status-red)', fontWeight: 600, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {dossier.absencesHome.length > 0 ? dossier.absencesHome.join(', ') : 'Nenhum'}
-                                </span>
-                              </div>
-
-                              <div style={{ background: 'var(--bg-elevated)', padding: 8, borderRadius: 6, border: '1px solid var(--border-color)' }}>
-                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>Desfalques Visitante</span>
-                                <span style={{ fontSize: '0.75rem', color: 'var(--status-red)', fontWeight: 600, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                  {dossier.absencesAway.length > 0 ? dossier.absencesAway.join(', ') : 'Nenhum'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Sugestão de Entrada */}
-                    <div style={{ 
-                      background: 'rgba(5, 150, 105, 0.03)', 
-                      border: '1px dashed rgba(5, 150, 105, 0.15)',
-                      borderRadius: 8, 
-                      padding: 10, 
-                      fontSize: '0.75rem', 
-                      color: 'var(--status-green)',
-                      marginTop: 14,
-                      lineHeight: 1.4
-                    }}>
-                      <strong>💡 Entrada Sugerida:</strong> {opp.suggestion}
-                    </div>
-
-                    {/* Botão Peguei Entrada no final do Card */}
-                    <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
-                      <button
-                        onClick={() => handlePeguei(opp)}
-                        disabled={gottenOppIds.has(opp.id)}
-                        className="btn"
-                        style={{
-                          width: '100%',
-                          padding: '10px 16px', fontSize: '0.8rem', fontWeight: 800,
-                          background: gottenOppIds.has(opp.id) ? 'rgba(16, 185, 129, 0.1)' : 'var(--accent-primary)',
-                          color: gottenOppIds.has(opp.id) ? 'var(--status-green)' : '#fff',
-                          border: gottenOppIds.has(opp.id) ? '1px solid var(--status-green)' : 'none',
-                          cursor: gottenOppIds.has(opp.id) ? 'default' : 'pointer'
-                        }}
-                      >
-                        {gottenOppIds.has(opp.id) ? 'ENTRADA PERSISTIDA NO SUPABASE! 🟢' : 'PEGAR ENTRADA (SUPABASE CLOUD) ⚡'}
-                      </button>
-                    </div>
-                  </div>
+                    {labels[fKey]}
+                  </button>
                 );
               })}
             </div>
-          )}
+          </div>
+
+          {/* Feed de Alertas Unificado */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 'calc(100vh - 200px)', overflowY: 'auto', paddingRight: 4 }}>
+            {/* 🟢 ALERTAS DE ENTRADA (oportunidades ativas) */}
+            {(alertFilter === 'all' || alertFilter === 'entrada') && filteredOpps.map(opp => {
+              let stratColor = 'var(--accent-primary)';
+              if (opp.strategyName === 'Canto Limite') stratColor = 'var(--status-green)';
+              else if (opp.strategyName === 'Over 0.5 Gols HT') stratColor = 'var(--status-yellow)';
+              else if (opp.strategyName === 'Funil') stratColor = '#a855f7';
+              else stratColor = 'var(--status-red)';
+
+              return (
+                <div
+                  key={`alert-entry-${opp.id}`}
+                  className="card"
+                  style={{
+                    padding: 16,
+                    borderLeft: `4px solid ${stratColor}`,
+                    background: 'rgba(16, 185, 129, 0.03)',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  {/* Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: 'var(--status-green-glow)', color: 'var(--status-green)', padding: '3px 8px', animation: 'pulse 2s ease-in-out infinite' }}>
+                        ⚡ FAZER ENTRADA
+                      </span>
+                      <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 700, background: `${stratColor}18`, color: stratColor, padding: '3px 6px' }}>
+                        {opp.strategyName}
+                      </span>
+                    </div>
+                    <span className="badge" style={{
+                      fontSize: '0.8rem', fontWeight: 800, padding: '3px 8px',
+                      background: opp.confidence >= 80 ? 'var(--status-green-glow)' : 'rgba(217,119,6,0.1)',
+                      color: opp.confidence >= 80 ? 'var(--status-green)' : 'var(--status-yellow)'
+                    }}>{opp.confidence}%</span>
+                  </div>
+
+                  {/* Confronto */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                        {opp.match.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{opp.match.goalsHome}-{opp.match.goalsAway}</span> {opp.match.awayTeam.name}
+                      </h3>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{opp.match.leagueName}</span>
+                    </div>
+                    <div className="badge badge-green" style={{ fontSize: '0.7rem', fontWeight: 700 }}>
+                      {opp.match.elapsed}'
+                    </div>
+                  </div>
+
+                  {/* Detalhes */}
+                  <div style={{ background: 'var(--bg-elevated)', borderRadius: 6, padding: 10, fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10, borderLeft: '2px solid var(--text-muted)' }}>
+                    {opp.details}
+                  </div>
+
+                  {/* Sugestão */}
+                  <div style={{ background: 'rgba(5,150,105,0.04)', border: '1px dashed rgba(5,150,105,0.15)', borderRadius: 6, padding: '8px 10px', fontSize: '0.78rem', color: 'var(--status-green)', lineHeight: 1.4, marginBottom: 10 }}>
+                    <strong>💡</strong> {opp.suggestion}
+                  </div>
+
+                  {/* Links + Ação */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {getEnabledBookmakers().map(bk => (
+                        <a key={bk.id} href={bk.liveUrl} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: '0.65rem', fontWeight: 800, color: bk.color, background: bk.bgColor, padding: '3px 8px', borderRadius: 5, textDecoration: 'none', border: `1px solid ${bk.color}30` }}
+                          title={`Abrir ${bk.name}`}
+                        >{bk.logo} {bk.shortName}</a>
+                      ))}
+                    </div>
+                    <button onClick={() => handlePeguei(opp)} disabled={gottenOppIds.has(opp.id)} className="btn"
+                      style={{ padding: '6px 14px', fontSize: '0.75rem', fontWeight: 800,
+                        background: gottenOppIds.has(opp.id) ? 'rgba(16,185,129,0.1)' : 'var(--accent-primary)',
+                        color: gottenOppIds.has(opp.id) ? 'var(--status-green)' : '#fff',
+                        border: gottenOppIds.has(opp.id) ? '1px solid var(--status-green)' : 'none',
+                        cursor: gottenOppIds.has(opp.id) ? 'default' : 'pointer'
+                      }}
+                    >{gottenOppIds.has(opp.id) ? 'PEGADA! 🟢' : 'PEGUEI ⚡'}</button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* 🟡 ALERTAS DE POTENCIAL (jogos esquentando) */}
+            {(alertFilter === 'all' || alertFilter === 'potencial') && fixtures
+              .filter(f => {
+                const s = allStats[f.id];
+                if (!s || !s.hasTelemetry) return false;
+                const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
+                const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
+                const hR = s.home.iim / thRef; const aR = s.away.iim / thRef;
+                const vt = f.elapsed <= 85 && f.status !== 'HT';
+                const og = f.goalsHome + f.goalsAway <= 4;
+                return !hasOpp && vt && og && (
+                  (hR >= 0.7 && s.home.corners >= 2) || (aR >= 0.7 && s.away.corners >= 2) ||
+                  (s.home.iim + s.away.iim >= thRef * 1.2 && s.home.shotsOnGoal + s.away.shotsOnGoal >= 2)
+                );
+              })
+              .map(f => {
+                const s = allStats[f.id]!;
+                const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
+                const dominantHome = s.home.iim > s.away.iim;
+                const dominantIIM = dominantHome ? s.home.iim : s.away.iim;
+                const pctReady = Math.min(99, Math.round((dominantIIM / thRef) * 100));
+
+                return (
+                  <div
+                    key={`alert-potential-${f.id}`}
+                    className="card"
+                    style={{
+                      padding: 14,
+                      borderLeft: '4px solid var(--status-yellow)',
+                      background: 'rgba(245, 158, 11, 0.03)',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: 'rgba(245,158,11,0.12)', color: 'var(--status-yellow)', padding: '3px 8px' }}>
+                          🔥 POTENCIAL
+                        </span>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                          {pctReady}% do gatilho
+                        </span>
+                      </div>
+                      <div className="badge badge-green" style={{ fontSize: '0.7rem', fontWeight: 700 }}>
+                        {f.elapsed}'
+                      </div>
+                    </div>
+
+                    <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
+                      {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{f.goalsHome}-{f.goalsAway}</span> {f.awayTeam.name}
+                    </h3>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>{f.leagueName}</span>
+
+                    {/* Mini stats */}
+                    <div style={{ display: 'flex', gap: 10, fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: 10, flexWrap: 'wrap' }}>
+                      <span>IIM: <strong>{s.home.iim}</strong>|<strong>{s.away.iim}</strong></span>
+                      <span>Cantos: <strong>{s.home.corners}-{s.away.corners}</strong></span>
+                      <span>Chutes Gol: <strong>{s.home.shotsOnGoal}-{s.away.shotsOnGoal}</strong></span>
+                      <span>Posse: <strong>{s.home.possession}%-{s.away.possession}%</strong></span>
+                    </div>
+
+                    {/* Progress bar to trigger */}
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ height: 4, background: 'rgba(0,0,0,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ width: `${pctReady}%`, height: '100%', background: pctReady >= 90 ? 'var(--status-green)' : 'var(--status-yellow)', transition: 'width 0.5s ease' }}></div>
+                      </div>
+                    </div>
+
+                    {/* Links rápidos */}
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                      {getEnabledBookmakers().slice(0, 3).map(bk => (
+                        <a key={bk.id} href={bk.liveUrl} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: '0.6rem', fontWeight: 700, color: bk.color, background: bk.bgColor, padding: '2px 6px', borderRadius: 4, textDecoration: 'none', opacity: 0.85 }}
+                          title={`Preparar no ${bk.name}`}
+                        >{bk.logo} {bk.shortName}</a>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            }
+
+            {/* Empty State */}
+            {alertFilter === 'entrada' && filteredOpps.length === 0 && (
+              <div className="card glass-panel" style={{ textAlign: 'center', padding: '50px 30px', color: 'var(--text-muted)' }}>
+                <Activity size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+                <h3 style={{ color: 'var(--text-primary)', marginBottom: 6, fontSize: '1rem' }}>Sem entradas ativas</h3>
+                <p style={{ fontSize: '0.85rem' }}>O bot continua monitorando. Confiança mínima: {minConfidence}%</p>
+              </div>
+            )}
+
+            {alertFilter === 'potencial' && fixtures.filter(f => {
+              const s = allStats[f.id];
+              if (!s || !s.hasTelemetry) return false;
+              const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
+              const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
+              const hR = s.home.iim / thRef; const aR = s.away.iim / thRef;
+              const vt = f.elapsed <= 85 && f.status !== 'HT';
+              const og = f.goalsHome + f.goalsAway <= 4;
+              return !hasOpp && vt && og && (
+                (hR >= 0.7 && s.home.corners >= 2) || (aR >= 0.7 && s.away.corners >= 2) ||
+                (s.home.iim + s.away.iim >= thRef * 1.2 && s.home.shotsOnGoal + s.away.shotsOnGoal >= 2)
+              );
+            }).length === 0 && (
+              <div className="card glass-panel" style={{ textAlign: 'center', padding: '50px 30px', color: 'var(--text-muted)' }}>
+                <Gauge size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+                <h3 style={{ color: 'var(--text-primary)', marginBottom: 6, fontSize: '1rem' }}>Sem jogos esquentando</h3>
+                <p style={{ fontSize: '0.85rem' }}>Nenhum jogo está perto de disparar um gatilho no momento.</p>
+              </div>
+            )}
+          </div>
         </div>
 
       </div>
@@ -1729,67 +1723,4 @@ export default function Radar() {
   );
 }
 
-// Compact Dossier visual item
-interface DossierItemProps {
-  label: string;
-  value: string;
-}
 
-function DossierItem({ label, value }: DossierItemProps) {
-  return (
-    <div style={{ background: 'var(--bg-elevated)', padding: 10, borderRadius: 6, border: '1px solid var(--border-color)' }}>
-      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 700 }}>{label}</span>
-      <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', fontWeight: 700, marginTop: 2, display: 'block' }}>{value}</span>
-    </div>
-  );
-}
-
-// Internal comparative stats row component
-interface StatRowProps {
-  label: string;
-  homeVal: number;
-  awayVal: number;
-  highlightHigher?: boolean;
-}
-
-function StatRow({ label, homeVal, awayVal, highlightHigher = false }: StatRowProps) {
-  const total = homeVal + awayVal === 0 ? 1 : (homeVal + awayVal);
-  const homePct = (homeVal / total) * 100;
-  const awayPct = (awayVal / total) * 100;
-
-  const isHomeHigher = homeVal > awayVal;
-  const isAwayHigher = awayVal > homeVal;
-
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: 4 }}>
-        <span style={{ 
-          fontWeight: isHomeHigher && highlightHigher ? '700' : '500', 
-          color: isHomeHigher && highlightHigher ? 'var(--status-green)' : 'var(--text-primary)' 
-        }}>
-          {homeVal}
-        </span>
-        <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 500 }}>{label}</span>
-        <span style={{ 
-          fontWeight: isAwayHigher && highlightHigher ? '700' : '500', 
-          color: isAwayHigher && highlightHigher ? 'var(--status-green)' : 'var(--text-primary)' 
-        }}>
-          {awayVal}
-        </span>
-      </div>
-      <div style={{ width: '100%', height: 6, background: 'rgba(0,0,0,0.05)', borderRadius: 3, display: 'flex', overflow: 'hidden' }}>
-        <div style={{ 
-          width: `${homePct}%`, 
-          height: '100%', 
-          background: isHomeHigher && highlightHigher ? 'var(--status-green)' : 'var(--text-secondary)', 
-          borderRight: '1px solid #fff' 
-        }}></div>
-        <div style={{ 
-          width: `${awayPct}%`, 
-          height: '100%', 
-          background: isAwayHigher && highlightHigher ? 'var(--status-green)' : 'var(--text-muted)' 
-        }}></div>
-      </div>
-    </div>
-  );
-}
