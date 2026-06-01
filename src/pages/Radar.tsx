@@ -1090,11 +1090,6 @@ export default function Radar() {
                 </thead>
                 <tbody>
                   {fixtures
-                    .filter(f => {
-                      // Ocultar jogos sem telemetria — não aparecem no sistema
-                      const stats = allStats[f.id];
-                      return stats && stats.hasTelemetry;
-                    })
                     .map(f => {
                     const stats = allStats[f.id];
                     const dossier = allDossiers[f.id];
