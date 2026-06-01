@@ -196,19 +196,24 @@ let currentCallback: BridgeCallback | null = null;
 
 /**
  * Registra um listener para dados da Bet365 Bridge
+ * Usa window.postMessage (cruza a barreira do content script isolado)
  * Retorna uma função de cleanup
  */
 export function onBet365Data(callback: BridgeCallback): () => void {
-  const handler = (event: Event) => {
-    const customEvent = event as CustomEvent<Bet365BridgePayload>;
-    callback(customEvent.detail);
+  const handler = (event: MessageEvent) => {
+    // Filtrar apenas mensagens da bridge
+    if (event.data?.type !== 'BET365_BRIDGE_DATA') return;
+    const payload = event.data.payload as Bet365BridgePayload;
+    if (payload) {
+      callback(payload);
+    }
   };
 
-  window.addEventListener('bet365-bridge-data', handler);
+  window.addEventListener('message', handler);
   currentCallback = callback;
 
   return () => {
-    window.removeEventListener('bet365-bridge-data', handler);
+    window.removeEventListener('message', handler);
     currentCallback = null;
   };
 }
