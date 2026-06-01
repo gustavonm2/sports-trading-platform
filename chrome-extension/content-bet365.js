@@ -186,7 +186,7 @@
         }
 
         // Procurar números DEPOIS do label (valor Away)
-        for (let j = i + 1; j <= Math.min(textElements.length - 1, i + 5); j--) {
+        for (let j = i + 1; j <= Math.min(textElements.length - 1, i + 5); j++) {
           const nums = extractNumbers(textElements[j].text);
           if (nums.length === 1 && nums[0] <= 999) {
             awayVal = nums[0];
