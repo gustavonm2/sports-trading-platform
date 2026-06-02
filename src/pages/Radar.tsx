@@ -304,7 +304,8 @@ export default function Radar() {
     const ap3 = getAttacksInWindow(fixtureId, 3, isHome);
     
     const iia = (ap10 * 0.20) + (ap5 * 0.30) + (ap3 * 0.50);
-    const fa = ap5 > 0 ? (ap3 / ap5) : 1.0;
+    const rawFa = ap5 > 0 ? (ap3 / ap5) : 1.0;
+    const fa = Math.max(0.75, Math.min(1.25, rawFa));
     const iap = iia * fa;
     
     const niap = Math.min(10, iap);
@@ -720,7 +721,8 @@ export default function Radar() {
         const ap3 = getAttacksInWindow(3, isHome);
         
         const iia = (ap10 * 0.20) + (ap5 * 0.30) + (ap3 * 0.50);
-        const fa = ap5 > 0 ? (ap3 / ap5) : 1.0;
+        const rawFa = ap5 > 0 ? (ap3 / ap5) : 1.0;
+        const fa = Math.max(0.75, Math.min(1.25, rawFa));
         const iap = iia * fa;
         
         const niap = Math.min(10, iap);
@@ -1993,7 +1995,8 @@ export default function Radar() {
                                 const homeAp5 = getAttacksInWindow(f.id, 5, true);
                                 const homeAp3 = getAttacksInWindow(f.id, 3, true);
                                 const homeIia = (homeAp10 * 0.20) + (homeAp5 * 0.30) + (homeAp3 * 0.50);
-                                const homeFa = homeAp5 > 0 ? (homeAp3 / homeAp5) : 1.0;
+                                const rawHomeFa = homeAp5 > 0 ? (homeAp3 / homeAp5) : 1.0;
+                                const homeFa = Math.max(0.75, Math.min(1.25, rawHomeFa));
                                 const homeIap = homeIia * homeFa;
 
                                 const homeNiap = Math.min(10, homeIap);
@@ -2009,7 +2012,8 @@ export default function Radar() {
                                 const awayAp5 = getAttacksInWindow(f.id, 5, false);
                                 const awayAp3 = getAttacksInWindow(f.id, 3, false);
                                 const awayIia = (awayAp10 * 0.20) + (awayAp5 * 0.30) + (awayAp3 * 0.50);
-                                const awayFa = awayAp5 > 0 ? (awayAp3 / awayAp5) : 1.0;
+                                const rawAwayFa = awayAp5 > 0 ? (awayAp3 / awayAp5) : 1.0;
+                                const awayFa = Math.max(0.75, Math.min(1.25, rawAwayFa));
                                 const awayIap = awayIia * awayFa;
 
                                 const awayNiap = Math.min(10, awayIap);
