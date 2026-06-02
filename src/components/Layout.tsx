@@ -1,18 +1,18 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar, 
-  Zap, Shield, TrendingUp, CheckCircle, Clock, Filter, Download
+  Shield, TrendingUp, CheckCircle, Clock, Download
 } from 'lucide-react';
 
 export default function Layout() {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
-  const currentMode = searchParams.get('mode') || 'conservative';
+  const currentMode = searchParams.get('mode') || 'classico';
 
   const isLinkActive = (path: string, modeParam?: string) => {
     if (location.pathname !== path) return false;
     if (path === '/radar') {
-      return currentMode === (modeParam || 'conservative');
+      return currentMode === (modeParam || 'classico');
     }
     return true;
   };
@@ -37,7 +37,7 @@ export default function Layout() {
           
           <Link 
             to="/radar" 
-            className={`nav-item ${isLinkActive('/radar', 'conservative') && location.search === '' ? 'active' : ''}`}
+            className={`nav-item ${isLinkActive('/radar', 'classico') && location.search === '' ? 'active' : ''}`}
           >
             <Activity size={20} />
             Radar Ao Vivo
@@ -75,43 +75,27 @@ export default function Layout() {
           </span>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <Link 
-              to="/radar?mode=apm_pure" 
-              className={`nav-item ${isLinkActive('/radar', 'apm_pure') ? 'active' : ''}`}
-            >
-              <Zap size={18} />
-              APM Puro (Favorito)
-            </Link>
-            
-            <Link 
-              to="/radar?mode=aggressive" 
-              className={`nav-item ${isLinkActive('/radar', 'aggressive') ? 'active' : ''}`}
+              to="/radar?mode=arriscado" 
+              className={`nav-item ${isLinkActive('/radar', 'arriscado') ? 'active' : ''}`}
             >
               <TrendingUp size={18} />
-              Agressivo
+              Arriscado
             </Link>
             
             <Link 
-              to="/radar?mode=conservative" 
-              className={`nav-item ${isLinkActive('/radar', 'conservative') && location.search.includes('conservative') ? 'active' : ''}`}
+              to="/radar?mode=classico" 
+              className={`nav-item ${isLinkActive('/radar', 'classico') ? 'active' : ''}`}
             >
               <CheckCircle size={18} />
-              Conservador Clássico
+              Clássico
             </Link>
             
             <Link 
-              to="/radar?mode=defensive" 
-              className={`nav-item ${isLinkActive('/radar', 'defensive') ? 'active' : ''}`}
+              to="/radar?mode=conservador" 
+              className={`nav-item ${isLinkActive('/radar', 'conservador') ? 'active' : ''}`}
             >
               <Shield size={18} />
-              Conservador Defensivo
-            </Link>
-
-            <Link 
-              to="/radar?mode=funnel" 
-              className={`nav-item ${isLinkActive('/radar', 'funnel') ? 'active' : ''}`}
-            >
-              <Filter size={18} />
-              Funil (Minutos Finais)
+              Conservador
             </Link>
           </nav>
         </div>

@@ -29,6 +29,7 @@ export interface TeamStats {
   yellowCards: number;       // Yellow Cards
   redCards: number;           // Red Cards
   goalkeeperSaves: number;   // Goalkeeper Saves (NOVO)
+  offsides?: number;          // Impedimentos
   // ❌ Campos que a API NÃO fornece (mantidos para compatibilidade com Sportmonks)
   attacks: number;           // Attacks — sempre 0 na API-Sports
   dangerousAttacks: number;  // Dangerous Attacks — sempre 0 na API-Sports
@@ -37,11 +38,21 @@ export interface TeamStats {
   iim: number;               // IIM: Índice de Intensidade por Minuto (chutes+cantos/min)
 }
 
+export interface TelemetrySnapshot {
+  elapsed: number;     // Minuto do jogo (ex: 35)
+  homeDA: number;      // Ataques Perigosos Mandante
+  awayDA: number;      // Ataques Perigosos Visitante
+  timestamp: number;   // Epoch timestamp em ms
+}
+
 export interface MatchStats {
   fixtureId: number;
   home: TeamStats;
   away: TeamStats;
   hasTelemetry: boolean; // Flag to indicate whether the API actually returned live statistics
+  elapsed?: number;      // Tempo decorrido (opcional, vindo da bridge se disponível)
+  hasBridge?: boolean; // Flag indicating if the match has been enriched with Bet365 bridge data
+  snapshots?: TelemetrySnapshot[]; // Telemetry snapshots time-series
 }
 
 export interface PreMatchDossier {
