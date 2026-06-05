@@ -408,6 +408,75 @@ export default function Radar() {
     return () => clearInterval(interval);
   }, [scannerMatches]);
 
+  // ⏱️ Interpolação de Tempo Local — Incrementa elapsed a cada 60s para fixtures ao vivo
+  // Evita que o tempo "congele" entre ciclos de polling da API (25-30s)
+  const elapsedTickRef = useRef<Record<number, number>>({}); // fixtureId → timestamp da última atualização da API
+  
+  useEffect(() => {
+    const tick = () => {
+      const now = Date.now();
+      
+      // Incrementar fixtures da API
+      setFixtures(prev => {
+        let changed = false;
+        const next = prev.map(f => {
+          const status = (f.status || '').toUpperCase();
+          if (status !== '1H' && status !== '2H' && status !== 'ET') return f;
+          if (f.elapsed >= 90 && status !== 'ET') return f;
+          
+          // Verificar se já passou 60s desde a última atualização
+          const lastTick = elapsedTickRef.current[f.id] || now;
+          if (now - lastTick >= 55000) { // 55s para compensar drift
+            elapsedTickRef.current[f.id] = now;
+            changed = true;
+            return { ...f, elapsed: f.elapsed + 1 };
+          }
+          return f;
+        });
+        return changed ? next : prev;
+      });
+
+      // Incrementar fixtures manuais (bridge/scanner)
+      setManualFixtures(prev => {
+        let changed = false;
+        const next = prev.map(f => {
+          const status = (f.status || '').toUpperCase();
+          if (status !== '1H' && status !== '2H' && status !== 'ET') return f;
+          if (f.elapsed >= 90 && status !== 'ET') return f;
+          
+          const key = f.id + 900000; // offset para não conflitar
+          const lastTick = elapsedTickRef.current[key] || now;
+          if (now - lastTick >= 55000) {
+            elapsedTickRef.current[key] = now;
+            changed = true;
+            return { ...f, elapsed: f.elapsed + 1 };
+          }
+          return f;
+        });
+        return changed ? next : prev;
+      });
+    };
+
+    // Tick a cada 15s para granularidade (o check de 55s dentro garante incremento a cada ~60s)
+    const interval = setInterval(tick, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Reset elapsed tick quando a API atualiza os dados
+  useEffect(() => {
+    const now = Date.now();
+    for (const f of fixtures) {
+      elapsedTickRef.current[f.id] = now;
+    }
+  }, [fixtures.map(f => `${f.id}:${f.elapsed}`).join(',')]);
+
+  useEffect(() => {
+    const now = Date.now();
+    for (const f of manualFixtures) {
+      elapsedTickRef.current[f.id + 900000] = now;
+    }
+  }, [manualFixtures.map(f => `${f.id}:${f.elapsed}`).join(',')]);
+
   // Sincronizar links no localStorage
   useEffect(() => {
     localStorage.setItem('bet365_multilinks', linkText);
