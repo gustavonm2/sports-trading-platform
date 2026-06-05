@@ -43,6 +43,7 @@
           storageKey: key,
           homeTeam: value.homeTeam || '',
           awayTeam: value.awayTeam || '',
+          matchUrl: value.matchUrl || '',
           timestamp: value.timestamp || 0,
           home: value.home || {},
           away: value.away || {}

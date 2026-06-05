@@ -34,20 +34,116 @@ export interface Bet365BridgePayload {
   matches: Bet365MatchData[];
 }
 
-// ─── Fuzzy Matching ───
+// Mapa de tradução PT→EN para seleções/times com nomes muito diferentes entre idiomas
+const TEAM_NAME_TRANSLATIONS: Record<string, string> = {
+  // Seleções — nomes que o LCS/fuzzy não consegue resolver
+  'costa do marfim': 'ivory coast',
+  'cote divoire': 'ivory coast',
+  'franca': 'france',
+  'alemanha': 'germany',
+  'inglaterra': 'england',
+  'espanha': 'spain',
+  'italia': 'italy',
+  'holanda': 'netherlands',
+  'paises baixos': 'netherlands',
+  'suica': 'switzerland',
+  'suecia': 'sweden',
+  'noruega': 'norway',
+  'dinamarca': 'denmark',
+  'belgica': 'belgium',
+  'turquia': 'turkey',
+  'turkiye': 'turkey',
+  'grecia': 'greece',
+  'croacia': 'croatia',
+  'servia': 'serbia',
+  'romenia': 'romania',
+  'hungria': 'hungary',
+  'polonia': 'poland',
+  'ucrania': 'ukraine',
+  'russia': 'russia',
+  'escocia': 'scotland',
+  'irlanda': 'ireland',
+  'irlanda do norte': 'northern ireland',
+  'pais de gales': 'wales',
+  'estados unidos': 'united states',
+  'eua': 'united states',
+  'coreia do sul': 'south korea',
+  'coreia sul': 'south korea',
+  'coreia do norte': 'north korea',
+  'japao': 'japan',
+  'china': 'china',
+  'australia': 'australia',
+  'nova zelandia': 'new zealand',
+  'africa do sul': 'south africa',
+  'arabia saudita': 'saudi arabia',
+  'emirados arabes': 'uae',
+  'republica tcheca': 'czech republic',
+  'tchequi': 'czech republic',
+  'eslovaquia': 'slovakia',
+  'eslovenia': 'slovenia',
+  'bosnia': 'bosnia',
+  'macedonia': 'north macedonia',
+  'macedonia do norte': 'north macedonia',
+  'montenegro': 'montenegro',
+  'georgia': 'georgia',
+  'azerbaijao': 'azerbaijan',
+  'cazaquistao': 'kazakhstan',
+  'israel': 'israel',
+  'marrocos': 'morocco',
+  'tunisia': 'tunisia',
+  'argelia': 'algeria',
+  'egito': 'egypt',
+  'camaroes': 'cameroon',
+  'senegal': 'senegal',
+  'gana': 'ghana',
+  'nigeria': 'nigeria',
+  'congo': 'congo',
+  'paraguai': 'paraguay',
+  'uruguai': 'uruguay',
+  'equador': 'ecuador',
+  'venezuela': 'venezuela',
+  'colombia': 'colombia',
+  'peru': 'peru',
+  'bolivia': 'bolivia',
+  'chile': 'chile',
+  'mexico': 'mexico',
+  'costa rica': 'costa rica',
+  'panama': 'panama',
+  'honduras': 'honduras',
+  'jamaica': 'jamaica',
+  'iraque': 'iraq',
+  'ira': 'iran',
+  'catar': 'qatar',
+  'libano': 'lebanon',
+  'jordania': 'jordan',
+  'chipre': 'cyprus',
+  'andorra': 'andorra',
+  'liechtenstein': 'liechtenstein',
+  'luxemburgo': 'luxembourg',
+  'malta': 'malta',
+  'islandia': 'iceland',
+  'finlandia': 'finland',
+  'estonia': 'estonia',
+  'letonia': 'latvia',
+  'lituania': 'lithuania',
+  'albania': 'albania',
+  'guine': 'guinea',
+};
 
-/**
- * Normaliza nome de time para comparação fuzzy
- * Remove acentos, sufixos comuns, espaços extras
- */
 function normalizeTeamName(name: string): string {
-  return name
+  const cleaned = name
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '') // Remove acentos
     .replace(/\b(fc|sc|cf|ac|rc|cd|ud|ca|se|ec|cr|sp|rj|mg|rs|pr|ba|ce|pa|go|es|al|pe|ma|am|pi|mt|ms|to|df|ap|rr|ro|ac|club|united|city|sport|sporting|athletic|atletico|athletic|town|rovers|wanderers|albion)\b/g, '')
-    .replace(/[^a-z0-9]/g, '')
+    .replace(/[^a-z0-9 ]/g, '')
     .trim();
+  
+  // Tentar tradução antes de remover espaços
+  const translated = TEAM_NAME_TRANSLATIONS[cleaned];
+  if (translated) return translated.replace(/[^a-z0-9]/g, '');
+  
+  return cleaned.replace(/\s+/g, '');
 }
 
 /**
@@ -129,7 +225,8 @@ export function mergeStats(
       // Se for posse de bola (que varia no tempo), usamos diretamente o valor da Bet365
       // Para estatísticas cumulativas, usamos o valor máximo para robustez contra flutuações temporárias
       const apiVal = Number(merged[side][apiField]) || 0;
-      if (apiField === 'possession') {
+      const directOverwriteFields = ['possession', 'shotsOnGoal', 'shotsOffGoal', 'totalShots', 'yellowCards', 'redCards'];
+      if (directOverwriteFields.includes(apiField as string)) {
         (merged[side] as any)[apiField] = bet365Val;
       } else {
         (merged[side] as any)[apiField] = Math.max(apiVal, bet365Val);
@@ -262,6 +359,12 @@ export interface APMMetrics {
   apm3: number;
   accelerationFactor: number;
   ipr: number;
+  /** Tempo coberto pelos snapshots em minutos (0 = sem dados) */
+  dataAge: number;
+  /** Confiabilidade de cada janela: true = dados suficientes, false = fallback para global */
+  reliable10: boolean;
+  reliable5: boolean;
+  reliable3: boolean;
 }
 
 export function calculateDynamicAPM(
@@ -281,6 +384,10 @@ export function calculateDynamicAPM(
       apm3: roundedApm,
       accelerationFactor: 1.0,
       ipr: roundedApm,
+      dataAge: 0,
+      reliable10: false,
+      reliable5: false,
+      reliable3: false,
     };
   };
 
@@ -294,6 +401,18 @@ export function calculateDynamicAPM(
   // Ordenar snapshots para garantir ordem cronológica
   const sortedSnaps = [...snapshots].sort((a, b) => a.elapsed - b.elapsed);
   const currentSnap = sortedSnaps[sortedSnaps.length - 1];
+  const earliestSnap = sortedSnaps[0];
+  
+  // ⚠️ dataAge usa TIMESTAMP REAL (wall-clock), não elapsed do jogo.
+  // Isso evita inflar o dataAge quando a telemetria acabou de ser ativada
+  // em um jogo que já está rolando (ex: ativar no min 38, dataAge = 0, não 13).
+  const dataAgeMs = (currentSnap.timestamp && earliestSnap.timestamp) 
+    ? currentSnap.timestamp - earliestSnap.timestamp 
+    : 0;
+  const dataAge = Math.max(0, dataAgeMs / 60000); // em minutos reais
+  
+  // Elapsed coverage (para cálculos de janela que usam minuto do jogo)
+  const elapsedCoverage = currentSnap.elapsed - earliestSnap.elapsed;
 
   const calculateSideAPM = (
     isHome: boolean,
@@ -302,21 +421,46 @@ export function calculateDynamicAPM(
     const getDA = (s: TelemetrySnapshot) => (isHome ? s.homeDA : s.awayDA);
     const apmGlobal = currentElapsed > 0 ? globalDA / currentElapsed : 0;
     
-    // Função local para extrair APM dinâmico baseada em janelas móveis
-    const getApmForWindow = (minutes: number): number => {
+    // ─── Tempo no meio-tempo atual (2º tempo reinicia contagem) ──────
+    const halfElapsed = currentElapsed > 45 ? currentElapsed - 45 : currentElapsed;
+
+    // ─── Janelas de ativação por tempo do meio ──────────────────────
+    const RAMP_DURATION = 5;
+    
+    const ramp = (activateAt: number): number => {
+      if (halfElapsed < activateAt) return 0;
+      if (halfElapsed >= activateAt + RAMP_DURATION) return 1;
+      return (halfElapsed - activateAt) / RAMP_DURATION;
+    };
+
+    const ramp10 = ramp(20);
+    const ramp5  = ramp(25);
+    const ramp3  = ramp(30);
+    
+    // ─── Cálculo com detecção de dados insuficientes ─────────────────
+    // Uma janela é CONFIÁVEL se temos snapshots cobrindo pelo menos 60% dela
+    // Ex: ATM 10 precisa de pelo menos 6 min de dados
+    const MIN_COVERAGE = 0.6; // 60% da janela coberta
+    
+    const getApmForWindow = (minutes: number): { value: number; reliable: boolean } => {
       const targetTime = currentElapsed - minutes;
       
-      // Se a janela extrapolar o início do monitoramento
+      // Verificar cobertura: usar elapsed coverage (minutos de jogo cobertos)
+      const coverageMinutes = elapsedCoverage;
+      const isReliable = coverageMinutes >= (minutes * MIN_COVERAGE) && dataAge >= 2;
+      
       if (targetTime <= 0) {
-        const earliest = sortedSnaps[0];
-        const timeDiff = currentElapsed - earliest.elapsed;
-        if (timeDiff > 0) {
-          return Math.max(0, (getDA(currentSnap) - getDA(earliest)) / timeDiff);
+        // Jogo não tem tempo suficiente para esta janela
+        // Se menos de 2 min reais de dados, usar APM Global para evitar valores distorcidos
+        if (dataAge >= 2 && elapsedCoverage > 0) {
+          const daDiff = getDA(currentSnap) - getDA(earliestSnap);
+          const apm = Math.max(0, daDiff / elapsedCoverage);
+          return { value: apm, reliable: false };
         }
-        return apmGlobal;
+        return { value: apmGlobal, reliable: false };
       }
       
-      // Encontrar o snapshot com o elapsed mais próximo da janela t - minutos
+      // Encontrar snapshot mais próximo do targetTime
       let closest = sortedSnaps[0];
       let minDiff = Math.abs(closest.elapsed - targetTime);
       for (const s of sortedSnaps) {
@@ -327,22 +471,58 @@ export function calculateDynamicAPM(
         }
       }
 
-      const elapsedDiff = currentElapsed - closest.elapsed;
-      if (elapsedDiff > 0) {
-        return Math.max(0, (getDA(currentSnap) - getDA(closest)) / elapsedDiff);
+      // Se o snapshot mais próximo está muito longe do target → dados insuficientes
+      // Gap máximo aceitável: 40% da janela
+      const maxGap = minutes * 0.4;
+      if (minDiff > maxGap) {
+        // Dados insuficientes → usar APM Global se tempo real < 2 min
+        if (dataAge >= 2 && elapsedCoverage > 0) {
+          const daDiff = getDA(currentSnap) - getDA(earliestSnap);
+          return { value: Math.max(0, daDiff / elapsedCoverage), reliable: false };
+        }
+        return { value: apmGlobal, reliable: false };
       }
-      return apmGlobal;
+
+      const daDiff = getDA(currentSnap) - getDA(closest);
+      const actualWindow = currentSnap.elapsed - closest.elapsed;
+      if (daDiff <= 0 || actualWindow <= 0) return { value: 0, reliable: isReliable };
+      return { value: Math.max(0, daDiff / minutes), reliable: isReliable };
     };
 
-    const apm10 = getApmForWindow(10);
-    const apm5 = getApmForWindow(5);
-    const apm3 = getApmForWindow(3);
+    const raw10 = getApmForWindow(10);
+    const raw5 = getApmForWindow(5);
+    const raw3 = getApmForWindow(3);
 
-    // Fator de Aceleração = APM_10 / APM_Global
-    const accelerationFactor = apmGlobal > 0 ? apm10 / apmGlobal : 1.0;
+    // ─── Se dados insuficientes, usar APM Global em vez de valor distorcido ─
+    const rawApm10 = raw10.reliable ? raw10.value : apmGlobal;
+    const rawApm5  = raw5.reliable  ? raw5.value  : apmGlobal;
+    const rawApm3  = raw3.reliable  ? raw3.value  : apmGlobal;
 
-    // Índice de Pressão Recente (IPR) = (APM_10 * 0.5) + (APM_5 * 0.3) + (APM_3 * 0.2)
-    const ipr = (apm10 * 0.5) + (apm5 * 0.3) + (apm3 * 0.2);
+    // ─── Aplicar ramp: mistura suave entre APM Global e APM da janela ─
+    const apm10 = ramp10 * rawApm10 + (1 - ramp10) * apmGlobal;
+    const apm5  = ramp5  * rawApm5  + (1 - ramp5)  * apmGlobal;
+    const apm3  = ramp3  * rawApm3  + (1 - ramp3)  * apmGlobal;
+
+    // ─── Fator de Aceleração ──────────────────────────────────────────
+    const MIN_APM_FOR_ACCELERATION = 0.3;
+    const recentAPM = ramp3 >= 0.5 ? apm3 : ramp5 >= 0.5 ? apm5 : ramp10 >= 0.5 ? apm10 : apmGlobal;
+    const rawAcceleration = apmGlobal > 0 ? recentAPM / apmGlobal : 1.0;
+    const accelerationFactor = recentAPM >= MIN_APM_FOR_ACCELERATION
+      ? rawAcceleration 
+      : Math.min(rawAcceleration, 1.0);
+
+    // ─── IPR com pesos dinâmicos ──────────────────────────────────────
+    const w10 = 0.5 * ramp10;
+    const w5  = 0.3 * ramp5;
+    const w3  = 0.2 * ramp3;
+    const totalWeight = w10 + w5 + w3;
+
+    let ipr: number;
+    if (totalWeight > 0) {
+      ipr = (apm10 * w10 + apm5 * w5 + apm3 * w3) / totalWeight;
+    } else {
+      ipr = apmGlobal;
+    }
 
     return {
       apmGlobal: Math.round(apmGlobal * 100) / 100,
@@ -351,6 +531,10 @@ export function calculateDynamicAPM(
       apm3: Math.round(apm3 * 100) / 100,
       accelerationFactor: Math.round(accelerationFactor * 100) / 100,
       ipr: Math.round(ipr * 100) / 100,
+      dataAge: Math.round(dataAge * 10) / 10,
+      reliable10: raw10.reliable && ramp10 > 0,
+      reliable5: raw5.reliable && ramp5 > 0,
+      reliable3: raw3.reliable && ramp3 > 0,
     };
   };
 

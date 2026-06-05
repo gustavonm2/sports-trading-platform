@@ -1,0 +1,1035 @@
+diff --git a/src/pages/Radar.tsx b/src/pages/Radar.tsx
+index ebefc7b..b67f096 100644
+--- a/src/pages/Radar.tsx
++++ b/src/pages/Radar.tsx
+@@ -1,4 +1,4 @@
+-import { useState, useEffect, useCallback, useRef } from 'react';
++import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
+ import { useSearchParams } from 'react-router-dom';
+ import { 
+   Activity, Zap, ShieldAlert,
+@@ -90,7 +90,7 @@ export default function Radar() {
+   const [selectedFixture, setSelectedFixture] = useState<Fixture | null>(null);
+   
+   // Advanced scanner and dossier states
+-  const [allStats, setAllStats] = useState<Record<number, MatchStats>>({});
++  const [rawApiStats, setRawApiStats] = useState<Record<number, MatchStats>>({});
+   const [allDossiers, setAllDossiers] = useState<Record<number, PreMatchDossier>>({});
+   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+   const [soundEnabled, setSoundEnabled] = useState(true);
+@@ -118,6 +118,74 @@ export default function Radar() {
+   const [bet365Bridge, setBet365Bridge] = useState<Bet365BridgePayload | null>(null);
+   const bet365DataRef = useRef<Bet365MatchData[]>([]);
+ 
++  // 🚀 Gerenciador de Links Multijogos
++  const [showLinkManager, setShowLinkManager] = useState(false);
++  const [linkText, setLinkText] = useState(() => localStorage.getItem('bet365_multilinks') || '');
++  
++  // 🔍 Estado para linha expandida na tabela do radar (Dashboard Detalhado)
++  const [expandedFixtureId, setExpandedFixtureId] = useState<number | null>(null);
++
++  // Sincronizar links no localStorage
++  useEffect(() => {
++    localStorage.setItem('bet365_multilinks', linkText);
++  }, [linkText]);
++
++  // ─── useMemo de allStats: Combina rawApiStats (API) com a Bridge da Bet365 ───
++  const allStats = useMemo(() => {
++    const updated = { ...rawApiStats };
++    
++    // Se a bridge estiver conectada e tiver matches, fazemos o merge inteligente
++    if (bet365Bridge && bet365Bridge.connected && bet365Bridge.matches.length > 0) {
++      for (const fixture of fixtures) {
++        const bet365Match = findBet365Match(
++          fixture.homeTeam.name,
++          fixture.awayTeam.name,
++          bet365Bridge.matches
++        );
++
++        if (!bet365Match) continue;
++
++        const existingStats = updated[fixture.id];
++
++        if (existingStats) {
++          // Fixture JÁ TEM stats da API → merge complementar
++          const merged = mergeStats(existingStats, bet365Match);
++          const elapsed = fixture.elapsed || 1;
++          const hasBet365 = (bet365Match.home?.dangerousAttacks || 0) > 0 || 
++                            (bet365Match.away?.dangerousAttacks || 0) > 0;
++          merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBet365);
++          merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBet365);
++          updated[fixture.id] = merged;
++        } else {
++          // Fixture SEM stats da API → criar stats a partir da bridge
++          const emptyTeam = (): import('../services/apiSports').TeamStats => ({
++            shotsOnGoal: 0, shotsOffGoal: 0, totalShots: 0, blockedShots: 0,
++            shotsInsideBox: 0, corners: 0, fouls: 0, possession: 0,
++            yellowCards: 0, redCards: 0, goalkeeperSaves: 0,
++            attacks: 0, dangerousAttacks: 0, pressureIndex: 0, iim: 0
++          });
++          const bridgeStats: import('../services/apiSports').MatchStats = {
++            fixtureId: fixture.id,
++            home: emptyTeam(),
++            away: emptyTeam(),
++            hasTelemetry: false
++          };
++          const merged = mergeStats(bridgeStats, bet365Match);
++          const elapsed = fixture.elapsed || 1;
++          const hasBet365 = (bet365Match.home?.dangerousAttacks || 0) > 0 || 
++                            (bet365Match.away?.dangerousAttacks || 0) > 0;
++          merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBet365);
++          merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBet365);
++          // Marcar que tem dados da bridge mesmo sem telemetria API
++          merged.hasTelemetry = false;
++          updated[fixture.id] = merged;
++        }
++      }
++    }
++    
++    return updated;
++  }, [rawApiStats, bet365Bridge, fixtures]);
++
+   const handlePeguei = async (opp: Opportunity) => {
+     if (gottenOppIds.has(opp.id)) return;
+     
+@@ -216,7 +284,7 @@ export default function Radar() {
+             const statsRes = await apiSports.getMatchStats(fixture.id, fixture.elapsed);
+             if (statsRes?.stats) {
+               statsLastFetchRef.current[fixture.id] = now;
+-              setAllStats(prevStats => ({ ...prevStats, [fixture.id]: statsRes.stats }));
++              setRawApiStats(prevStats => ({ ...prevStats, [fixture.id]: statsRes.stats }));
+             }
+           }
+         } catch (e) {
+@@ -248,7 +316,7 @@ export default function Radar() {
+       if (finalFixtures.length > 0) {
+         // Sportsmonks Live Premium is active!
+         setApiErrorReason(null);
+-        setAllStats(finalStats);
++        setRawApiStats(finalStats);
+         setActiveDataSource('sportsmonks');
+         
+         // Create ID mapping between Sportsmonks and API-Sports
+@@ -283,7 +351,7 @@ export default function Radar() {
+         
+         if (sfFixtures.length > 0) {
+           setApiErrorReason(null);
+-          setAllStats(sfResult.statsMap || {});
++          setRawApiStats(sfResult.statsMap || {});
+           setActiveDataSource('sofascore');
+           finalFixtures = sfFixtures;
+           
+@@ -713,45 +781,10 @@ export default function Radar() {
+     const cleanup = onBet365Data((payload) => {
+       setBet365Bridge(payload);
+       bet365DataRef.current = payload.matches;
+-
+-      // Merge dados da Bet365 com allStats existentes
+-      if (payload.connected && payload.matches.length > 0) {
+-        setAllStats(prevStats => {
+-          const updated = { ...prevStats };
+-          
+-          for (const [fixtureId, stats] of Object.entries(updated)) {
+-            const fId = Number(fixtureId);
+-            const fixture = fixtures.find(f => f.id === fId);
+-            if (!fixture) continue;
+-
+-            const bet365Match = findBet365Match(
+-              fixture.homeTeam.name,
+-              fixture.awayTeam.name,
+-              payload.matches
+-            );
+-
+-            if (bet365Match) {
+-              const merged = mergeStats(stats, bet365Match);
+-              
+-              // Recalcular IIM enriquecido
+-              const elapsed = fixture.elapsed || 1;
+-              const hasBet365 = (bet365Match.home?.dangerousAttacks || 0) > 0 || 
+-                                (bet365Match.away?.dangerousAttacks || 0) > 0;
+-              
+-              merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBet365);
+-              merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBet365);
+-              
+-              updated[fId] = merged;
+-            }
+-          }
+-          
+-          return updated;
+-        });
+-      }
+     });
+ 
+     return cleanup;
+-  }, [fixtures]);
++  }, []);
+ 
+   // Filtered active opportunities by confidence and granular market preference
+   const filteredOpps = opportunities
+@@ -828,6 +861,150 @@ export default function Radar() {
+         </div>
+       </div>
+ 
++      {/* 🚀 GERENCIADOR DE LINKS MULTIJOGOS - COLLAPSIBLE PREMIUM CARD */}
++      <div className="card glass-panel" style={{
++        marginBottom: 20,
++        padding: '16px 24px',
++        background: 'rgba(255, 255, 255, 0.75)',
++        border: '1px solid var(--border-color)',
++        borderRadius: 12,
++        transition: 'all 0.3s ease'
++      }}>
++        <div 
++          onClick={() => setShowLinkManager(!showLinkManager)}
++          style={{ 
++            display: 'flex', 
++            justifyContent: 'space-between', 
++            alignItems: 'center', 
++            cursor: 'pointer',
++            userSelect: 'none'
++          }}
++        >
++          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
++            <Zap size={18} color="var(--accent-primary)" className={bet365Bridge?.connected ? 'pulse-indicator' : ''} />
++            <div>
++              <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
++                Gerenciador de Links Multijogos (Bet365 Bridge)
++              </span>
++              <span style={{ 
++                marginLeft: 12, 
++                fontSize: '0.75rem', 
++                background: 'rgba(16, 185, 129, 0.15)', 
++                color: '#10b981', 
++                padding: '2px 8px', 
++                borderRadius: 4, 
++                fontWeight: 700 
++              }}>
++                NOVO
++              </span>
++            </div>
++          </div>
++          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
++            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>
++              {showLinkManager ? 'Ocultar Painel' : 'Configurar Varredura Multi-Abas'}
++            </span>
++            {showLinkManager ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
++          </div>
++        </div>
++
++        {showLinkManager && (
++          <div style={{ marginTop: 16, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
++            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
++              Cole abaixo os links dos jogos ao vivo da Bet365 que você deseja monitorar simultaneamente. 
++              Ao iniciar a varredura, o sistema abrirá os jogos em abas separadas de forma segura e a extensão 
++              Bet365 Bridge capturará a telemetria de todas em paralelo!
++            </p>
++            
++            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
++              <textarea
++                value={linkText}
++                onChange={(e) => setLinkText(e.target.value)}
++                placeholder="Cole as URLs da Bet365 aqui, uma por linha. Ex:&#10;https://www.bet365.com/#/IP/B1&#10;https://www.bet365.com/#/IP/B2"
++                style={{
++                  width: '100%',
++                  height: 100,
++                  padding: 12,
++                  borderRadius: 8,
++                  border: '1px solid var(--border-color)',
++                  background: 'rgba(255, 255, 255, 0.5)',
++                  color: 'var(--text-primary)',
++                  fontSize: '0.85rem',
++                  fontFamily: 'monospace',
++                  resize: 'vertical',
++                  outline: 'none',
++                  transition: 'border-color 0.2s'
++                }}
++              />
++
++              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
++                <button
++                  onClick={() => {
++                    const urls = linkText
++                      .split('\n')
++                      .map(line => line.trim())
++                      .filter(line => line.startsWith('http://') || line.startsWith('https://'));
++
++                    if (urls.length === 0) return;
++
++                    urls.forEach((url, index) => {
++                      setTimeout(() => {
++                        window.open(url, '_blank');
++                      }, index * 400); // Evita o bloqueador de popups do Chrome
++                    });
++                  }}
++                  disabled={!linkText.trim()}
++                  className="btn btn-primary"
++                  style={{ 
++                    display: 'flex', 
++                    alignItems: 'center', 
++                    gap: 6,
++                    padding: '8px 16px',
++                    fontSize: '0.85rem',
++                    fontWeight: 700
++                  }}
++                >
++                  🚀 Iniciar Varredura Multijogos ({linkText.split('\n').filter(l => l.trim().startsWith('http')).length} abas)
++                </button>
++
++                <button
++                  onClick={() => setLinkText('')}
++                  disabled={!linkText.trim()}
++                  className="btn btn-outline"
++                  style={{ 
++                    padding: '8px 16px',
++                    fontSize: '0.85rem',
++                    fontWeight: 700
++                  }}
++                >
++                  Clean Links
++                </button>
++              </div>
++
++              {/* Status Indicator */}
++              <div style={{ 
++                marginTop: 8, 
++                padding: 12, 
++                background: 'rgba(16, 185, 129, 0.05)', 
++                border: '1px solid rgba(16, 185, 129, 0.15)', 
++                borderRadius: 8,
++                fontSize: '0.8rem',
++                color: 'var(--text-secondary)',
++                display: 'flex',
++                alignItems: 'center',
++                justifyContent: 'space-between'
++              }}>
++                <span>
++                  <strong>Aviso:</strong> Certifique-se de que o bloqueador de popups do seu navegador esteja desativado para este site, permitindo a abertura de todas as abas.
++                </span>
++                <span style={{ fontWeight: 800, color: 'var(--status-green)' }}>
++                  Ponte Ativa 🔗
++                </span>
++              </div>
++            </div>
++          </div>
++        )}
++      </div>
++
+       {/* 🛠️ BARRA DE CONTROLE PREMIUM (Market Filters, Data Sources and Mode Status) */}
+       <div className="card glass-panel" style={{
+         marginBottom: 20,
+@@ -1099,206 +1276,508 @@ export default function Radar() {
+                     
+                     // 🔥 DETECÇÃO DE POTENCIAL: IIM esquentando + contexto válido para entrada
+                     const iimThresholdRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : 1.1;
+-                    const homeIIMRatio = stats.home.iim / iimThresholdRef;
+-                    const awayIIMRatio = stats.away.iim / iimThresholdRef;
++                    const homeIIMRatio = stats ? stats.home.iim / iimThresholdRef : 0;
++                    const awayIIMRatio = stats ? stats.away.iim / iimThresholdRef : 0;
+                     
+                     // Filtros de contexto: só marca potencial se faz sentido apostar
+                     const isValidTime = f.elapsed <= 85 && f.status !== 'HT';        // Não nos minutos finais
+                     const totalGoals = f.goalsHome + f.goalsAway;
+                     const isOpenGame = totalGoals <= 4;                                // Jogo não está goleado
+                     
+-                    const hasPotential = !hasOpp && isValidTime && isOpenGame && (
++                    const hasPotential = !hasOpp && isValidTime && isOpenGame && stats && (
+                       (homeIIMRatio >= 0.7 && stats.home.corners >= 2) ||
+                       (awayIIMRatio >= 0.7 && stats.away.corners >= 2) ||
+                       (stats.home.iim + stats.away.iim >= iimThresholdRef * 1.2 && stats.home.shotsOnGoal + stats.away.shotsOnGoal >= 2)
+                     );
+                     
+                     return (
+-                      <tr 
+-                        key={`table-fixture-${f.id}`}
+-                        style={{ 
+-                          borderBottom: '1px solid var(--border-color)',
+-                          background: hasOpp ? 'rgba(16, 185, 129, 0.06)' : hasPotential ? 'rgba(245, 158, 11, 0.04)' : 'transparent',
+-                          transition: 'background 0.15s ease'
+-                        }}
+-                      >
+-                        {/* Partida */}
+-                        <td style={{ padding: '14px 8px' }}>
+-                          <div style={{ fontWeight: 800, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
+-                            {f.homeTeam.name} <span style={{ color: 'var(--accent-primary)', fontWeight: 500 }}>vs</span> {f.awayTeam.name}
+-                          </div>
+-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 2, fontWeight: 700 }}>
+-                            {f.leagueName}
+-                          </div>
+-                        </td>
+-
+-                        {/* Placar e Tempo */}
+-                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+-                          <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>
+-                            {f.goalsHome} - {f.goalsAway}
+-                          </div>
+-                          <div style={{ fontSize: '0.75rem', color: 'var(--status-green)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
+-                            <span className="pulse-indicator" style={{ background: 'var(--status-green)', width: 6, height: 6 }}></span>
+-                            {f.elapsed}' Min
+-                          </div>
+-                        </td>
+-
+-                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+-                          {!stats ? (
+-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mapeando IIM...</span>
+-                          ) : !stats.hasTelemetry ? (
+-                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
+-                          ) : (
+-                            <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
+-                              <span style={{ color: stats.home.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
+-                                {stats.home.iim}
+-                              </span>
+-                              <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
+-                              <span style={{ color: stats.away.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
+-                                {stats.away.iim}
+-                              </span>
++                      <Fragment key={`group-fixture-${f.id}`}>
++                        <tr 
++                          key={`table-fixture-${f.id}`}
++                          onClick={() => setExpandedFixtureId(expandedFixtureId === f.id ? null : f.id)}
++                          style={{ 
++                            borderBottom: '1px solid var(--border-color)',
++                            background: hasOpp ? 'rgba(16, 185, 129, 0.06)' : hasPotential ? 'rgba(245, 158, 11, 0.04)' : 'transparent',
++                            transition: 'background 0.15s ease',
++                            cursor: 'pointer'
++                          }}
++                        >
++                          {/* Partida */}
++                          <td style={{ padding: '14px 8px' }}>
++                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
++                              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
++                                {expandedFixtureId === f.id ? (
++                                  <ChevronUp size={16} style={{ color: 'var(--accent-primary)' }} />
++                                ) : (
++                                  <ChevronDown size={16} style={{ color: 'var(--text-muted)' }} />
++                                )}
++                              </div>
++                              <div>
++                                <div style={{ fontWeight: 800, fontSize: '0.875rem', color: 'var(--text-primary)' }}>
++                                  {f.homeTeam.name} <span style={{ color: 'var(--accent-primary)', fontWeight: 500 }}>vs</span> {f.awayTeam.name}
++                                </div>
++                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: 2, fontWeight: 700 }}>
++                                  {f.leagueName}
++                                </div>
++                              </div>
++                            </div>
++                          </td>
++
++                          {/* Placar e Tempo */}
++                          <td style={{ padding: '14px 8px', textAlign: 'center' }}>
++                            <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>
++                              {f.goalsHome} - {f.goalsAway}
++                            </div>
++                            <div style={{ fontSize: '0.75rem', color: 'var(--status-green)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
++                              <span className="pulse-indicator" style={{ background: 'var(--status-green)', width: 6, height: 6 }}></span>
++                              {f.elapsed}' Min
+                             </div>
+-                          )}
+-                        </td>
+-
+-                        {/* APM - Ataques Perigosos por Minuto (dados da Bet365 Bridge) */}
+-                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+-                          {!stats ? (
+-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+-                          ) : !stats.hasTelemetry ? (
+-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+-                          ) : (stats.home.dangerousAttacks > 0 || stats.away.dangerousAttacks > 0) ? (() => {
+-                            // Calcular minutos do tempo atual (HT ou ST)
+-                            const halfElapsed = f.status === '2H' ? Math.max(f.elapsed - 45, 1) : Math.max(f.elapsed, 1);
+-                            const homeAPM = Math.round((stats.home.dangerousAttacks / halfElapsed) * 100) / 100;
+-                            const awayAPM = Math.round((stats.away.dangerousAttacks / halfElapsed) * 100) / 100;
+-                            return (
++                          </td>
++
++                          {/* IIM */}
++                          <td style={{ padding: '14px 8px', textAlign: 'center' }}>
++                            {!stats ? (
++                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mapeando IIM...</span>
++                            ) : (!stats.hasTelemetry && !stats.hasBridge) ? (
++                              <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
++                            ) : (
+                               <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
+-                                <span style={{ color: homeAPM >= 1.0 ? '#ef4444' : homeAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>
+-                                  {homeAPM}
++                                <span style={{ color: stats.home.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
++                                  {stats.home.iim}
+                                 </span>
+                                 <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
+-                                <span style={{ color: awayAPM >= 1.0 ? '#ef4444' : awayAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>
+-                                  {awayAPM}
++                                <span style={{ color: stats.away.iim >= 1.0 ? 'var(--status-green)' : 'var(--text-primary)' }}>
++                                  {stats.away.iim}
+                                 </span>
+-                                <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, marginTop: 2 }}>🔗 BRIDGE</div>
++                                {!stats.hasTelemetry && stats.hasBridge && (
++                                  <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, marginTop: 2 }}>🔗 BRIDGE</div>
++                                )}
+                               </div>
+-                            );
+-                          })() : (
+-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>s/ bridge</span>
+-                          )}
+-                        </td>
+-
+-                        {/* Escanteios */}
+-                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+-                          {!stats ? (
+-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+-                          ) : !stats.hasTelemetry ? (
+-                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
+-                          ) : (
+-                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+-                              {stats.home.corners} - {stats.away.corners}
+-                            </div>
+-                          )}
+-                        </td>
+-
+-                        {/* Chutes no Alvo */}
+-                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+-                          {!stats ? (
+-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+-                          ) : !stats.hasTelemetry ? (
+-                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
+-                          ) : (
+-                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+-                              {stats.home.shotsOnGoal} - {stats.away.shotsOnGoal}
+-                            </div>
+-                          )}
+-                        </td>
+-
+-                        {/* Posse */}
+-                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+-                          {!stats ? (
+-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
+-                          ) : !stats.hasTelemetry ? (
+-                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
+-                          ) : (
+-                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+-                              {stats.home.possession}% - {stats.away.possession}%
+-                            </div>
+-                          )}
+-                        </td>
+-
+-                        {/* Necessidade IA / Motivação */}
+-                        <td style={{ padding: '14px 8px', textAlign: 'center' }}>
+-                          {!dossier ? (
+-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cruzando dados...</span>
+-                          ) : (
+-                            <div style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+-                              {dossier.motivationHome}% <span style={{ color: 'var(--text-muted)' }}>/</span> {dossier.motivationAway}%
+-                            </div>
+-                          )}
+-                        </td>
+-
+-                        {/* Status / Oportunidade + Links rápidos */}
+-                        <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+-                          {hasOpp ? (
+-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+-                              <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'var(--status-green-glow)', color: 'var(--status-green)', animation: 'pulse 2s ease-in-out infinite' }}>
+-                                ⚡ GATILHO ATIVO
+-                              </span>
+-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
+-                                {getEnabledBookmakers().map(bk => (
+-                                  <a
+-                                    key={bk.id}
+-                                    href={bk.liveUrl}
+-                                    target="_blank"
+-                                    rel="noopener noreferrer"
+-                                    style={{
+-                                      fontSize: '0.6rem', fontWeight: 800,
+-                                      color: bk.color, background: bk.bgColor,
+-                                      padding: '2px 6px', borderRadius: 4,
+-                                      textDecoration: 'none', border: `1px solid ${bk.color}30`,
+-                                      transition: 'all 0.15s ease'
+-                                    }}
+-                                    title={`Abrir ${bk.name} ao vivo`}
+-                                  >
+-                                    {bk.logo} {bk.shortName}
+-                                  </a>
+-                                ))}
++                            )}
++                          </td>
++
++                          {/* APM */}
++                          <td style={{ padding: '14px 8px', textAlign: 'center' }}>
++                            {!stats ? (
++                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
++                            ) : (!stats.hasTelemetry && !stats.hasBridge) ? (
++                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
++                            ) : (stats.home.dangerousAttacks > 0 || stats.away.dangerousAttacks > 0) ? (() => {
++                              const fullElapsed = Math.max(f.elapsed, 1);
++                              const homeAPM = Math.round((stats.home.dangerousAttacks / fullElapsed) * 100) / 100;
++                              const awayAPM = Math.round((stats.away.dangerousAttacks / fullElapsed) * 100) / 100;
++                              return (
++                                <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
++                                  <span style={{ color: homeAPM >= 1.0 ? '#ef4444' : homeAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>
++                                    {homeAPM}
++                                  </span>
++                                  <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
++                                  <span style={{ color: awayAPM >= 1.0 ? '#ef4444' : awayAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>
++                                    {awayAPM}
++                                  </span>
++                                  <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, marginTop: 2 }}>🔗 BRIDGE</div>
++                                </div>
++                              );
++                            })() : (
++                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>s/ bridge</span>
++                            )}
++                          </td>
++
++                          {/* Escanteios */}
++                          <td style={{ padding: '14px 8px', textAlign: 'center' }}>
++                            {!stats ? (
++                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
++                            ) : (!stats.hasTelemetry && !stats.hasBridge) ? (
++                              <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
++                            ) : (
++                              <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
++                                {stats.home.corners} - {stats.away.corners}
++                                {!stats.hasTelemetry && stats.hasBridge && (
++                                  <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, marginTop: 2 }}>🔗 BRIDGE</div>
++                                )}
+                               </div>
+-                            </div>
+-                          ) : hasPotential ? (
+-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+-                              <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'rgba(245, 158, 11, 0.12)', color: 'var(--status-yellow)' }}>
+-                                🔥 POTENCIAL
+-                              </span>
+-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
+-                                {getEnabledBookmakers().slice(0, 3).map(bk => (
+-                                  <a
+-                                    key={bk.id}
+-                                    href={bk.liveUrl}
+-                                    target="_blank"
+-                                    rel="noopener noreferrer"
+-                                    style={{
+-                                      fontSize: '0.55rem', fontWeight: 700,
+-                                      color: bk.color, background: bk.bgColor,
+-                                      padding: '1px 5px', borderRadius: 3,
+-                                      textDecoration: 'none', opacity: 0.8
+-                                    }}
+-                                    title={`Preparar no ${bk.name}`}
+-                                  >
+-                                    {bk.logo} {bk.shortName}
+-                                  </a>
+-                                ))}
++                            )}
++                          </td>
++
++                          {/* Chutes no Alvo */}
++                          <td style={{ padding: '14px 8px', textAlign: 'center' }}>
++                            {!stats ? (
++                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
++                            ) : (!stats.hasTelemetry && !stats.hasBridge) ? (
++                              <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
++                            ) : (
++                              <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
++                                {stats.home.shotsOnGoal} - {stats.away.shotsOnGoal}
++                                {!stats.hasTelemetry && stats.hasBridge && (
++                                  <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, marginTop: 2 }}>🔗 BRIDGE</div>
++                                )}
+                               </div>
+-                            </div>
+-                          ) : (
+-                            <span className="badge" style={{ fontSize: '0.7rem', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '4px 8px', fontWeight: 600 }}>
+-                              🔍 MONITORANDO
+-                            </span>
+-                          )}
+-                        </td>
+-                      </tr>
++                            )}
++                          </td>
++
++                          {/* Posse */}
++                          <td style={{ padding: '14px 8px', textAlign: 'center' }}>
++                            {!stats ? (
++                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>-</span>
++                            ) : (!stats.hasTelemetry && !stats.hasBridge) ? (
++                              <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: '0.75rem' }}>⚠️ SEM TELEMETRIA</span>
++                            ) : (
++                              <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
++                                {stats.home.possession}% - {stats.away.possession}%
++                                {!stats.hasTelemetry && stats.hasBridge && (
++                                  <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, marginTop: 2 }}>🔗 BRIDGE</div>
++                                )}
++                              </div>
++                            )}
++                          </td>
++
++                          {/* Necessidade IA */}
++                          <td style={{ padding: '14px 8px', textAlign: 'center' }}>
++                            {!dossier ? (
++                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cruzando dados...</span>
++                            ) : (
++                              <div style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-primary)' }}>
++                                {dossier.motivationHome}% <span style={{ color: 'var(--text-muted)' }}>/</span> {dossier.motivationAway}%
++                              </div>
++                            )}
++                          </td>
++
++                          {/* Status Scanner */}
++                          <td style={{ padding: '10px 8px', textAlign: 'center' }}>
++                            {hasOpp ? (
++                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
++                                <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'var(--status-green-glow)', color: 'var(--status-green)', animation: 'pulse 2s ease-in-out infinite' }}>
++                                  ⚡ GATILHO ATIVO
++                                </span>
++                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
++                                  {getEnabledBookmakers().map(bk => (
++                                    <a
++                                      key={bk.id}
++                                      href={bk.liveUrl}
++                                      target="_blank"
++                                      rel="noopener noreferrer"
++                                      style={{
++                                        fontSize: '0.6rem', fontWeight: 800,
++                                        color: bk.color, background: bk.bgColor,
++                                        padding: '2px 6px', borderRadius: 4,
++                                        textDecoration: 'none', border: `1px solid ${bk.color}30`,
++                                        transition: 'all 0.15s ease'
++                                      }}
++                                      title={`Abrir ${bk.name} ao vivo`}
++                                    >
++                                      {bk.logo} {bk.shortName}
++                                    </a>
++                                  ))}
++                                </div>
++                              </div>
++                            ) : hasPotential ? (
++                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
++                                <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'rgba(245, 158, 11, 0.12)', color: 'var(--status-yellow)' }}>
++                                  🔥 POTENCIAL
++                                </span>
++                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
++                                  {getEnabledBookmakers().slice(0, 3).map(bk => (
++                                    <a
++                                      key={bk.id}
++                                      href={bk.liveUrl}
++                                      target="_blank"
++                                      rel="noopener noreferrer"
++                                      style={{
++                                        fontSize: '0.55rem', fontWeight: 700,
++                                        color: bk.color, background: bk.bgColor,
++                                        padding: '1px 5px', borderRadius: 3,
++                                        textDecoration: 'none', opacity: 0.8
++                                      }}
++                                      title={`Preparar no ${bk.name}`}
++                                    >
++                                      {bk.logo} {bk.shortName}
++                                    </a>
++                                  ))}
++                                </div>
++                              </div>
++                            ) : (
++                              <span className="badge" style={{ fontSize: '0.7rem', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '4px 8px', fontWeight: 600 }}>
++                                🔍 MONITORANDO
++                              </span>
++                            )}
++                          </td>
++                        </tr>
++                        
++                        {/* 🔍 Painel Expandido de Telemetria Detalhada */}
++                        {expandedFixtureId === f.id && (
++                          <tr style={{ background: 'rgba(0, 0, 0, 0.15)' }} onClick={(e) => e.stopPropagation()}>
++                            <td colSpan={9} style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)' }}>
++                              <style>{`
++                                @keyframes slideDown {
++                                  from { opacity: 0; transform: translateY(-8px); }
++                                  to { opacity: 1; transform: translateY(0); }
++                                }
++                              `}</style>
++                              {!stats ? (
++                                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontWeight: 600 }}>
++                                  Mapeando dados em tempo real...
++                                </div>
++                              ) : (() => {
++                                // 🛡️ Sanitização completa e segura de dados para evitar NaN ou falhas de render
++                                const homeAttacks = Number(stats.home.attacks) || 0;
++                                const awayAttacks = Number(stats.away.attacks) || 0;
++                                const totalAtt = homeAttacks + awayAttacks;
++                                const homeAttPct = totalAtt > 0 ? (homeAttacks / totalAtt) * 100 : 50;
++                                const awayAttPct = totalAtt > 0 ? (awayAttacks / totalAtt) * 100 : 50;
++
++                                const homeDA = Number(stats.home.dangerousAttacks) || 0;
++                                const awayDA = Number(stats.away.dangerousAttacks) || 0;
++                                const totalDA = homeDA + awayDA;
++                                const homeDAPct = totalDA > 0 ? (homeDA / totalDA) * 100 : 50;
++                                const awayDAPct = totalDA > 0 ? (awayDA / totalDA) * 100 : 50;
++
++                                const homePoss = Number(stats.home.possession) || 50;
++                                const awayPoss = Number(stats.away.possession) || 50;
++                                const totalPoss = homePoss + awayPoss;
++                                const homePossPct = totalPoss > 0 ? (homePoss / totalPoss) * 100 : 50;
++                                const awayPossPct = totalPoss > 0 ? (awayPoss / totalPoss) * 100 : 50;
++
++                                const homeShotsOn = Number(stats.home.shotsOnGoal) || 0;
++                                const awayShotsOn = Number(stats.away.shotsOnGoal) || 0;
++                                const homeShotsOff = Number(stats.home.shotsOffGoal) || 0;
++                                const awayShotsOff = Number(stats.away.shotsOffGoal) || 0;
++                                const homeShotsBlocked = Number(stats.home.blockedShots) || 0;
++                                const awayShotsBlocked = Number(stats.away.blockedShots) || 0;
++                                const homeShotsInside = Number(stats.home.shotsInsideBox) || 0;
++                                const awayShotsInside = Number(stats.away.shotsInsideBox) || 0;
++                                const homeCorners = Number(stats.home.corners) || 0;
++                                const awayCorners = Number(stats.away.corners) || 0;
++
++                                const homeFouls = Number(stats.home.fouls) || 0;
++                                const awayFouls = Number(stats.away.fouls) || 0;
++                                const homeOffsides = Number(stats.home.offsides) || 0;
++                                const awayOffsides = Number(stats.away.offsides) || 0;
++                                const homeSaves = Number(stats.home.goalkeeperSaves) || 0;
++                                const awaySaves = Number(stats.away.goalkeeperSaves) || 0;
++
++                                const homeYellow = Number(stats.home.yellowCards) || 0;
++                                const awayYellow = Number(stats.away.yellowCards) || 0;
++                                const homeRed = Number(stats.home.redCards) || 0;
++                                const awayRed = Number(stats.away.redCards) || 0;
++
++                                return (
++                                  <div style={{
++                                    background: 'var(--bg-surface)',
++                                    border: '1px solid var(--border-color)',
++                                    borderRadius: '12px',
++                                    padding: '20px',
++                                    boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
++                                    animation: 'slideDown 0.25s ease-out'
++                                  }}>
++                                    {/* Header Badge */}
++                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
++                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
++                                        <span style={{
++                                          display: 'inline-block',
++                                          width: '8px',
++                                          height: '8px',
++                                          borderRadius: '50%',
++                                          backgroundColor: stats.hasBridge ? '#10b981' : '#3b82f6',
++                                          boxShadow: stats.hasBridge ? '0 0 10px #10b981' : 'none'
++                                        }}></span>
++                                        <span style={{ fontWeight: 800, fontSize: '0.75rem', textTransform: 'uppercase', color: stats.hasBridge ? '#10b981' : 'var(--text-secondary)' }}>
++                                          {stats.hasBridge ? '● 🔗 Conectado via Bet365 Bridge (Tempo Real - Zero Delay)' : '📡 Dados via API de Telemetria'}
++                                        </span>
++                                      </div>
++                                      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
++                                        Partida ID: #{f.id}
++                                      </div>
++                                    </div>
++
++                                    {/* Comparison Columns Container */}
++                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
++                                      
++                                      {/* 1. ATAQUE & VOLUME DE JOGO */}
++                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
++                                        <h4 style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--accent-primary)', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
++                                          <Activity size={14} /> Volume de Jogo
++                                        </h4>
++                                        
++                                        {/* Attacks Progression Bar */}
++                                        <div>
++                                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 700, marginBottom: '4px' }}>
++                                            <span>{homeAttacks}</span>
++                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase' }}>Ataques Totais</span>
++                                            <span>{awayAttacks}</span>
++                                          </div>
++                                          <div style={{ height: '6px', background: 'var(--bg-elevated)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
++                                            <div style={{ 
++                                              width: `${homeAttPct}%`, 
++                                              background: 'linear-gradient(90deg, #10b981, #34d399)', 
++                                              height: '100%' 
++                                            }}></div>
++                                            <div style={{ 
++                                              width: `${awayAttPct}%`, 
++                                              background: 'linear-gradient(90deg, #f59e0b, #fbbf24)', 
++                                              height: '100%' 
++                                            }}></div>
++                                          </div>
++                                        </div>
++
++                                        {/* Dangerous Attacks Progression Bar */}
++                                        <div>
++                                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 700, marginBottom: '4px' }}>
++                                            <span style={{ color: '#10b981' }}>{homeDA}</span>
++                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase' }}>Ataques Perigosos</span>
++                                            <span style={{ color: '#f59e0b' }}>{awayDA}</span>
++                                          </div>
++                                          <div style={{ height: '6px', background: 'var(--bg-elevated)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
++                                            <div style={{ 
++                                              width: `${homeDAPct}%`, 
++                                              background: 'linear-gradient(90deg, #10b981, #059669)', 
++                                              height: '100%' 
++                                            }}></div>
++                                            <div style={{ 
++                                              width: `${awayDAPct}%`, 
++                                              background: 'linear-gradient(90deg, #fbbf24, #d97706)', 
++                                              height: '100%' 
++                                            }}></div>
++                                          </div>
++                                        </div>
++
++                                        {/* Possession Progression Bar */}
++                                        <div>
++                                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', fontWeight: 700, marginBottom: '4px' }}>
++                                            <span>{homePoss}%</span>
++                                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', textTransform: 'uppercase' }}>Posse de Bola</span>
++                                            <span>{awayPoss}%</span>
++                                          </div>
++                                          <div style={{ height: '6px', background: 'var(--bg-elevated)', borderRadius: '3px', display: 'flex', overflow: 'hidden' }}>
++                                            <div style={{ 
++                                              width: `${homePossPct}%`, 
++                                              background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', 
++                                              height: '100%' 
++                                            }}></div>
++                                            <div style={{ 
++                                              width: `${awayPossPct}%`, 
++                                              background: 'linear-gradient(90deg, #f43f5e, #fb7185)', 
++                                              height: '100%' 
++                                            }}></div>
++                                          </div>
++                                        </div>
++                                      </div>
++
++                                      {/* 2. RAIO-X DE FINALIZAÇÕES */}
++                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
++                                        <h4 style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--accent-primary)', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
++                                          <Zap size={14} /> Raio-X de Finalizações
++                                        </h4>
++                                        
++                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
++                                          <div style={{ background: 'var(--bg-elevated)', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
++                                            <div style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>No Alvo</div>
++                                            <div style={{ fontSize: '1.1rem', fontWeight: 800, marginTop: '4px', color: 'var(--status-green)' }}>
++                                              {homeShotsOn} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>vs</span> {awayShotsOn}
++                                            </div>
++                                          </div>
++                                          <div style={{ background: 'var(--bg-elevated)', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
++                                            <div style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Para Fora</div>
++                                            <div style={{ fontSize: '1.1rem', fontWeight: 800, marginTop: '4px' }}>
++                                              {homeShotsOff} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>vs</span> {awayShotsOff}
++                                            </div>
++                                          </div>
++                                          <div style={{ background: 'var(--bg-elevated)', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
++                                            <div style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Bloqueados</div>
++                                            <div style={{ fontSize: '1.1rem', fontWeight: 800, marginTop: '4px' }}>
++                                              {homeShotsBlocked} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>vs</span> {awayShotsBlocked}
++                                            </div>
++                                          </div>
++                                          <div style={{ background: 'var(--bg-elevated)', padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
++                                            <div style={{ fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)' }}>Dentro Área</div>
++                                            <div style={{ fontSize: '1.1rem', fontWeight: 800, marginTop: '4px', color: '#10b981' }}>
++                                              {homeShotsInside} <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>vs</span> {awayShotsInside}
++                                            </div>
++                                          </div>
++                                        </div>
++                                        {/* Escanteios (Cantos) Highlight */}
++                                        <div style={{ 
++                                          background: 'rgba(16, 185, 129, 0.08)', 
++                                          padding: '8px 12px', 
++                                          borderRadius: '8px', 
++                                          border: '1px dashed rgba(16, 185, 129, 0.3)', 
++                                          display: 'flex', 
++                                          justifyContent: 'space-between', 
++                                          alignItems: 'center',
++                                          marginTop: '10px'
++                                        }}>
++                                          <span style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--status-green)' }}>{homeCorners}</span>
++                                          <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-primary)' }}>Escanteios (Cantos)</span>
++                                          <span style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--status-green)' }}>{awayCorners}</span>
++                                        </div>
++                                      </div>
++
++                                      {/* 3. DEFESA & DISCIPLINA */}
++                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
++                                        <h4 style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--accent-primary)', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '6px' }}>
++                                          <ShieldAlert size={14} /> Defesa & Disciplina
++                                        </h4>
++
++                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
++                                          {/* Fouls Comparison */}
++                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', borderBottom: '1px dashed var(--border-color)', paddingBottom: '4px' }}>
++                                            <span style={{ fontWeight: 800 }}>{homeFouls}</span>
++                                            <span style={{ color: 'var(--text-secondary)', fontWeight: 700, fontSize: '0.65rem', textTransform: 'uppercase' }}>Faltas Cometidas</span>
++                                            <span style={{ fontWeight: 800 }}>{awayFouls}</span>
++                                          </div>
++
++                                          {/* Offsides Comparison */}
++                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', borderBottom: '1px dashed var(--border-color)', paddingBottom: '4px' }}>
++                                            <span style={{ fontWeight: 800 }}>{homeOffsides}</span>
++                                            <span style={{ color: 'var(--text-secondary)', fontWeight: 700, fontSize: '0.65rem', textTransform: 'uppercase' }}>Impedimentos</span>
++                                            <span style={{ fontWeight: 800 }}>{awayOffsides}</span>
++                                          </div>
++
++                                          {/* Goalkeeper Saves Comparison */}
++                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', borderBottom: '1px dashed var(--border-color)', paddingBottom: '4px' }}>
++                                            <span style={{ fontWeight: 800, color: 'var(--status-green)' }}>{homeSaves}</span>
++                                            <span style={{ color: 'var(--text-secondary)', fontWeight: 700, fontSize: '0.65rem', textTransform: 'uppercase' }}>Defesas Goleiro</span>
++                                            <span style={{ fontWeight: 800, color: 'var(--status-green)' }}>{awaySaves}</span>
++                                          </div>
++
++                                          {/* Cards Display */}
++                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
++                                            {/* Home Cards */}
++                                            <div style={{ display: 'flex', gap: '8px' }}>
++                                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 800 }}>
++                                                <span style={{ display: 'inline-block', width: '10px', height: '14px', background: '#fbbf24', borderRadius: '2px' }}></span>
++                                                {homeYellow}
++                                              </span>
++                                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 800 }}>
++                                                <span style={{ display: 'inline-block', width: '10px', height: '14px', background: '#ef4444', borderRadius: '2px' }}></span>
++                                                {homeRed}
++                                              </span>
++                                            </div>
++
++                                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 800 }}>Cartões</span>
++
++                                            {/* Away Cards */}
++                                            <div style={{ display: 'flex', gap: '8px' }}>
++                                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 800 }}>
++                                                {awayYellow}
++                                                <span style={{ display: 'inline-block', width: '10px', height: '14px', background: '#fbbf24', borderRadius: '2px' }}></span>
++                                              </span>
++                                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', fontWeight: 800 }}>
++                                                {awayRed}
++                                                <span style={{ display: 'inline-block', width: '10px', height: '14px', background: '#ef4444', borderRadius: '2px' }}></span>
++                                              </span>
++                                            </div>
++                                          </div>
++                                        </div>
++                                      </div>
++
++                                    </div>
++                                  </div>
++                                );
++                              })()}
++                            </td>
++                          </tr>
++                        )}
++                      </Fragment>
+                     );
+                   })}
+                 </tbody>
+@@ -1561,7 +2040,7 @@ export default function Radar() {
+                 {(() => {
+                   const potentialAlerts = fixtures.filter(f => {
+                     const s = allStats[f.id];
+-                    if (!s || !s.hasTelemetry) return false;
++                    if (!s || (!s.hasTelemetry && !s.hasBridge)) return false;
+                     const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
+                     const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
+                     const hR = s.home.iim / thRef; const aR = s.away.iim / thRef;
+@@ -1703,7 +2182,7 @@ export default function Radar() {
+             {(alertFilter === 'all' || alertFilter === 'potencial') && fixtures
+               .filter(f => {
+                 const s = allStats[f.id];
+-                if (!s || !s.hasTelemetry) return false;
++                if (!s || (!s.hasTelemetry && !s.hasBridge)) return false;
+                 const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
+                 const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
+                 const hR = s.home.iim / thRef; const aR = s.away.iim / thRef;
+@@ -1794,7 +2273,7 @@ export default function Radar() {
+ 
+             {alertFilter === 'potencial' && fixtures.filter(f => {
+               const s = allStats[f.id];
+-              if (!s || !s.hasTelemetry) return false;
++              if (!s || (!s.hasTelemetry && !s.hasBridge)) return false;
+               const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
+               const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
+               const hR = s.home.iim / thRef; const aR = s.away.iim / thRef;
