@@ -420,9 +420,9 @@ export default function Radar() {
     return () => clearInterval(interval);
   }, [scannerMatches]);
 
-  // ⏱️ Interpolação de Tempo Local — Ref-based anchor system
-  // Em vez de modificar o state (que é sobrescrito pelo polling da API),
-  // armazena um ponto âncora (elapsed + timestamp) e calcula o display em tempo real.
+  // ⏱️ Interpolação de Tempo Local — Bridge-priority + Ref-based anchor
+  // PRIORIDADE 1: Bridge elapsed (zero delay, lido da Bet365 em tempo real)
+  // PRIORIDADE 2: Âncora interpolada (quando bridge não tem dados)
   const elapsedAnchorRef = useRef<Record<number, { baseElapsed: number; baseTimestamp: number }>>({});
   const [, forceElapsedTick] = useState(0); // Dummy state para forçar re-render
   
@@ -434,9 +434,36 @@ export default function Radar() {
       return rawElapsed;
     }
     
+    // 🥇 PRIORIDADE 1: Bridge elapsed (zero delay)
+    if (bet365Bridge?.connected && bet365Bridge.matches.length > 0) {
+      // Buscar o jogo correspondente na bridge
+      const allFx = [...(fixtures || []), ...(manualFixtures || [])];
+      const fixture = allFx.find(f => f.id === fixtureId);
+      if (fixture) {
+        const bridgeMatch = (fixture as any).matchUrl
+          ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
+          : findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bet365Bridge.matches);
+        
+        if (bridgeMatch?.elapsed && bridgeMatch.elapsed > 0) {
+          // Bridge tem elapsed! Usar como âncora de alta precisão
+          const bridgeAge = (Date.now() - bridgeMatch.timestamp) / 60000; // minutos desde o último scan
+          const bridgeInterpolated = bridgeMatch.elapsed + Math.floor(bridgeAge);
+          const maxElapsed = st === 'ET' ? 120 : 90;
+          
+          // Atualizar âncora com dados da bridge
+          elapsedAnchorRef.current[fixtureId] = { 
+            baseElapsed: bridgeMatch.elapsed, 
+            baseTimestamp: bridgeMatch.timestamp 
+          };
+          
+          return Math.min(maxElapsed, bridgeInterpolated);
+        }
+      }
+    }
+    
+    // 🥈 PRIORIDADE 2: Âncora interpolada (fallback API)
     const anchor = elapsedAnchorRef.current[fixtureId];
     if (!anchor) {
-      // Primeira vez vendo este fixture — criar âncora
       elapsedAnchorRef.current[fixtureId] = { baseElapsed: rawElapsed, baseTimestamp: Date.now() };
       return rawElapsed;
     }
@@ -451,16 +478,37 @@ export default function Radar() {
     const minutesSinceAnchor = (Date.now() - anchor.baseTimestamp) / 60000;
     const interpolated = anchor.baseElapsed + Math.floor(minutesSinceAnchor);
     
-    // Cap: não passar de 90 (exceto ET) e não ultrapassar 5 minutos do raw (proteção)
     const maxElapsed = st === 'ET' ? 120 : 90;
     return Math.min(maxElapsed, interpolated);
-  }, []);
+  }, [bet365Bridge, fixtures, manualFixtures]);
+  
+  // 🏆 Score com prioridade Bridge (zero delay) > API
+  const getDisplayScore = useCallback((fixtureId: number, rawHome: number, rawAway: number): { home: number; away: number } => {
+    if (bet365Bridge?.connected && bet365Bridge.matches.length > 0) {
+      const allFx = [...(fixtures || []), ...(manualFixtures || [])];
+      const fixture = allFx.find(f => f.id === fixtureId);
+      if (fixture) {
+        const bridgeMatch = (fixture as any).matchUrl
+          ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
+          : findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bet365Bridge.matches);
+        
+        if (bridgeMatch) {
+          const bHome = bridgeMatch.goalsHome ?? bridgeMatch.home?.goals;
+          const bAway = bridgeMatch.goalsAway ?? bridgeMatch.away?.goals;
+          if (typeof bHome === 'number' && typeof bAway === 'number') {
+            return { home: bHome, away: bAway };
+          }
+        }
+      }
+    }
+    return { home: rawHome, away: rawAway };
+  }, [bet365Bridge, fixtures, manualFixtures]);
   
   // Tick para forçar re-render e atualizar o display de tempo
   useEffect(() => {
     const interval = setInterval(() => {
       forceElapsedTick(prev => prev + 1);
-    }, 30000); // Re-render a cada 30s
+    }, 15000); // Re-render a cada 15s para maior precisão com bridge
     return () => clearInterval(interval);
   }, []);
 
@@ -2635,7 +2683,7 @@ export default function Radar() {
                           {/* Placar e Tempo */}
                           <td style={{ padding: '14px 8px', textAlign: 'center' }}>
                             <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>
-                              {f.goalsHome} - {f.goalsAway}
+                              {getDisplayScore(f.id, f.goalsHome, f.goalsAway).home} - {getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--status-green)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
                               <span className="pulse-indicator" style={{ background: 'var(--status-green)', width: 6, height: 6 }}></span>
@@ -3994,7 +4042,7 @@ export default function Radar() {
                           </td>
                           {/* Placar / Tempo */}
                           <td style={{ padding: '10px 8px', textAlign: 'center' }}>
-                            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>{f.goalsHome ?? 0} - {f.goalsAway ?? 0}</div>
+                            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>{getDisplayScore(f.id, f.goalsHome ?? 0, f.goalsAway ?? 0).home} - {getDisplayScore(f.id, f.goalsHome ?? 0, f.goalsAway ?? 0).away}</div>
                             <div style={{ fontSize: '0.7rem', color: f.status === 'HT' ? '#f59e0b' : 'var(--status-green)', fontWeight: 600, marginTop: 2 }}>
                               ● {getDisplayElapsed(f.id, f.elapsed, f.status)}' Min
                             </div>
@@ -5581,7 +5629,7 @@ export default function Radar() {
                     </div>
 
                     <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
-                      {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{f.goalsHome}-{f.goalsAway}</span> {f.awayTeam.name}
+                      {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {f.awayTeam.name}
                     </h3>
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>{f.leagueName}</span>
 

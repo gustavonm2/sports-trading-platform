@@ -20,6 +20,9 @@ export interface Bet365MatchData {
   awayTeam: string;
   timestamp: number;
   elapsed?: number;
+  period?: string; // '1H' | '2H' | 'HT' | 'ET' | 'FT'
+  goalsHome?: number | null;
+  goalsAway?: number | null;
   matchUrl?: string;
   home: Partial<Record<string, number>>;
   away: Partial<Record<string, number>>;
