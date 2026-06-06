@@ -420,74 +420,49 @@ export default function Radar() {
     return () => clearInterval(interval);
   }, [scannerMatches]);
 
-  // ⏱️ Interpolação de Tempo Local — Incrementa elapsed a cada 60s para fixtures ao vivo
-  // Evita que o tempo "congele" entre ciclos de polling da API (25-30s)
-  const elapsedTickRef = useRef<Record<number, number>>({}); // fixtureId → timestamp da última atualização da API
+  // ⏱️ Interpolação de Tempo Local — Ref-based anchor system
+  // Em vez de modificar o state (que é sobrescrito pelo polling da API),
+  // armazena um ponto âncora (elapsed + timestamp) e calcula o display em tempo real.
+  const elapsedAnchorRef = useRef<Record<number, { baseElapsed: number; baseTimestamp: number }>>({});
+  const [, forceElapsedTick] = useState(0); // Dummy state para forçar re-render
   
+  // Função que retorna o elapsed interpolado para display
+  const getDisplayElapsed = useCallback((fixtureId: number, rawElapsed: number, status: string): number => {
+    const st = (status || '').toUpperCase();
+    // Só interpolar durante tempo de jogo ativo
+    if (st !== '1H' && st !== '2H' && st !== 'ET' && st !== 'LIVE') {
+      return rawElapsed;
+    }
+    
+    const anchor = elapsedAnchorRef.current[fixtureId];
+    if (!anchor) {
+      // Primeira vez vendo este fixture — criar âncora
+      elapsedAnchorRef.current[fixtureId] = { baseElapsed: rawElapsed, baseTimestamp: Date.now() };
+      return rawElapsed;
+    }
+    
+    // Se a API enviou um elapsed MAIOR, atualizar âncora
+    if (rawElapsed > anchor.baseElapsed) {
+      elapsedAnchorRef.current[fixtureId] = { baseElapsed: rawElapsed, baseTimestamp: Date.now() };
+      return rawElapsed;
+    }
+    
+    // Interpolar: base + minutos desde a âncora
+    const minutesSinceAnchor = (Date.now() - anchor.baseTimestamp) / 60000;
+    const interpolated = anchor.baseElapsed + Math.floor(minutesSinceAnchor);
+    
+    // Cap: não passar de 90 (exceto ET) e não ultrapassar 5 minutos do raw (proteção)
+    const maxElapsed = st === 'ET' ? 120 : 90;
+    return Math.min(maxElapsed, interpolated);
+  }, []);
+  
+  // Tick para forçar re-render e atualizar o display de tempo
   useEffect(() => {
-    const tick = () => {
-      const now = Date.now();
-      
-      // Incrementar fixtures da API
-      setFixtures(prev => {
-        let changed = false;
-        const next = prev.map(f => {
-          const status = (f.status || '').toUpperCase();
-          if (status !== '1H' && status !== '2H' && status !== 'ET') return f;
-          if (f.elapsed >= 90 && status !== 'ET') return f;
-          
-          // Verificar se já passou 60s desde a última atualização
-          const lastTick = elapsedTickRef.current[f.id] || now;
-          if (now - lastTick >= 55000) { // 55s para compensar drift
-            elapsedTickRef.current[f.id] = now;
-            changed = true;
-            return { ...f, elapsed: f.elapsed + 1 };
-          }
-          return f;
-        });
-        return changed ? next : prev;
-      });
-
-      // Incrementar fixtures manuais (bridge/scanner)
-      setManualFixtures(prev => {
-        let changed = false;
-        const next = prev.map(f => {
-          const status = (f.status || '').toUpperCase();
-          if (status !== '1H' && status !== '2H' && status !== 'ET') return f;
-          if (f.elapsed >= 90 && status !== 'ET') return f;
-          
-          const key = f.id + 900000; // offset para não conflitar
-          const lastTick = elapsedTickRef.current[key] || now;
-          if (now - lastTick >= 55000) {
-            elapsedTickRef.current[key] = now;
-            changed = true;
-            return { ...f, elapsed: f.elapsed + 1 };
-          }
-          return f;
-        });
-        return changed ? next : prev;
-      });
-    };
-
-    // Tick a cada 15s para granularidade (o check de 55s dentro garante incremento a cada ~60s)
-    const interval = setInterval(tick, 15000);
+    const interval = setInterval(() => {
+      forceElapsedTick(prev => prev + 1);
+    }, 30000); // Re-render a cada 30s
     return () => clearInterval(interval);
   }, []);
-
-  // Reset elapsed tick quando a API atualiza os dados
-  useEffect(() => {
-    const now = Date.now();
-    for (const f of fixtures) {
-      elapsedTickRef.current[f.id] = now;
-    }
-  }, [fixtures.map(f => `${f.id}:${f.elapsed}`).join(',')]);
-
-  useEffect(() => {
-    const now = Date.now();
-    for (const f of manualFixtures) {
-      elapsedTickRef.current[f.id + 900000] = now;
-    }
-  }, [manualFixtures.map(f => `${f.id}:${f.elapsed}`).join(',')]);
 
   // Sincronizar links no localStorage
   useEffect(() => {
@@ -2664,7 +2639,7 @@ export default function Radar() {
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--status-green)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
                               <span className="pulse-indicator" style={{ background: 'var(--status-green)', width: 6, height: 6 }}></span>
-                              {f.elapsed}' Min
+                              {getDisplayElapsed(f.id, f.elapsed, f.status)}' Min
                             </div>
                           </td>
 
@@ -4021,7 +3996,7 @@ export default function Radar() {
                           <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                             <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>{f.goalsHome ?? 0} - {f.goalsAway ?? 0}</div>
                             <div style={{ fontSize: '0.7rem', color: f.status === 'HT' ? '#f59e0b' : 'var(--status-green)', fontWeight: 600, marginTop: 2 }}>
-                              ● {f.elapsed}' Min
+                              ● {getDisplayElapsed(f.id, f.elapsed, f.status)}' Min
                             </div>
                           </td>
                           {/* IIM */}
@@ -5601,7 +5576,7 @@ export default function Radar() {
                         </span>
                       </div>
                       <div className="badge badge-green" style={{ fontSize: '0.7rem', fontWeight: 700 }}>
-                        {f.elapsed}'
+                        {getDisplayElapsed(f.id, f.elapsed, f.status)}'
                       </div>
                     </div>
 
