@@ -158,6 +158,15 @@ export default function Radar() {
   const [marketFilter, setMarketFilter] = useState<'all' | 'corners' | 'goals'>('all');
   const [apmProfile, setApmProfile] = useState<'conservador' | 'medio' | 'arriscado'>('medio');
   
+  // 🎯 Threshold configurável para gatilho de entrada (Score Final mínimo para disparar notificação)
+  const [cornerTriggerThreshold, setCornerTriggerThreshold] = useState<number>(() => {
+    const saved = localStorage.getItem('corner_trigger_threshold');
+    return saved ? parseFloat(saved) : 6.0;
+  });
+  useEffect(() => {
+    localStorage.setItem('corner_trigger_threshold', String(cornerTriggerThreshold));
+  }, [cornerTriggerThreshold]);
+  
   // General status
   const [apiErrorReason, setApiErrorReason] = useState<'limit_reached' | 'invalid_key' | 'network_error' | null>(null);
   const [activeDataSource, setActiveDataSource] = useState<'sportsmonks' | 'sofascore' | 'apisports_real' | 'apisports_simulated'>('apisports_real');
@@ -994,12 +1003,7 @@ export default function Radar() {
       let backFavMinPossession = 60;    // Virada: posse mínima
       let backFavMinElapsed = 50;       // Virada: minuto mínimo
 
-      let cornerThreshold = 7.0; // Clássico default
-      if (activeMode === 'arriscado') {
-        cornerThreshold = 6.0;
-      } else if (activeMode === 'conservador') {
-        cornerThreshold = 8.0;
-      }
+      let cornerThreshold = cornerTriggerThreshold;
 
       // 📊 Consolidar e calcular o APM Dinâmico e o ScoreFinal
       const unifiedSnapshots = [
@@ -1555,6 +1559,36 @@ export default function Radar() {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* 🎯 Threshold de Gatilho */}
+              <div style={{
+                padding: '16px 24px', borderTop: '1px solid var(--border-color)',
+                background: 'rgba(239, 68, 68, 0.04)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 900, color: 'var(--text-primary)' }}>🎯 Gatilho de Entrada</span>
+                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginLeft: '8px' }}>Score mínimo para notificar</span>
+                  </div>
+                  <span style={{
+                    fontWeight: 900, fontSize: '1.1rem', color: '#ef4444',
+                    background: 'rgba(239, 68, 68, 0.1)', padding: '4px 12px', borderRadius: '8px',
+                  }}>{cornerTriggerThreshold.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min={4.0} max={9.0} step={0.5} value={cornerTriggerThreshold}
+                  onChange={e => setCornerTriggerThreshold(Number(e.target.value))}
+                  style={{ width: '100%', height: '8px', borderRadius: '4px', cursor: 'pointer', accentColor: '#ef4444' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  <span>4.0 (Muito Arriscado)</span>
+                  <span>6.0 (Padrão)</span>
+                  <span>9.0 (Ultra Conservador)</span>
+                </div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '6px', textAlign: 'center' as const }}>
+                  Score ≥ <strong style={{ color: '#ef4444' }}>{cornerTriggerThreshold.toFixed(1)}</strong> → Dispara notificação de entrada | Potencial ≥ <strong>{(cornerTriggerThreshold - 1.0).toFixed(1)}</strong> → Fundo amarelo
+                </div>
               </div>
 
               {/* Footer */}
@@ -2362,7 +2396,7 @@ export default function Radar() {
                     const hasOpp = opportunities.some(opp => opp.fixtureId === f.id && opp.confidence >= minConfidence);
                     
                     // 🔥 DETECÇÃO DE POTENCIAL & GATILHO BASEADOS NO SCORE FINAL
-                    const triggerThreshold = activeMode === 'arriscado' ? 6.0 : activeMode === 'conservador' ? 8.0 : 7.0;
+                    const triggerThreshold = cornerTriggerThreshold;
                     const potentialThreshold = triggerThreshold - 1.0;
 
                     const homeScore = stats ? getScoreFinalForSide(f.id, true) : 0;
@@ -3776,7 +3810,7 @@ export default function Radar() {
                     const stats = allStats[f.id];
                     const dossier = allDossiers[f.id];
                     const hasOpp = opportunities.some(opp => opp.fixtureId === f.id && opp.confidence >= minConfidence);
-                    const triggerThreshold = activeMode === 'arriscado' ? 6.0 : activeMode === 'conservador' ? 8.0 : 7.0;
+                    const triggerThreshold = cornerTriggerThreshold;
                     const potentialThreshold = triggerThreshold - 1.0;
                     const homeScore = stats ? getScoreFinalForSide(f.id, true) : 0;
                     const awayScore = stats ? getScoreFinalForSide(f.id, false) : 0;
@@ -5235,7 +5269,7 @@ export default function Radar() {
                     const s = allStats[f.id];
                     if (!s) return false;
                     const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
-                    const triggerThreshold = activeMode === 'arriscado' ? 6.0 : activeMode === 'conservador' ? 8.0 : 7.0;
+                    const triggerThreshold = cornerTriggerThreshold;
                     const potentialThreshold = triggerThreshold - 1.0;
                     const homeScore = getScoreFinalForSide(f.id, true);
                     const awayScore = getScoreFinalForSide(f.id, false);
@@ -5377,7 +5411,7 @@ export default function Radar() {
                 const s = allStats[f.id];
                 if (!s) return false;
                 const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
-                const triggerThreshold = activeMode === 'arriscado' ? 6.0 : activeMode === 'conservador' ? 8.0 : 7.0;
+                const triggerThreshold = cornerTriggerThreshold;
                 const potentialThreshold = triggerThreshold - 1.0;
                 const homeScore = getScoreFinalForSide(f.id, true);
                 const awayScore = getScoreFinalForSide(f.id, false);
