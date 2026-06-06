@@ -139,6 +139,9 @@ export default function Radar() {
   const [showMatchesTable, setShowMatchesTable] = useState(false);
   const [fixtureSourceFilter, setFixtureSourceFilter] = useState<'all' | 'api' | 'bet365' | 'favorites'>('all');
   const [alertFilter, setAlertFilter] = useState<'all' | 'entrada' | 'potencial'>('all');
+  
+  // 🧠 Smart Filters
+  const [smartFilter, setSmartFilter] = useState<'none' | 'apm_window' | 'draw_underdog' | 'high_pressure'>('none');
 
   // ⭐ Favorites system
   const [favoriteFixtureIds, setFavoriteFixtureIds] = useState<Set<number>>(() => {
@@ -668,6 +671,49 @@ export default function Radar() {
     }
     return Math.min(100, Math.round(scoreFinal * 10.0));
   }, [getScoreFinalForSide, getPLSForSide]);
+
+  // 🧠 Smart Filter logic
+  const passesSmartFilter = useCallback((f: any): boolean => {
+    if (smartFilter === 'none') return true;
+    
+    const stats = allStats[f.id];
+    const elapsed = f.elapsed || 0;
+    const status = (f.status || '').toUpperCase();
+    
+    if (smartFilter === 'apm_window') {
+      return (elapsed >= 15 && elapsed <= 32) && status !== 'HT' && status !== 'FT';
+    }
+    
+    if (smartFilter === 'draw_underdog') {
+      const goalsH = f.goalsHome ?? 0;
+      const goalsA = f.goalsAway ?? 0;
+      if (goalsH === goalsA) return true;
+      
+      if (stats) {
+        const homePoss = Number(stats.home?.possession) || 50;
+        const awayPoss = Number(stats.away?.possession) || 50;
+        const homeDA = stats.home?.dangerousAttacks || 0;
+        const awayDA = stats.away?.dangerousAttacks || 0;
+        const homeIsFav = homePoss > awayPoss || homeDA > awayDA;
+        
+        if (homeIsFav && goalsH < goalsA) return true;
+        if (!homeIsFav && goalsA < goalsH) return true;
+      }
+      return false;
+    }
+    
+    if (smartFilter === 'high_pressure') {
+      if (!stats) return false;
+      const homeIIM = stats.home?.iim || 0;
+      const awayIIM = stats.away?.iim || 0;
+      const maxIIM = Math.max(homeIIM, awayIIM);
+      const isCornerZone = (elapsed >= 35 && elapsed <= 45 && status === '1H') || 
+                           (elapsed >= 75 && status === '2H');
+      return maxIIM >= 1.0 && isCornerZone;
+    }
+    
+    return true;
+  }, [smartFilter, allStats]);
 
   // 🚀 Gravador Resiliente de Snapshots no Frontend (Varre a cada atualização de allStats)
   useEffect(() => {
@@ -2340,6 +2386,111 @@ export default function Radar() {
                 </button>
               ))}
             </div>
+            
+            {/* 🧠 Smart Filters */}
+            {(() => {
+              // Pre-calculate counts for each smart filter
+              const allFixturesForCount = allFixtures.filter(f => {
+                if (fixtureSourceFilter === 'favorites') return favoriteFixtureIds.has(f.id);
+                return true;
+              });
+              
+              const passesSmartFilterCheck = (filter: string, f: any) => {
+                const stats = allStats[f.id];
+                const elapsed = f.elapsed || 0;
+                const status = (f.status || '').toUpperCase();
+                
+                if (filter === 'apm_window') {
+                  // Jogos próximos de abrir janelas APM: 15-22 (pré-APM10), 22-27 (pré-APM5), 27-32 (pré-APM3)
+                  // Ou já dentro da janela ativa
+                  return (elapsed >= 15 && elapsed <= 32) && status !== 'HT' && status !== 'FT';
+                }
+                
+                if (filter === 'draw_underdog') {
+                  // Empate OU favorito perdendo (favorito = mais posse ou mais ataques perigosos)
+                  const goalsH = f.goalsHome ?? 0;
+                  const goalsA = f.goalsAway ?? 0;
+                  const isDraw = goalsH === goalsA;
+                  
+                  if (isDraw) return true;
+                  
+                  // Favorito perdendo: quem tem mais posse/ataques está perdendo
+                  if (stats) {
+                    const homePoss = Number(stats.home?.possession) || 50;
+                    const awayPoss = Number(stats.away?.possession) || 50;
+                    const homeDA = stats.home?.dangerousAttacks || 0;
+                    const awayDA = stats.away?.dangerousAttacks || 0;
+                    const homeIsFav = homePoss > awayPoss || homeDA > awayDA;
+                    
+                    if (homeIsFav && goalsH < goalsA) return true;
+                    if (!homeIsFav && goalsA < goalsH) return true;
+                  }
+                  return false;
+                }
+                
+                if (filter === 'high_pressure') {
+                  // IIM alto (>= 1.0) + janela de escanteio (35-45 1H / 75-95 2H)
+                  if (!stats) return false;
+                  const homeIIM = stats.home?.iim || 0;
+                  const awayIIM = stats.away?.iim || 0;
+                  const maxIIM = Math.max(homeIIM, awayIIM);
+                  const isCornerZone = (elapsed >= 35 && elapsed <= 45 && status === '1H') || 
+                                       (elapsed >= 75 && status === '2H');
+                  return maxIIM >= 1.0 && isCornerZone;
+                }
+                
+                return true;
+              };
+              
+              const countApmWindow = allFixturesForCount.filter(f => passesSmartFilterCheck('apm_window', f)).length;
+              const countDrawUnderdog = allFixturesForCount.filter(f => passesSmartFilterCheck('draw_underdog', f)).length;
+              const countHighPressure = allFixturesForCount.filter(f => passesSmartFilterCheck('high_pressure', f)).length;
+              
+              const smartFilters = [
+                { key: 'none' as const, label: 'TODOS', icon: '🔍', color: 'var(--text-muted)', count: allFixturesForCount.length, desc: '' },
+                { key: 'apm_window' as const, label: 'JANELA APM', icon: '⏱️', color: '#f59e0b', count: countApmWindow, desc: '15-32 min' },
+                { key: 'draw_underdog' as const, label: 'EMPATE / FAVORITO ↓', icon: '⚖️', color: '#8b5cf6', count: countDrawUnderdog, desc: 'Placares favoráveis' },
+                { key: 'high_pressure' as const, label: 'PRESSÃO ALTA', icon: '🔥', color: '#ef4444', count: countHighPressure, desc: 'IIM alto + Janela canto' },
+              ];
+              
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginRight: 4 }}>FILTRO:</span>
+                  {smartFilters.map(sf => (
+                    <button
+                      key={sf.key}
+                      onClick={() => setSmartFilter(sf.key)}
+                      title={sf.desc}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 16,
+                        border: smartFilter === sf.key ? `2px solid ${sf.color}` : '2px solid transparent',
+                        background: smartFilter === sf.key ? `${sf.color}18` : 'var(--bg-card)',
+                        color: smartFilter === sf.key ? sf.color : 'var(--text-muted)',
+                        fontSize: '0.7rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        opacity: sf.key !== 'none' && sf.count === 0 ? 0.4 : 1,
+                      }}
+                    >
+                      {sf.icon} {sf.label}
+                      <span style={{
+                        fontSize: '0.6rem',
+                        background: smartFilter === sf.key ? `${sf.color}25` : 'var(--bg-surface)',
+                        padding: '1px 5px',
+                        borderRadius: 8,
+                        marginLeft: 1,
+                        fontWeight: 700,
+                      }}>{sf.count}</span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
             {fixtureSourceFilter === 'favorites' && favoriteFixtureIds.size === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
                 <div style={{ fontSize: '2.5rem', marginBottom: '12px' }}>⭐</div>
@@ -2388,6 +2539,7 @@ export default function Radar() {
                   )}
                   {fixtureSourceFilter !== 'bet365' && [...fixtures, ...nonScannerManualFixtures]
                     .filter(f => fixtureSourceFilter !== 'favorites' || favoriteFixtureIds.has(f.id))
+                    .filter(f => passesSmartFilter(f))
                     .map(f => {
                     const stats = allStats[f.id];
                     const dossier = allDossiers[f.id];
@@ -3806,6 +3958,7 @@ export default function Radar() {
                   )}
                   {fixtureSourceFilter !== 'api' && scannerFixtures
                     .filter(f => fixtureSourceFilter !== 'favorites' || favoriteFixtureIds.has(f.id))
+                    .filter(f => passesSmartFilter(f))
                     .map(f => {
                     const stats = allStats[f.id];
                     const dossier = allDossiers[f.id];
