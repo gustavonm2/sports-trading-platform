@@ -46,7 +46,12 @@
           matchUrl: value.matchUrl || '',
           timestamp: value.timestamp || 0,
           home: value.home || {},
-          away: value.away || {}
+          away: value.away || {},
+          // ⏱️ Tempo e placar da bridge (zero delay)
+          elapsed: value.elapsed ?? null,
+          period: value.period ?? null,
+          goalsHome: value.goalsHome ?? null,
+          goalsAway: value.goalsAway ?? null,
         });
       }
 
