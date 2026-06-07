@@ -4850,26 +4850,102 @@ export default function Radar() {
                                           const is5Active = halfElapsed >= 5;
                                           const is3Active = halfElapsed >= 3;
 
+
+                                          // ─── APM Block calculation for chart ─────────────────
+                                          const buildApmBlockBars2 = (blockSize: number) => {
+                                            const blocks: Array<{start: number; end: number; homeApm: number; awayApm: number}> = [];
+                                            const numBlocks = Math.floor(elapsed / blockSize);
+                                            for (let i = 0; i < numBlocks; i++) {
+                                              const bStart = i * blockSize;
+                                              const bEnd = (i + 1) * blockSize;
+                                              let startSnap = snaps[0], endSnap = snaps[0];
+                                              let startDiff = Infinity, endDiff = Infinity;
+                                              for (const s of snaps) {
+                                                const sd = Math.abs(s.elapsed - bStart);
+                                                const ed = Math.abs(s.elapsed - bEnd);
+                                                if (sd < startDiff) { startDiff = sd; startSnap = s; }
+                                                if (ed < endDiff) { endDiff = ed; endSnap = s; }
+                                              }
+                                              if (startDiff > blockSize * 0.4 || endDiff > blockSize * 0.4) continue;
+                                              const hDiff = (endSnap.homeDA || 0) - (startSnap.homeDA || 0);
+                                              const aDiff = (endSnap.awayDA || 0) - (startSnap.awayDA || 0);
+                                              blocks.push({
+                                                start: bStart, end: bEnd,
+                                                homeApm: Math.max(0, hDiff / blockSize),
+                                                awayApm: Math.max(0, aDiff / blockSize)
+                                              });
+                                            }
+                                            if (elapsed > numBlocks * blockSize && snaps.length > 0) {
+                                              const bStart = numBlocks * blockSize;
+                                              let startSnap = snaps[0];
+                                              let startDiff = Infinity;
+                                              for (const s of snaps) {
+                                                const sd = Math.abs(s.elapsed - bStart);
+                                                if (sd < startDiff) { startDiff = sd; startSnap = s; }
+                                              }
+                                              const currentSnap = snaps[snaps.length - 1];
+                                              const partialTime = elapsed - bStart;
+                                              if (partialTime > 0.5 && startDiff < blockSize * 0.4) {
+                                                const hDiff = (currentSnap.homeDA || 0) - (startSnap.homeDA || 0);
+                                                const aDiff = (currentSnap.awayDA || 0) - (startSnap.awayDA || 0);
+                                                blocks.push({
+                                                  start: bStart, end: elapsed,
+                                                  homeApm: Math.max(0, hDiff / partialTime),
+                                                  awayApm: Math.max(0, aDiff / partialTime)
+                                                });
+                                              }
+                                            }
+                                            return blocks;
+                                          };
+
+                                          const apmBlockSize = chartViewMode === 'apm10' ? 10 : chartViewMode === 'apm5' ? 5 : chartViewMode === 'apm3' ? 3 : 0;
+                                          const apmBlockColor = chartViewMode === 'apm10' ? '#3b82f6' : chartViewMode === 'apm5' ? '#8b5cf6' : '#ef4444';
+                                          const apmBlocks = apmBlockSize > 0 ? buildApmBlockBars2(apmBlockSize) : [];
+                                          const maxApm = apmBlocks.length > 0 ? Math.max(...apmBlocks.flatMap(b => [b.homeApm, b.awayApm]), 0.5) : 1;
+                                          const toYapm = (v: number) => padT + plotH - (v / maxApm) * plotH;
+
                                           return (
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '16px', alignItems: 'start' }}>
                                               {/* LEFT: SVG Chart */}
                                               <div style={{ background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '16px 12px 12px' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                                {/* Chart Header */}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                                                   <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                                                    Ataques Perigosos — Evolução Temporal
+                                                    {chartViewMode === 'da' ? 'Ataques Perigosos — Evolução Temporal' : `APM Blocos Fixos — ${apmBlockSize} min/bloco`}
                                                   </span>
-                                                  <div style={{ display: 'flex', gap: '12px', fontSize: '0.65rem', fontWeight: 700 }}>
-                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                      <span style={{ width: 10, height: 3, background: '#10b981', display: 'inline-block', borderRadius: 2 }}></span>
-                                                      {f.homeTeam.name}
-                                                    </span>
-                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                      <span style={{ width: 10, height: 3, background: '#f59e0b', display: 'inline-block', borderRadius: 2 }}></span>
-                                                      {f.awayTeam.name}
-                                                    </span>
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                    <div style={{ display: 'flex', gap: '3px', background: 'var(--bg-surface)', borderRadius: '6px', padding: '2px' }}>
+                                                      {(['da', 'apm10', 'apm5', 'apm3'] as const).map(mode => {
+                                                        const lb: Record<string, string> = { da: 'DA', apm10: 'ATM 10', apm5: 'ATM 5', apm3: 'ATM 3' };
+                                                        const cl: Record<string, string> = { da: 'var(--accent-primary)', apm10: '#3b82f6', apm5: '#8b5cf6', apm3: '#ef4444' };
+                                                        const ac = chartViewMode === mode;
+                                                        return (
+                                                          <button key={mode} onClick={() => setChartViewMode(mode)} style={{
+                                                            padding: '3px 10px', borderRadius: '4px', border: 'none',
+                                                            cursor: 'pointer', fontWeight: 800, fontSize: '0.6rem',
+                                                            background: ac ? cl[mode] : 'transparent',
+                                                            color: ac ? '#fff' : 'var(--text-muted)',
+                                                            transition: 'all 0.2s ease',
+                                                            boxShadow: ac ? `0 1px 4px ${cl[mode]}40` : 'none'
+                                                          }}>
+                                                            {lb[mode]}
+                                                          </button>
+                                                        );
+                                                      })}
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '10px', fontSize: '0.65rem', fontWeight: 700 }}>
+                                                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <span style={{ width: 10, height: 3, background: '#10b981', display: 'inline-block', borderRadius: 2 }}></span>
+                                                        {f.homeTeam.name}
+                                                      </span>
+                                                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <span style={{ width: 10, height: 3, background: '#f59e0b', display: 'inline-block', borderRadius: 2 }}></span>
+                                                        {f.awayTeam.name}
+                                                      </span>
+                                                    </div>
                                                   </div>
                                                 </div>
-                                                <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} style={{ overflow: 'visible' }}>
+                                                <svg width="100%" viewBox={`0 0 ${chartW} ${chartH + (chartViewMode !== 'da' ? 18 : 0)}`} style={{ overflow: 'visible' }}>
                                                   <defs>
                                                     <linearGradient id={`homeGrad-${f.id}`} x1="0" y1="0" x2="0" y2="1">
                                                       <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
@@ -4880,66 +4956,93 @@ export default function Radar() {
                                                       <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.02" />
                                                     </linearGradient>
                                                   </defs>
-
-                                                  {/* Grid lines */}
-                                                  {yTicks.map(v => (
-                                                    <g key={`y-${v}`}>
-                                                      <line x1={padL} y1={toY(v)} x2={chartW - padR} y2={toY(v)} stroke="var(--border-color)" strokeWidth="0.5" strokeDasharray="4,4" />
-                                                      <text x={padL - 6} y={toY(v) + 3} textAnchor="end" fill="var(--text-muted)" fontSize="9" fontWeight="600">{v}</text>
-                                                    </g>
-                                                  ))}
-
-                                                  {/* X-axis labels */}
-                                                  {xTicks.map(t => (
-                                                    <text key={`x-${t}`} x={toX(t)} y={chartH - 4} textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontWeight="600">{t}'</text>
-                                                  ))}
-
-                                                  {/* Time Gate Markers */}
-                                                  {[
-                                                    { t: gate10, label: 'ATM 10', color: '#3b82f6', active: is10Active },
-                                                    { t: gate5, label: 'ATM 5', color: '#8b5cf6', active: is5Active },
-                                                    { t: gate3, label: 'ATM 3', color: '#ef4444', active: is3Active },
-                                                  ].filter(g => g.t <= maxTime).map(gate => (
-                                                    <g key={gate.label}>
-                                                      <line
-                                                        x1={toX(gate.t)} y1={padT} x2={toX(gate.t)} y2={padT + plotH}
-                                                        stroke={gate.active ? gate.color : 'var(--text-muted)'}
-                                                        strokeWidth={gate.active ? "1.5" : "1"}
-                                                        strokeDasharray={gate.active ? "none" : "3,3"}
-                                                        opacity={gate.active ? 0.8 : 0.3}
-                                                      />
-                                                      <rect
-                                                        x={toX(gate.t) - 16} y={padT - 12} width="32" height="12" rx="3"
-                                                        fill={gate.active ? gate.color : 'var(--bg-surface)'}
-                                                        opacity={gate.active ? 0.9 : 0.5}
-                                                        stroke={gate.color} strokeWidth="0.5"
-                                                      />
-                                                      <text x={toX(gate.t)} y={padT - 3} textAnchor="middle" fill={gate.active ? '#fff' : 'var(--text-muted)'} fontSize="7" fontWeight="800">
-                                                        {gate.label}
-                                                      </text>
-                                                    </g>
-                                                  ))}
-
-                                                  {/* Area fills */}
-                                                  <path d={homeArea} fill={`url(#homeGrad-${f.id})`} />
-                                                  <path d={awayArea} fill={`url(#awayGrad-${f.id})`} />
-
-                                                  {/* Lines */}
-                                                  <path d={homePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                                  <path d={awayPath} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-
-                                                  {/* Current value dots */}
-                                                  <circle cx={toX(elapsed)} cy={toY(homeDA)} r="4" fill="#10b981" stroke="#fff" strokeWidth="1.5" />
-                                                  <circle cx={toX(elapsed)} cy={toY(awayDA)} r="4" fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
-
-                                                  {/* Current value labels */}
-                                                  <text x={toX(elapsed) + 8} y={toY(homeDA) + 3} fill="#10b981" fontSize="10" fontWeight="800">{homeDA}</text>
-                                                  <text x={toX(elapsed) + 8} y={toY(awayDA) + 3} fill="#f59e0b" fontSize="10" fontWeight="800">{awayDA}</text>
-
-                                                  {/* Current time line */}
-                                                  <line x1={toX(elapsed)} y1={padT} x2={toX(elapsed)} y2={padT + plotH} stroke="var(--accent-primary)" strokeWidth="1" strokeDasharray="2,2" opacity="0.5" />
-
-                                                  {/* Axes */}
+                                                  {chartViewMode === 'da' ? (
+                                                    <>
+                                                      {yTicks.map(v => (
+                                                        <g key={`y-${v}`}>
+                                                          <line x1={padL} y1={toY(v)} x2={chartW - padR} y2={toY(v)} stroke="var(--border-color)" strokeWidth="0.5" strokeDasharray="4,4" />
+                                                          <text x={padL - 6} y={toY(v) + 3} textAnchor="end" fill="var(--text-muted)" fontSize="9" fontWeight="600">{v}</text>
+                                                        </g>
+                                                      ))}
+                                                      {xTicks.map(t => (
+                                                        <text key={`x-${t}`} x={toX(t)} y={chartH - 4} textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontWeight="600">{t}'</text>
+                                                      ))}
+                                                      {[
+                                                        { t: gate10, label: 'ATM 10', color: '#3b82f6', active: is10Active },
+                                                        { t: gate5, label: 'ATM 5', color: '#8b5cf6', active: is5Active },
+                                                        { t: gate3, label: 'ATM 3', color: '#ef4444', active: is3Active },
+                                                      ].filter(g => g.t <= maxTime).map(gate => (
+                                                        <g key={gate.label}>
+                                                          <line x1={toX(gate.t)} y1={padT} x2={toX(gate.t)} y2={padT + plotH}
+                                                            stroke={gate.active ? gate.color : 'var(--text-muted)'}
+                                                            strokeWidth={gate.active ? "1.5" : "1"}
+                                                            strokeDasharray={gate.active ? "none" : "3,3"}
+                                                            opacity={gate.active ? 0.8 : 0.3} />
+                                                          <rect x={toX(gate.t) - 16} y={padT - 12} width="32" height="12" rx="3"
+                                                            fill={gate.active ? gate.color : 'var(--bg-surface)'}
+                                                            opacity={gate.active ? 0.9 : 0.5} stroke={gate.color} strokeWidth="0.5" />
+                                                          <text x={toX(gate.t)} y={padT - 3} textAnchor="middle" fill={gate.active ? '#fff' : 'var(--text-muted)'} fontSize="7" fontWeight="800">{gate.label}</text>
+                                                        </g>
+                                                      ))}
+                                                      <path d={homeArea} fill={`url(#homeGrad-${f.id})`} />
+                                                      <path d={awayArea} fill={`url(#awayGrad-${f.id})`} />
+                                                      <path d={homePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                      <path d={awayPath} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                      <circle cx={toX(elapsed)} cy={toY(homeDA)} r="4" fill="#10b981" stroke="#fff" strokeWidth="1.5" />
+                                                      <circle cx={toX(elapsed)} cy={toY(awayDA)} r="4" fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
+                                                      <text x={toX(elapsed) + 8} y={toY(homeDA) + 3} fill="#10b981" fontSize="10" fontWeight="800">{homeDA}</text>
+                                                      <text x={toX(elapsed) + 8} y={toY(awayDA) + 3} fill="#f59e0b" fontSize="10" fontWeight="800">{awayDA}</text>
+                                                      <line x1={toX(elapsed)} y1={padT} x2={toX(elapsed)} y2={padT + plotH} stroke="var(--accent-primary)" strokeWidth="1" strokeDasharray="2,2" opacity="0.5" />
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      {[0, 0.25, 0.5, 0.75, 1.0].map(frac => {
+                                                        const v = Math.round(maxApm * frac * 100) / 100;
+                                                        return (
+                                                          <g key={`yapm-${frac}`}>
+                                                            <line x1={padL} y1={toYapm(v)} x2={chartW - padR} y2={toYapm(v)} stroke="var(--border-color)" strokeWidth="0.5" strokeDasharray="4,4" />
+                                                            <text x={padL - 6} y={toYapm(v) + 3} textAnchor="end" fill="var(--text-muted)" fontSize="9" fontWeight="600">{v.toFixed(1)}</text>
+                                                          </g>
+                                                        );
+                                                      })}
+                                                      <text x={8} y={padT + plotH / 2} textAnchor="middle" fill={apmBlockColor} fontSize="8" fontWeight="700" transform={`rotate(-90, 8, ${padT + plotH / 2})`} opacity="0.7">AP/min</text>
+                                                      {apmBlocks.map((block, bi) => {
+                                                        const bx1 = toX(block.start);
+                                                        const bx2 = toX(block.end);
+                                                        const bW = bx2 - bx1;
+                                                        const barW = Math.max((bW - 6) / 2, 3);
+                                                        const isPartial = block.end === elapsed && block.end % apmBlockSize !== 0;
+                                                        return (
+                                                          <g key={`ab-${bi}`}>
+                                                            <rect x={bx1} y={padT} width={bW} height={plotH} fill={apmBlockColor} opacity={isPartial ? 0.02 : 0.04} rx="2" />
+                                                            <rect x={bx1 + 2} y={toYapm(block.homeApm)} width={barW} height={Math.max(padT + plotH - toYapm(block.homeApm), 1)} fill="#10b981" opacity={isPartial ? 0.35 : 0.75} rx="2" />
+                                                            <rect x={bx1 + barW + 4} y={toYapm(block.awayApm)} width={barW} height={Math.max(padT + plotH - toYapm(block.awayApm), 1)} fill="#f59e0b" opacity={isPartial ? 0.35 : 0.75} rx="2" />
+                                                            {bW > 30 && (
+                                                              <>
+                                                                <text x={bx1 + 2 + barW/2} y={toYapm(block.homeApm) - 4} textAnchor="middle" fill="#10b981" fontSize="8" fontWeight="800">{block.homeApm.toFixed(2)}</text>
+                                                                <text x={bx1 + barW + 4 + barW/2} y={toYapm(block.awayApm) - 4} textAnchor="middle" fill="#f59e0b" fontSize="8" fontWeight="800">{block.awayApm.toFixed(2)}</text>
+                                                              </>
+                                                            )}
+                                                            <text x={bx1 + bW/2} y={padT + plotH + 12} textAnchor="middle" fill={isPartial ? 'var(--text-muted)' : apmBlockColor} fontSize="7.5" fontWeight="700" opacity={isPartial ? 0.5 : 0.85}>{Math.round(block.start)}'-{Math.round(block.end)}'</text>
+                                                            {isPartial && <text x={bx1 + bW/2} y={padT + plotH + 21} textAnchor="middle" fill="var(--text-muted)" fontSize="6" fontWeight="600" opacity="0.5">parcial</text>}
+                                                          </g>
+                                                        );
+                                                      })}
+                                                      {apmData.home.apmGlobal > 0 && (
+                                                        <>
+                                                          <line x1={padL} y1={toYapm(apmData.home.apmGlobal)} x2={chartW - padR} y2={toYapm(apmData.home.apmGlobal)} stroke="#10b981" strokeWidth="1" strokeDasharray="6,3" opacity="0.4" />
+                                                          <text x={chartW - padR + 2} y={toYapm(apmData.home.apmGlobal) - 2} fill="#10b981" fontSize="7" fontWeight="700" opacity="0.6">Global {apmData.home.apmGlobal}</text>
+                                                        </>
+                                                      )}
+                                                      {apmData.away.apmGlobal > 0 && (
+                                                        <>
+                                                          <line x1={padL} y1={toYapm(apmData.away.apmGlobal)} x2={chartW - padR} y2={toYapm(apmData.away.apmGlobal)} stroke="#f59e0b" strokeWidth="1" strokeDasharray="6,3" opacity="0.4" />
+                                                          <text x={chartW - padR + 2} y={toYapm(apmData.away.apmGlobal) + 8} fill="#f59e0b" fontSize="7" fontWeight="700" opacity="0.6">Global {apmData.away.apmGlobal}</text>
+                                                        </>
+                                                      )}
+                                                      <line x1={toX(elapsed)} y1={padT} x2={toX(elapsed)} y2={padT + plotH} stroke="var(--accent-primary)" strokeWidth="1" strokeDasharray="2,2" opacity="0.5" />
+                                                    </>
+                                                  )}
                                                   <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="var(--border-color)" strokeWidth="1" />
                                                   <line x1={padL} y1={padT + plotH} x2={chartW - padR} y2={padT + plotH} stroke="var(--border-color)" strokeWidth="1" />
                                                 </svg>
