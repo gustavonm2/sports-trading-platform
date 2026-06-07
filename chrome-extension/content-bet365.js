@@ -928,19 +928,69 @@
    * Retorna { elapsed: number, raw: string, period: '1H'|'2H'|'HT'|'ET'|null }
    */
   function findMatchTimer() {
-    // Estratégia 1: Seletores específicos Bet365 para timer
-    const timerSelectors = [
+    // ═══════════════════════════════════════════════════════════════════
+    // 🥇 Estratégia 1: Seletores EXATOS da Bet365 (descobertos via debug)
+    // ═══════════════════════════════════════════════════════════════════
+    
+    // Timer principal: <span class="ml1-SoccerClock_Clock">45:00</span>
+    const clockEl = document.querySelector('.ml1-SoccerClock_Clock, [class*="ml1-SoccerClock_Clock"]');
+    if (clockEl) {
+      const text = (clockEl.textContent || '').trim();
+      const parsed = parseTimerText(text);
+      if (parsed) {
+        // Verificar se há tempo de acréscimo: <span class="ml1-SoccerClock_InjuryTime">+3</span>
+        const injuryEl = document.querySelector('.ml1-SoccerClock_InjuryTime, [class*="ml1-SoccerClock_InjuryTime"]');
+        if (injuryEl) {
+          const injuryText = (injuryEl.textContent || '').trim();
+          const injuryMatch = injuryText.match(/\+?\s*(\d+)/);
+          if (injuryMatch) {
+            parsed.injuryTime = parseInt(injuryMatch[1], 10);
+          }
+        }
+        console.log(`[Bet365 Bridge] ⏱️ Timer (SoccerClock): ${parsed.elapsed}' (raw: "${text}"${parsed.injuryTime ? `, +${parsed.injuryTime}` : ''})`);
+        return parsed;
+      }
+    }
+    
+    // Timeline secundária: <time class="ml1-SoccerTimeline_Time">45:00</time>
+    const timelineEl = document.querySelector('.ml1-SoccerTimeline_Time, [class*="ml1-SoccerTimeline_Time"]');
+    if (timelineEl) {
+      const text = (timelineEl.textContent || '').trim();
+      const parsed = parseTimerText(text);
+      if (parsed) {
+        console.log(`[Bet365 Bridge] ⏱️ Timer (Timeline): ${parsed.elapsed}' (raw: "${text}")`);
+        return parsed;
+      }
+    }
+
+    // Container pai do clock (fallback se a classe interna mudar)
+    const clockContainer = document.querySelector('.ml1-SoccerClock, [class*="ml1-SoccerClock "]');
+    if (clockContainer) {
+      const text = (clockContainer.textContent || '').trim();
+      // O container pode ter texto extra, pegar apenas o padrão MM:SS
+      const match = text.match(/(\d{1,3}:\d{2})/);
+      if (match) {
+        const parsed = parseTimerText(match[1]);
+        if (parsed) {
+          console.log(`[Bet365 Bridge] ⏱️ Timer (Container): ${parsed.elapsed}' (raw: "${match[1]}")`);
+          return parsed;
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 🥈 Estratégia 2: Seletores genéricos (fallback para layouts antigos)
+    // ═══════════════════════════════════════════════════════════════════
+    const fallbackSelectors = [
       '[class*="ipe-EventViewDetail_Timer"]',
       '[class*="ipe-Timer"]',
-      '[class*="ml1-Timer"]',
       '[class*="MatchTimer"]',
       '[class*="EventTimer"]',
       '[class*="Timer_Text"]',
       '[class*="ScoreBoard_Timer"]',
-      '[class*="ipe-EventHeader"] [class*="timer" i]',
     ];
 
-    for (const sel of timerSelectors) {
+    for (const sel of fallbackSelectors) {
       try {
         const els = document.querySelectorAll(sel);
         for (const el of els) {
@@ -950,41 +1000,29 @@
       } catch (e) {}
     }
 
-    // Estratégia 2: Procurar elementos com padrão de timer (MM:SS) no topo da página
-    const allEls = document.querySelectorAll('div, span');
+    // ═══════════════════════════════════════════════════════════════════
+    // 🥉 Estratégia 3: Busca por padrão MM:SS no topo da página
+    // ═══════════════════════════════════════════════════════════════════
+    const allEls = document.querySelectorAll('span, time, div');
     for (const el of allEls) {
       try {
         const rect = el.getBoundingClientRect();
-        // Timer geralmente está no topo (header do jogo), entre 0 e 300px
         if (rect.top > 350 || rect.top < 0) continue;
         if (rect.width < 20 || rect.height < 10) continue;
+        // Apenas elementos folha (sem filhos significativos)
+        if (el.children.length > 2) continue;
         
         const text = (el.textContent || '').trim();
-        // Padrão MM:SS (ex: "59:26", "45:00", "90:00+2")
         if (/^\d{1,3}:\d{2}/.test(text) && text.length <= 12) {
           const parsed = parseTimerText(text);
           if (parsed) {
-            // Verificar se este não é um sub-elemento de algo maior
             const parent = el.parentElement;
             const parentText = parent ? (parent.textContent || '').trim() : '';
-            // Evitar pegar timers de odds ou outros contextos
             if (parentText.length > 30) continue;
             return parsed;
           }
         }
       } catch (e) {}
-    }
-
-    // Estratégia 3: Buscar no body pelo padrão de timer
-    const bodyText = document.body.innerText || '';
-    const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
-    for (const line of lines) {
-      if (/^\d{1,3}:\d{2}$/.test(line)) {
-        const parsed = parseTimerText(line);
-        if (parsed && parsed.elapsed >= 1 && parsed.elapsed <= 120) {
-          return parsed;
-        }
-      }
     }
 
     return null;
