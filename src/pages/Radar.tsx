@@ -135,7 +135,7 @@ export default function Radar() {
   const [allDossiers, setAllDossiers] = useState<Record<number, PreMatchDossier>>({});
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [minConfidence, setMinConfidence] = useState(65);
+
   const [showMatchesTable, setShowMatchesTable] = useState(false);
   const [fixtureSourceFilter, setFixtureSourceFilter] = useState<'all' | 'api' | 'bet365' | 'favorites'>('all');
   const [alertFilter, setAlertFilter] = useState<'all' | 'entrada' | 'potencial'>('all');
@@ -1422,19 +1422,17 @@ export default function Radar() {
 
     // Sound alerts triggers
     activeOpps.forEach(opp => {
-      if (opp.confidence >= minConfidence) {
-        if (!alertedIdsRef.current.has(opp.id)) {
-          alertedIdsRef.current.add(opp.id);
-          if (soundEnabled && !playedSoundThisTick) {
-            playAlertSound();
-            playedSoundThisTick = true;
-          }
+      if (!alertedIdsRef.current.has(opp.id)) {
+        alertedIdsRef.current.add(opp.id);
+        if (soundEnabled && !playedSoundThisTick) {
+          playAlertSound();
+          playedSoundThisTick = true;
         }
       }
     });
 
     setOpportunities(activeOpps);
-  }, [allFixtures, allStats, allDossiers, minConfidence, soundEnabled, activeMode]);
+  }, [allFixtures, allStats, allDossiers, soundEnabled, activeMode]);
 
   // Main polling effect for scanner (every 25 seconds for highly responsive scans)
   useEffect(() => {
@@ -1520,7 +1518,6 @@ export default function Radar() {
 
   // Filtered active opportunities by confidence and granular market preference
   const filteredOpps = opportunities
-    .filter(o => o.confidence >= minConfidence)
     .filter(opp => {
       if (marketFilter === 'corners') {
         return opp.strategyName === 'Canto Limite';
@@ -1926,23 +1923,7 @@ export default function Radar() {
               </button>
             </div>
 
-            {/* Confiança Mínima Filtro */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Confiança Mínima:</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input 
-                  type="range" 
-                  min="40" 
-                  max="90" 
-                  value={minConfidence} 
-                  onChange={(e) => setMinConfidence(Number(e.target.value))}
-                  style={{ width: 100, accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
-                />
-                <span className="badge badge-green" style={{ fontSize: '0.85rem', padding: '4px 8px', width: 44, textAlign: 'center' }}>
-                  {minConfidence}%
-                </span>
-              </div>
-            </div>
+
 
           </div>
 
@@ -2359,7 +2340,7 @@ export default function Radar() {
                     const dossier = allDossiers[f.id];
                     
                     // Check if this fixture has an active opportunity matching the criteria
-                    const hasOpp = opportunities.some(opp => opp.fixtureId === f.id && opp.confidence >= minConfidence);
+                    const hasOpp = opportunities.some(opp => opp.fixtureId === f.id);
                     
                     // 🔥 DETECÇÃO DE POTENCIAL & GATILHO BASEADOS NO SCORE FINAL
                     const triggerThreshold = cornerTriggerThreshold;
@@ -3776,7 +3757,7 @@ export default function Radar() {
                     .map(f => {
                     const stats = allStats[f.id];
                     const dossier = allDossiers[f.id];
-                    const hasOpp = opportunities.some(opp => opp.fixtureId === f.id && opp.confidence >= minConfidence);
+                    const hasOpp = opportunities.some(opp => opp.fixtureId === f.id);
                     const triggerThreshold = cornerTriggerThreshold;
                     const potentialThreshold = triggerThreshold - 1.0;
                     const homeScore = stats ? getScoreFinalForSide(f.id, true) : 0;
@@ -5026,7 +5007,7 @@ export default function Radar() {
               <Activity size={48} style={{ margin: '0 auto 16px', opacity: 0.3 }} />
               <h3 style={{ color: 'var(--text-primary)', marginBottom: 6 }}>Buscando Padrões Lucrativos...</h3>
               <p style={{ maxWidth: 450, margin: '0 auto', fontSize: '0.9rem', lineHeight: 1.5 }}>
-                Nenhuma partida atende às diretrizes configuradas (confiança ≥ {minConfidence}%). O bot continuará lendo o mercado a cada {countdown}s em segundo plano.
+                Nenhuma partida atende às diretrizes configuradas. O bot continuará lendo o mercado a cada {countdown}s em segundo plano.
               </p>
             </div>
           ) : (
@@ -5475,7 +5456,7 @@ export default function Radar() {
               <div className="card glass-panel" style={{ textAlign: 'center', padding: '50px 30px', color: 'var(--text-muted)' }}>
                 <Activity size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
                 <h3 style={{ color: 'var(--text-primary)', marginBottom: 6, fontSize: '1rem' }}>Sem entradas ativas</h3>
-                <p style={{ fontSize: '0.85rem' }}>O bot continua monitorando. Confiança mínima: {minConfidence}%</p>
+                <p style={{ fontSize: '0.85rem' }}>O bot continua monitorando em segundo plano.</p>
               </div>
             )}
 
