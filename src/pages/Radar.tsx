@@ -187,10 +187,8 @@ export default function Radar() {
   const [bet365Bridge, setBet365Bridge] = useState<Bet365BridgePayload | null>(null);
   const bet365DataRef = useRef<Bet365MatchData[]>([]);
 
-  // 🚀 Gerenciador de Links Multijogos
-  const [showLinkManager, setShowLinkManager] = useState(false);
-  const [linkText, setLinkText] = useState(() => localStorage.getItem('bet365_multilinks') || '');
-  
+
+
   // 🔍 Estado para linha expandida na tabela do radar (Dashboard Detalhado)
   const [expandedFixtureId, setExpandedFixtureId] = useState<number | null>(null);
 
@@ -538,10 +536,6 @@ export default function Radar() {
     return () => clearInterval(interval);
   }, []);
 
-  // Sincronizar links no localStorage
-  useEffect(() => {
-    localStorage.setItem('bet365_multilinks', linkText);
-  }, [linkText]);
 
   // ─── useMemo de allStats: Combina rawApiStats (API) com a Bridge da Bet365 ───
   const allStats = useMemo(() => {
@@ -1765,191 +1759,6 @@ export default function Radar() {
         </div>
       </div>
 
-      {/* 🚀 GERENCIADOR DE LINKS MULTIJOGOS - COLLAPSIBLE PREMIUM CARD */}
-      <div className="card glass-panel" style={{
-        marginBottom: 20,
-        padding: '16px 24px',
-        background: 'rgba(255, 255, 255, 0.75)',
-        border: '1px solid var(--border-color)',
-        borderRadius: 12,
-        transition: 'all 0.3s ease'
-      }}>
-        <div 
-          onClick={() => setShowLinkManager(!showLinkManager)}
-          style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center', 
-            cursor: 'pointer',
-            userSelect: 'none'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Zap size={18} color="var(--accent-primary)" className={bet365Bridge?.connected ? 'pulse-indicator' : ''} />
-            <div>
-              <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-                Gerenciador de Links Multijogos (Bet365 Bridge)
-              </span>
-              <span style={{ 
-                marginLeft: 12, 
-                fontSize: '0.75rem', 
-                background: 'rgba(16, 185, 129, 0.15)', 
-                color: '#10b981', 
-                padding: '2px 8px', 
-                borderRadius: 4, 
-                fontWeight: 700 
-              }}>
-                NOVO
-              </span>
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>
-              {showLinkManager ? 'Ocultar Painel' : 'Configurar Varredura Multi-Abas'}
-            </span>
-            {showLinkManager ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </div>
-        </div>
-
-        {showLinkManager && (
-          <div style={{ marginTop: 16, borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>
-              Cole abaixo os links dos jogos ao vivo da Bet365 que deseja monitorar. Ao adicioná-los ao Radar, eles aparecerão instantaneamente na sua lista (contornando os limites de cota da API). Conforme você abrir os jogos correspondentes no seu navegador, a extensão <strong>Bet365 Bridge</strong> enviará os dados em tempo real (zero delay), sincronizando automaticamente os nomes das equipes, o tempo e as estatísticas!
-            </p>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <textarea
-                value={linkText}
-                onChange={(e) => setLinkText(e.target.value)}
-                placeholder="Cole as URLs da Bet365 aqui, uma por linha. Ex:&#10;https://www.bet365.com/#/IP/B1&#10;https://www.bet365.com/#/IP/B2"
-                style={{
-                  width: '100%',
-                  height: 100,
-                  padding: 12,
-                  borderRadius: 8,
-                  border: '1px solid var(--border-color)',
-                  background: 'rgba(255, 255, 255, 0.5)',
-                  color: 'var(--text-primary)',
-                  fontSize: '0.85rem',
-                  fontFamily: 'monospace',
-                  resize: 'vertical',
-                  outline: 'none',
-                  transition: 'border-color 0.2s'
-                }}
-              />
-
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => {
-                    const urls = linkText
-                      .split('\n')
-                      .map(line => line.trim())
-                      .filter(line => line.startsWith('http://') || line.startsWith('https://'));
-
-                    if (urls.length === 0) return;
-
-                    const newManualFixtures: Fixture[] = urls.map((url, index) => {
-                      let hash = 0;
-                      for (let i = 0; i < url.length; i++) {
-                        hash = (hash << 5) - hash + url.charCodeAt(i);
-                        hash |= 0;
-                      }
-                      const id = -Math.abs(hash + index);
-
-                      return {
-                        id: id,
-                        status: '1H',
-                        elapsed: 0,
-                        homeTeam: { name: 'Jogo Manual — Aguardando Bridge...' },
-                        awayTeam: { name: 'Aguardando Bridge...' },
-                        goalsHome: 0,
-                        goalsAway: 0,
-                        leagueName: 'Jogo Manual (Bet365)',
-                        matchUrl: url
-                      } as any;
-                    });
-
-                    // Prevenir duplicatas se a mesma URL já foi adicionada
-                    setManualFixtures(prev => {
-                      const existingUrls = prev.map(f => (f as any).matchUrl);
-                      const filteredNew = newManualFixtures.filter(f => !existingUrls.includes((f as any).matchUrl));
-                      return [...prev, ...filteredNew];
-                    });
-
-                    // Limpar a caixa de texto após adicionar
-                    setLinkText('');
-                  }}
-                  disabled={!linkText.trim()}
-                  className="btn btn-primary"
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 6,
-                    padding: '8px 16px',
-                    fontSize: '0.85rem',
-                    fontWeight: 700
-                  }}
-                >
-                  📥 Adicionar URLs como Jogos no Radar ({linkText.split('\n').filter(l => l.trim().startsWith('http')).length} links)
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (window.confirm("Deseja mesmo remover TODOS os jogos manuais do Radar?")) {
-                      setManualFixtures([]);
-                    }
-                  }}
-                  disabled={manualFixtures.length === 0}
-                  className="btn btn-outline"
-                  style={{ 
-                    padding: '8px 16px',
-                    fontSize: '0.85rem',
-                    fontWeight: 700,
-                    borderColor: '#ef4444',
-                    color: '#ef4444'
-                  }}
-                >
-                  🗑️ Limpar Jogos Manuais
-                </button>
-
-                <button
-                  onClick={() => setLinkText('')}
-                  disabled={!linkText.trim()}
-                  className="btn btn-outline"
-                  style={{ 
-                    padding: '8px 16px',
-                    fontSize: '0.85rem',
-                    fontWeight: 700
-                  }}
-                >
-                  Clean Links
-                </button>
-              </div>
-
-              {/* Status Indicator */}
-              <div style={{ 
-                marginTop: 8, 
-                padding: 12, 
-                background: 'rgba(59, 130, 246, 0.05)', 
-                border: '1px solid rgba(59, 130, 246, 0.15)', 
-                borderRadius: 8,
-                fontSize: '0.8rem',
-                color: 'var(--text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}>
-                <span>
-                  <strong>Bypass de API Ativo:</strong> Você pode adicionar partidas manuais colando os links da Bet365 acima. Para cada partida inserida, clique no link de atalho ao lado do nome do time para abrir a aba do jogo correspondente no navegador e iniciar a captação de telemetria da extensão.
-                </span>
-                <span style={{ fontWeight: 800, color: 'var(--status-green)' }}>
-                  Ponte Ativa 🔗
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* 🛠️ BARRA DE CONTROLE PREMIUM (Market Filters, Data Sources and Mode Status) */}
       <div className="card glass-panel" style={{
