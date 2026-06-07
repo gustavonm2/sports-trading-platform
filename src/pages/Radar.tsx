@@ -327,15 +327,41 @@ export default function Radar() {
     }
   }, [bet365Bridge, manualFixtures]);
 
-  // 🎰 Sincronizar Scanner Fixtures com dados ao vivo do Scanner (elapsed, goals, status)
+  // 🎰 Sincronizar Scanner Fixtures com dados ao vivo do Scanner + Bridge (elapsed, goals, status)
   useEffect(() => {
-    if (scannerMatches.length === 0 || manualFixtures.length === 0) return;
+    if (manualFixtures.length === 0) return;
+    if (scannerMatches.length === 0 && (!bet365Bridge || !bet365Bridge.connected)) return;
 
     let updated = false;
     const nextManual = manualFixtures.map(f => {
       if ((f as any).source !== 'scanner') return f;
       
-      // Encontrar o match correspondente no scanner pelo matchKey
+      // 🥇 PRIORIDADE 1: Bridge elapsed/goals (zero delay, da aba aberta na Bet365)
+      let bridgeElapsed: number | null = null;
+      let bridgeGoalsH: number | null = null;
+      let bridgeGoalsA: number | null = null;
+      let bridgePeriod: string | null = null;
+      
+      if (bet365Bridge?.connected && bet365Bridge.matches.length > 0) {
+        const bridgeMatch = (f as any).matchUrl
+          ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl))
+          : findBet365Match(f.homeTeam.name, f.awayTeam.name, bet365Bridge.matches);
+        
+        if (bridgeMatch) {
+          if (bridgeMatch.elapsed && bridgeMatch.elapsed > 0) {
+            bridgeElapsed = bridgeMatch.elapsed;
+          }
+          if (bridgeMatch.period) {
+            bridgePeriod = bridgeMatch.period;
+          }
+          const bHome = bridgeMatch.goalsHome ?? bridgeMatch.home?.goals;
+          const bAway = bridgeMatch.goalsAway ?? bridgeMatch.away?.goals;
+          if (typeof bHome === 'number') bridgeGoalsH = bHome;
+          if (typeof bAway === 'number') bridgeGoalsA = bAway;
+        }
+      }
+      
+      // 🥈 PRIORIDADE 2: Scanner match data (fallback)
       const matchKey = `${f.homeTeam.name}_${f.awayTeam.name}`.toLowerCase().replace(/[^a-z0-9]/g, '');
       const scanMatch = scannerMatches.find(m => {
         const key = m.matchKey.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -343,24 +369,24 @@ export default function Radar() {
           (m.homeTeam.toLowerCase() === f.homeTeam.name.toLowerCase() && m.awayTeam.toLowerCase() === f.awayTeam.name.toLowerCase());
       });
 
-      if (scanMatch) {
-        const newElapsed = scanMatch.elapsed || f.elapsed;
-        const newGoalsH = scanMatch.homeGoals ?? f.goalsHome;
-        const newGoalsA = scanMatch.awayGoals ?? f.goalsAway;
-        const newStatus = scanMatch.status || f.status;
+      // Resolver valores finais: Bridge > Scanner > Existente
+      const newElapsed = bridgeElapsed ?? (scanMatch?.elapsed || f.elapsed);
+      const newGoalsH = bridgeGoalsH ?? (scanMatch?.homeGoals ?? f.goalsHome);
+      const newGoalsA = bridgeGoalsA ?? (scanMatch?.awayGoals ?? f.goalsAway);
+      const newStatus = bridgePeriod ?? (scanMatch?.status || f.status);
 
-        if (f.elapsed !== newElapsed || f.goalsHome !== newGoalsH || f.goalsAway !== newGoalsA || f.status !== newStatus) {
-          updated = true;
-          return { ...f, elapsed: newElapsed, goalsHome: newGoalsH, goalsAway: newGoalsA, status: newStatus };
-        }
+      if (f.elapsed !== newElapsed || f.goalsHome !== newGoalsH || f.goalsAway !== newGoalsA || f.status !== newStatus) {
+        updated = true;
+        return { ...f, elapsed: newElapsed, goalsHome: newGoalsH, goalsAway: newGoalsA, status: newStatus };
       }
+      
       return f;
     });
 
     if (updated) {
       setManualFixtures(nextManual);
     }
-  }, [scannerMatches, manualFixtures]);
+  }, [scannerMatches, manualFixtures, bet365Bridge]);
 
   // 🗑️ Auto-remover jogos encerrados a cada 30s
   // Scanner fixtures: removidos por idade (>3h) OU quando sumiram do scanner ativo
