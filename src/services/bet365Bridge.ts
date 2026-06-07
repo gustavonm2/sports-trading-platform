@@ -413,9 +413,7 @@ export function calculateDynamicAPM(
     ? currentSnap.timestamp - earliestSnap.timestamp 
     : 0;
   const dataAge = Math.max(0, dataAgeMs / 60000); // em minutos reais
-  
-  // Elapsed coverage (para cálculos de janela que usam minuto do jogo)
-  const elapsedCoverage = currentSnap.elapsed - earliestSnap.elapsed;
+
 
   const calculateSideAPM = (
     isHome: boolean,
@@ -424,46 +422,9 @@ export function calculateDynamicAPM(
     const getDA = (s: TelemetrySnapshot) => (isHome ? s.homeDA : s.awayDA);
     const apmGlobal = currentElapsed > 0 ? globalDA / currentElapsed : 0;
     
-    // ─── Tempo no meio-tempo atual (2º tempo reinicia contagem) ──────
-    const halfElapsed = currentElapsed > 45 ? currentElapsed - 45 : currentElapsed;
-
-    // ─── Janelas de ativação por tempo do meio ──────────────────────
-    const RAMP_DURATION = 5;
-    
-    const ramp = (activateAt: number): number => {
-      if (halfElapsed < activateAt) return 0;
-      if (halfElapsed >= activateAt + RAMP_DURATION) return 1;
-      return (halfElapsed - activateAt) / RAMP_DURATION;
-    };
-
-    const ramp10 = ramp(20);
-    const ramp5  = ramp(25);
-    const ramp3  = ramp(30);
-    
-    // ─── Cálculo com detecção de dados insuficientes ─────────────────
-    // Uma janela é CONFIÁVEL se temos snapshots cobrindo pelo menos 60% dela
-    // Ex: ATM 10 precisa de pelo menos 6 min de dados
-    const MIN_COVERAGE = 0.6; // 60% da janela coberta
-    
-    const getApmForWindow = (minutes: number): { value: number; reliable: boolean } => {
-      const targetTime = currentElapsed - minutes;
-      
-      // Verificar cobertura: usar elapsed coverage (minutos de jogo cobertos)
-      const coverageMinutes = elapsedCoverage;
-      const isReliable = coverageMinutes >= (minutes * MIN_COVERAGE) && dataAge >= 2;
-      
-      if (targetTime <= 0) {
-        // Jogo não tem tempo suficiente para esta janela
-        // Se menos de 2 min reais de dados, usar APM Global para evitar valores distorcidos
-        if (dataAge >= 2 && elapsedCoverage > 0) {
-          const daDiff = getDA(currentSnap) - getDA(earliestSnap);
-          const apm = Math.max(0, daDiff / elapsedCoverage);
-          return { value: apm, reliable: false };
-        }
-        return { value: apmGlobal, reliable: false };
-      }
-      
-      // Encontrar snapshot mais próximo do targetTime
+    // ─── Helper: encontrar snapshot mais próximo de um tempo-alvo ─────
+    const findClosestSnap = (targetTime: number): { snap: TelemetrySnapshot; gap: number } | null => {
+      if (sortedSnaps.length === 0) return null;
       let closest = sortedSnaps[0];
       let minDiff = Math.abs(closest.elapsed - targetTime);
       for (const s of sortedSnaps) {
@@ -473,35 +434,88 @@ export function calculateDynamicAPM(
           closest = s;
         }
       }
+      return { snap: closest, gap: minDiff };
+    };
 
-      // Se o snapshot mais próximo está muito longe do target → dados insuficientes
-      // Gap máximo aceitável: 40% da janela
-      const maxGap = minutes * 0.4;
-      if (minDiff > maxGap) {
-        // Dados insuficientes → usar APM Global se tempo real < 2 min
-        if (dataAge >= 2 && elapsedCoverage > 0) {
+    // ═══════════════════════════════════════════════════════════════════
+    // 📊 BLOCOS FIXOS: APM calculado em períodos fixos (não janela deslizante)
+    //
+    // APM 10: blocos 0-10, 10-20, 20-30, 30-40...
+    // APM 5:  blocos 0-5, 5-10, 10-15, 15-20...
+    // APM 3:  blocos 0-3, 3-6, 6-9, 9-12...
+    //
+    // O valor exibido é do ÚLTIMO BLOCO COMPLETO.
+    // Isso elimina oscilação — o valor só muda ao cruzar uma fronteira.
+    // ═══════════════════════════════════════════════════════════════════
+    
+    const getApmForBlock = (blockSize: number): { value: number; reliable: boolean } => {
+      const currentBlockIndex = Math.floor(currentElapsed / blockSize);
+      
+      // Sem bloco completo ainda (ex: min 8 para APM 10)
+      if (currentBlockIndex < 1) {
+        // Usar dados parciais disponíveis
+        if (sortedSnaps.length >= 2 && dataAge >= 1) {
           const daDiff = getDA(currentSnap) - getDA(earliestSnap);
-          return { value: Math.max(0, daDiff / elapsedCoverage), reliable: false };
+          const timeDiff = currentSnap.elapsed - earliestSnap.elapsed;
+          if (timeDiff > 0) {
+            return { value: Math.max(0, daDiff / timeDiff), reliable: false };
+          }
         }
         return { value: apmGlobal, reliable: false };
       }
-
-      const daDiff = getDA(currentSnap) - getDA(closest);
-      const actualWindow = currentSnap.elapsed - closest.elapsed;
-      if (daDiff <= 0 || actualWindow <= 0) return { value: 0, reliable: isReliable };
-      return { value: Math.max(0, daDiff / minutes), reliable: isReliable };
+      
+      // ─── Último bloco completo ─────────────────────────────────────
+      const blockStartTime = (currentBlockIndex - 1) * blockSize;
+      const blockEndTime = currentBlockIndex * blockSize;
+      
+      // Encontrar snapshots nas fronteiras do bloco
+      const startResult = findClosestSnap(blockStartTime);
+      const endResult = findClosestSnap(blockEndTime);
+      
+      if (!startResult || !endResult) return { value: apmGlobal, reliable: false };
+      
+      const { snap: startSnap, gap: startGap } = startResult;
+      const { snap: endSnap, gap: endGap } = endResult;
+      
+      // Tolerância: snapshot deve estar dentro de 40% do tamanho do bloco
+      const maxGap = blockSize * 0.4;
+      if (startGap > maxGap || endGap > maxGap) {
+        // Dados insuficientes — sem snapshots próximos às fronteiras
+        return { value: apmGlobal, reliable: false };
+      }
+      
+      const daDiff = getDA(endSnap) - getDA(startSnap);
+      if (daDiff < 0) return { value: 0, reliable: true };
+      
+      return { value: Math.max(0, daDiff / blockSize), reliable: true };
     };
 
-    const raw10 = getApmForWindow(10);
-    const raw5 = getApmForWindow(5);
-    const raw3 = getApmForWindow(3);
+    const raw10 = getApmForBlock(10);
+    const raw5 = getApmForBlock(5);
+    const raw3 = getApmForBlock(3);
 
-    // ─── Se dados insuficientes, usar APM Global em vez de valor distorcido ─
+    // ─── Ativação suave: transição gradual de Global → Bloco ─────────
+    // ATM 10 ativa após min 10 (1º bloco completo), pleno em min 15
+    // ATM 5  ativa após min 5, pleno em min 10  
+    // ATM 3  ativa após min 3, pleno em min 6
+    const halfElapsed = currentElapsed > 45 ? currentElapsed - 45 : currentElapsed;
+    const RAMP = 5;
+    const ramp = (activateAt: number): number => {
+      if (halfElapsed < activateAt) return 0;
+      if (halfElapsed >= activateAt + RAMP) return 1;
+      return (halfElapsed - activateAt) / RAMP;
+    };
+    
+    const ramp10 = ramp(10);
+    const ramp5  = ramp(5);
+    const ramp3  = ramp(3);
+
+    // Se bloco confiável → usar valor do bloco; senão → Global
     const rawApm10 = raw10.reliable ? raw10.value : apmGlobal;
     const rawApm5  = raw5.reliable  ? raw5.value  : apmGlobal;
     const rawApm3  = raw3.reliable  ? raw3.value  : apmGlobal;
 
-    // ─── Aplicar ramp: mistura suave entre APM Global e APM da janela ─
+    // Mistura suave entre Global e valor do bloco via ramp
     const apm10 = ramp10 * rawApm10 + (1 - ramp10) * apmGlobal;
     const apm5  = ramp5  * rawApm5  + (1 - ramp5)  * apmGlobal;
     const apm3  = ramp3  * rawApm3  + (1 - ramp3)  * apmGlobal;

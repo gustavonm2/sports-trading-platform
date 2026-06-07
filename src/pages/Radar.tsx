@@ -191,6 +191,7 @@ export default function Radar() {
 
   // 🔍 Estado para linha expandida na tabela do radar (Dashboard Detalhado)
   const [expandedFixtureId, setExpandedFixtureId] = useState<number | null>(null);
+  const [chartViewMode, setChartViewMode] = useState<'da' | 'apm10' | 'apm5' | 'apm3'>('da');
 
   // ⚙️ Pesos customizáveis do Score por mercado (gols / escanteios)
   interface ScoreWeights { niap: number; ncg: number; nesc: number; nft: number; ncv: number; npos: number; nca: number; }
@@ -3447,10 +3448,10 @@ export default function Radar() {
                                           const halfElapsed = elapsed > 45 ? elapsed - 45 : elapsed;
                                           const isSecondHalf = elapsed > 45;
 
-                                          // Time gates (based on half elapsed)
-                                          const gate10 = isSecondHalf ? 65 : 20;
-                                          const gate5 = isSecondHalf ? 70 : 25;
-                                          const gate3 = isSecondHalf ? 75 : 30;
+                                          // Time gates (based on half elapsed) - aligned with fixed blocks
+                                          const gate10 = isSecondHalf ? 55 : 10;
+                                          const gate5 = isSecondHalf ? 50 : 5;
+                                          const gate3 = isSecondHalf ? 48 : 3;
 
                                           // Calculate max DA for scale
                                           const maxDA = Math.max(
@@ -3463,6 +3464,61 @@ export default function Radar() {
                                           // Helper: data point to SVG coordinates
                                           const toX = (t: number) => padL + (t / maxTime) * plotW;
                                           const toY = (da: number) => padT + plotH - (da / maxDA) * plotH;
+
+                                          // ─── APM Block calculation for chart ─────────────────
+                                          const buildApmBlockBars = (blockSize: number) => {
+                                            const blocks: Array<{start: number; end: number; homeApm: number; awayApm: number}> = [];
+                                            const numBlocks = Math.floor(elapsed / blockSize);
+                                            for (let i = 0; i < numBlocks; i++) {
+                                              const bStart = i * blockSize;
+                                              const bEnd = (i + 1) * blockSize;
+                                              // Find closest snaps to boundaries
+                                              let startSnap = snaps[0], endSnap = snaps[0];
+                                              let startDiff = Infinity, endDiff = Infinity;
+                                              for (const s of snaps) {
+                                                const sd = Math.abs(s.elapsed - bStart);
+                                                const ed = Math.abs(s.elapsed - bEnd);
+                                                if (sd < startDiff) { startDiff = sd; startSnap = s; }
+                                                if (ed < endDiff) { endDiff = ed; endSnap = s; }
+                                              }
+                                              if (startDiff > blockSize * 0.4 || endDiff > blockSize * 0.4) continue;
+                                              const hDiff = (endSnap.homeDA || 0) - (startSnap.homeDA || 0);
+                                              const aDiff = (endSnap.awayDA || 0) - (startSnap.awayDA || 0);
+                                              blocks.push({
+                                                start: bStart, end: bEnd,
+                                                homeApm: Math.max(0, hDiff / blockSize),
+                                                awayApm: Math.max(0, aDiff / blockSize)
+                                              });
+                                            }
+                                            // Current partial block
+                                            if (elapsed > numBlocks * blockSize && snaps.length > 0) {
+                                              const bStart = numBlocks * blockSize;
+                                              let startSnap = snaps[0];
+                                              let startDiff = Infinity;
+                                              for (const s of snaps) {
+                                                const sd = Math.abs(s.elapsed - bStart);
+                                                if (sd < startDiff) { startDiff = sd; startSnap = s; }
+                                              }
+                                              const currentSnap = snaps[snaps.length - 1];
+                                              const partialTime = elapsed - bStart;
+                                              if (partialTime > 0.5 && startDiff < blockSize * 0.4) {
+                                                const hDiff = (currentSnap.homeDA || 0) - (startSnap.homeDA || 0);
+                                                const aDiff = (currentSnap.awayDA || 0) - (startSnap.awayDA || 0);
+                                                blocks.push({
+                                                  start: bStart, end: elapsed,
+                                                  homeApm: Math.max(0, hDiff / partialTime),
+                                                  awayApm: Math.max(0, aDiff / partialTime)
+                                                });
+                                              }
+                                            }
+                                            return blocks;
+                                          };
+
+                                          const apmBlockSize = chartViewMode === 'apm10' ? 10 : chartViewMode === 'apm5' ? 5 : chartViewMode === 'apm3' ? 3 : 0;
+                                          const apmBlockColor = chartViewMode === 'apm10' ? '#3b82f6' : chartViewMode === 'apm5' ? '#8b5cf6' : '#ef4444';
+                                          const apmBlocks = apmBlockSize > 0 ? buildApmBlockBars(apmBlockSize) : [];
+                                          const maxApm = apmBlocks.length > 0 ? Math.max(...apmBlocks.flatMap(b => [b.homeApm, b.awayApm]), 0.5) : 1;
+                                          const toYapm = (v: number) => padT + plotH - (v / maxApm) * plotH;
 
                                           // Build path data for home and away DA lines
                                           const buildPath = (side: 'home' | 'away'): string => {
@@ -3497,28 +3553,38 @@ export default function Radar() {
                                           const xTicks: number[] = [];
                                           for (let t = 0; t <= maxTime; t += xStep) xTicks.push(t);
 
-                                          // Time gate active check
-                                          const is10Active = halfElapsed >= 20;
-                                          const is5Active = halfElapsed >= 25;
-                                          const is3Active = halfElapsed >= 30;
+                                          // Time gate active check (aligned with fixed blocks)
+                                          const is10Active = halfElapsed >= 10;
+                                          const is5Active = halfElapsed >= 5;
+                                          const is3Active = halfElapsed >= 3;
 
                                           return (
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '16px', alignItems: 'start' }}>
                                               {/* LEFT: SVG Chart */}
                                               <div style={{ background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '16px 12px 12px' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                                                    Ataques Perigosos — Evolução Temporal
-                                                  </span>
-                                                  <div style={{ display: 'flex', gap: '12px', fontSize: '0.65rem', fontWeight: 700 }}>
-                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                      <span style={{ width: 10, height: 3, background: '#10b981', display: 'inline-block', borderRadius: 2 }}></span>
-                                                      {f.homeTeam.name}
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                                      {chartViewMode === 'da' ? 'Ataques Perigosos — Evolução Temporal' : `APM ${apmBlockSize} — Blocos Fixos (${apmBlockSize}min)`}
                                                     </span>
-                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                      <span style={{ width: 10, height: 3, background: '#f59e0b', display: 'inline-block', borderRadius: 2 }}></span>
-                                                      {f.awayTeam.name}
-                                                    </span>
+                                                  </div>
+                                                  <div style={{ display: 'flex', gap: '4px', fontSize: '0.6rem', fontWeight: 700 }}>
+                                                    {(['da', 'apm10', 'apm5', 'apm3'] as const).map(mode => {
+                                                      const labels: Record<string, string> = { da: 'DA', apm10: 'ATM 10', apm5: 'ATM 5', apm3: 'ATM 3' };
+                                                      const colors: Record<string, string> = { da: 'var(--accent-primary)', apm10: '#3b82f6', apm5: '#8b5cf6', apm3: '#ef4444' };
+                                                      const isActive = chartViewMode === mode;
+                                                      return (
+                                                        <button key={mode} onClick={() => setChartViewMode(mode)} style={{
+                                                          padding: '3px 8px', borderRadius: '4px', border: 'none',
+                                                          cursor: 'pointer', fontWeight: 800, fontSize: '0.6rem',
+                                                          background: isActive ? colors[mode] : 'var(--bg-surface)',
+                                                          color: isActive ? '#fff' : 'var(--text-muted)',
+                                                          transition: 'all 0.15s ease'
+                                                        }}>
+                                                          {labels[mode]}
+                                                        </button>
+                                                      );
+                                                    })}
                                                   </div>
                                                 </div>
                                                 <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} style={{ overflow: 'visible' }}>
@@ -3533,60 +3599,146 @@ export default function Radar() {
                                                     </linearGradient>
                                                   </defs>
 
-                                                  {/* Grid lines */}
-                                                  {yTicks.map(v => (
-                                                    <g key={`y-${v}`}>
-                                                      <line x1={padL} y1={toY(v)} x2={chartW - padR} y2={toY(v)} stroke="var(--border-color)" strokeWidth="0.5" strokeDasharray="4,4" />
-                                                      <text x={padL - 6} y={toY(v) + 3} textAnchor="end" fill="var(--text-muted)" fontSize="9" fontWeight="600">{v}</text>
-                                                    </g>
-                                                  ))}
-
                                                   {/* X-axis labels */}
                                                   {xTicks.map(t => (
                                                     <text key={`x-${t}`} x={toX(t)} y={chartH - 4} textAnchor="middle" fill="var(--text-muted)" fontSize="9" fontWeight="600">{t}'</text>
                                                   ))}
 
-                                                  {/* Time Gate Markers */}
-                                                  {[
-                                                    { t: gate10, label: 'ATM 10', color: '#3b82f6', active: is10Active },
-                                                    { t: gate5, label: 'ATM 5', color: '#8b5cf6', active: is5Active },
-                                                    { t: gate3, label: 'ATM 3', color: '#ef4444', active: is3Active },
-                                                  ].filter(g => g.t <= maxTime).map(gate => (
-                                                    <g key={gate.label}>
-                                                      <line
-                                                        x1={toX(gate.t)} y1={padT} x2={toX(gate.t)} y2={padT + plotH}
-                                                        stroke={gate.active ? gate.color : 'var(--text-muted)'}
-                                                        strokeWidth={gate.active ? "1.5" : "1"}
-                                                        strokeDasharray={gate.active ? "none" : "3,3"}
-                                                        opacity={gate.active ? 0.8 : 0.3}
-                                                      />
-                                                      <rect
-                                                        x={toX(gate.t) - 16} y={padT - 12} width="32" height="12" rx="3"
-                                                        fill={gate.active ? gate.color : 'var(--bg-surface)'}
-                                                        opacity={gate.active ? 0.9 : 0.5}
-                                                        stroke={gate.color} strokeWidth="0.5"
-                                                      />
-                                                      <text x={toX(gate.t)} y={padT - 3} textAnchor="middle" fill={gate.active ? '#fff' : 'var(--text-muted)'} fontSize="7" fontWeight="800">
-                                                        {gate.label}
-                                                      </text>
-                                                    </g>
-                                                  ))}
+                                                  {chartViewMode === 'da' ? (
+                                                    <>
+                                                      {/* DA MODE: Original line chart */}
+                                                      {/* Grid lines */}
+                                                      {yTicks.map(v => (
+                                                        <g key={`y-${v}`}>
+                                                          <line x1={padL} y1={toY(v)} x2={chartW - padR} y2={toY(v)} stroke="var(--border-color)" strokeWidth="0.5" strokeDasharray="4,4" />
+                                                          <text x={padL - 6} y={toY(v) + 3} textAnchor="end" fill="var(--text-muted)" fontSize="9" fontWeight="600">{v}</text>
+                                                        </g>
+                                                      ))}
 
-                                                  {/* Area fills */}
-                                                  <path d={homeArea} fill={`url(#homeGrad-${f.id})`} />
-                                                  <path d={awayArea} fill={`url(#awayGrad-${f.id})`} />
+                                                      {/* Time Gate Markers */}
+                                                      {[
+                                                        { t: gate10, label: 'ATM 10', color: '#3b82f6', active: is10Active },
+                                                        { t: gate5, label: 'ATM 5', color: '#8b5cf6', active: is5Active },
+                                                        { t: gate3, label: 'ATM 3', color: '#ef4444', active: is3Active },
+                                                      ].filter(g => g.t <= maxTime).map(gate => (
+                                                        <g key={gate.label}>
+                                                          <line
+                                                            x1={toX(gate.t)} y1={padT} x2={toX(gate.t)} y2={padT + plotH}
+                                                            stroke={gate.active ? gate.color : 'var(--text-muted)'}
+                                                            strokeWidth={gate.active ? "1.5" : "1"}
+                                                            strokeDasharray={gate.active ? "none" : "3,3"}
+                                                            opacity={gate.active ? 0.8 : 0.3}
+                                                          />
+                                                          <rect
+                                                            x={toX(gate.t) - 16} y={padT - 12} width="32" height="12" rx="3"
+                                                            fill={gate.active ? gate.color : 'var(--bg-surface)'}
+                                                            opacity={gate.active ? 0.9 : 0.5}
+                                                            stroke={gate.color} strokeWidth="0.5"
+                                                          />
+                                                          <text x={toX(gate.t)} y={padT - 3} textAnchor="middle" fill={gate.active ? '#fff' : 'var(--text-muted)'} fontSize="7" fontWeight="800">
+                                                            {gate.label}
+                                                          </text>
+                                                        </g>
+                                                      ))}
 
-                                                  {/* Lines */}
-                                                  <path d={homePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                                                  <path d={awayPath} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                      {/* Area fills */}
+                                                      <path d={homeArea} fill={`url(#homeGrad-${f.id})`} />
+                                                      <path d={awayArea} fill={`url(#awayGrad-${f.id})`} />
 
-                                                  {/* Current value dots */}
-                                                  <circle cx={toX(elapsed)} cy={toY(homeDA)} r="4" fill="#10b981" stroke="#fff" strokeWidth="1.5" />
-                                                  <circle cx={toX(elapsed)} cy={toY(awayDA)} r="4" fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
+                                                      {/* Lines */}
+                                                      <path d={homePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                      <path d={awayPath} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
-                                                  {/* Current value labels */}
-                                                  <text x={toX(elapsed) + 8} y={toY(homeDA) + 3} fill="#10b981" fontSize="10" fontWeight="800">{homeDA}</text>
-                                                  <text x={toX(elapsed) + 8} y={toY(awayDA) + 3} fill="#f59e0b" fontSize="10" fontWeight="800">{awayDA}</text>
+                                                      {/* Current value dots */}
+                                                      <circle cx={toX(elapsed)} cy={toY(homeDA)} r="4" fill="#10b981" stroke="#fff" strokeWidth="1.5" />
+                                                      <circle cx={toX(elapsed)} cy={toY(awayDA)} r="4" fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
+
+                                                      {/* Current value labels */}
+                                                      <text x={toX(elapsed) + 8} y={toY(homeDA) + 3} fill="#10b981" fontSize="10" fontWeight="800">{homeDA}</text>
+                                                      <text x={toX(elapsed) + 8} y={toY(awayDA) + 3} fill="#f59e0b" fontSize="10" fontWeight="800">{awayDA}</text>
+                                                    </>
+                                                  ) : (
+                                                    <>
+                                                      {/* APM BLOCK MODE: Bar chart with fixed blocks */}
+                                                      {/* Y-axis for APM */}
+                                                      {[0, 0.25, 0.5, 0.75, 1.0].map(frac => {
+                                                        const v = Math.round(maxApm * frac * 100) / 100;
+                                                        return (
+                                                          <g key={`yapm-${frac}`}>
+                                                            <line x1={padL} y1={toYapm(v)} x2={chartW - padR} y2={toYapm(v)} stroke="var(--border-color)" strokeWidth="0.5" strokeDasharray="4,4" />
+                                                            <text x={padL - 6} y={toYapm(v) + 3} textAnchor="end" fill="var(--text-muted)" fontSize="9" fontWeight="600">{v.toFixed(1)}</text>
+                                                          </g>
+                                                        );
+                                                      })}
+
+                                                      {/* Block boundary lines */}
+                                                      {Array.from({ length: Math.floor(maxTime / apmBlockSize) + 1 }, (_, i) => i * apmBlockSize)
+                                                        .filter(t => t <= maxTime && t > 0)
+                                                        .map(t => (
+                                                          <line key={`bl-${t}`} x1={toX(t)} y1={padT} x2={toX(t)} y2={padT + plotH}
+                                                            stroke={apmBlockColor} strokeWidth="0.5" strokeDasharray="3,3" opacity="0.3" />
+                                                        ))}
+
+                                                      {/* APM Bars — Home (left) and Away (right) side by side */}
+                                                      {apmBlocks.map((block, i) => {
+                                                        const x1 = toX(block.start);
+                                                        const x2 = toX(block.end);
+                                                        const blockW = x2 - x1;
+                                                        const barW = (blockW - 4) / 2;
+                                                        const isPartial = block.end === elapsed && block.end % apmBlockSize !== 0;
+
+                                                        return (
+                                                          <g key={`apm-block-${i}`}>
+                                                            {/* Home bar */}
+                                                            <rect
+                                                              x={x1 + 1} y={toYapm(block.homeApm)}
+                                                              width={Math.max(barW, 2)} height={Math.max(padT + plotH - toYapm(block.homeApm), 1)}
+                                                              fill="#10b981" opacity={isPartial ? 0.4 : 0.7} rx="2"
+                                                            />
+                                                            {/* Away bar */}
+                                                            <rect
+                                                              x={x1 + barW + 3} y={toYapm(block.awayApm)}
+                                                              width={Math.max(barW, 2)} height={Math.max(padT + plotH - toYapm(block.awayApm), 1)}
+                                                              fill="#f59e0b" opacity={isPartial ? 0.4 : 0.7} rx="2"
+                                                            />
+                                                            {/* Value labels on top */}
+                                                            {blockW > 25 && (
+                                                              <>
+                                                                <text x={x1 + 1 + barW/2} y={toYapm(block.homeApm) - 3} textAnchor="middle" fill="#10b981" fontSize="8" fontWeight="800">
+                                                                  {block.homeApm.toFixed(2)}
+                                                                </text>
+                                                                <text x={x1 + barW + 3 + barW/2} y={toYapm(block.awayApm) - 3} textAnchor="middle" fill="#f59e0b" fontSize="8" fontWeight="800">
+                                                                  {block.awayApm.toFixed(2)}
+                                                                </text>
+                                                              </>
+                                                            )}
+                                                            {/* Block label */}
+                                                            {blockW > 20 && (
+                                                              <text x={x1 + blockW/2} y={padT + plotH + 12} textAnchor="middle" fill={isPartial ? 'var(--text-muted)' : apmBlockColor} fontSize="7" fontWeight="700" opacity={isPartial ? 0.6 : 0.9}>
+                                                                {Math.round(block.start)}'-{Math.round(block.end)}'
+                                                              </text>
+                                                            )}
+                                                          </g>
+                                                        );
+                                                      })}
+
+                                                      {/* Global APM reference line */}
+                                                      {apmData.home.apmGlobal > 0 && (
+                                                        <>
+                                                          <line x1={padL} y1={toYapm(apmData.home.apmGlobal)} x2={chartW - padR} y2={toYapm(apmData.home.apmGlobal)}
+                                                            stroke="#10b981" strokeWidth="1" strokeDasharray="6,3" opacity="0.5" />
+                                                          <text x={chartW - padR + 4} y={toYapm(apmData.home.apmGlobal) + 3} fill="#10b981" fontSize="7" fontWeight="700" opacity="0.7">G</text>
+                                                        </>
+                                                      )}
+                                                      {apmData.away.apmGlobal > 0 && (
+                                                        <>
+                                                          <line x1={padL} y1={toYapm(apmData.away.apmGlobal)} x2={chartW - padR} y2={toYapm(apmData.away.apmGlobal)}
+                                                            stroke="#f59e0b" strokeWidth="1" strokeDasharray="6,3" opacity="0.5" />
+                                                          <text x={chartW - padR + 4} y={toYapm(apmData.away.apmGlobal) + 3} fill="#f59e0b" fontSize="7" fontWeight="700" opacity="0.7">G</text>
+                                                        </>
+                                                      )}
+                                                    </>
+                                                  )}
 
                                                   {/* Current time line */}
                                                   <line x1={toX(elapsed)} y1={padT} x2={toX(elapsed)} y2={padT + plotH} stroke="var(--accent-primary)" strokeWidth="1" strokeDasharray="2,2" opacity="0.5" />
@@ -4690,10 +4842,10 @@ export default function Radar() {
                                           const halfElapsed = elapsed > 45 ? elapsed - 45 : elapsed;
                                           const isSecondHalf = elapsed > 45;
 
-                                          // Time gates (based on half elapsed)
-                                          const gate10 = isSecondHalf ? 65 : 20;
-                                          const gate5 = isSecondHalf ? 70 : 25;
-                                          const gate3 = isSecondHalf ? 75 : 30;
+                                          // Time gates (based on half elapsed) - aligned with fixed blocks
+                                          const gate10 = isSecondHalf ? 55 : 10;
+                                          const gate5 = isSecondHalf ? 50 : 5;
+                                          const gate3 = isSecondHalf ? 48 : 3;
 
                                           // Calculate max DA for scale
                                           const maxDA = Math.max(
@@ -4740,10 +4892,10 @@ export default function Radar() {
                                           const xTicks: number[] = [];
                                           for (let t = 0; t <= maxTime; t += xStep) xTicks.push(t);
 
-                                          // Time gate active check
-                                          const is10Active = halfElapsed >= 20;
-                                          const is5Active = halfElapsed >= 25;
-                                          const is3Active = halfElapsed >= 30;
+                                          // Time gate active check (aligned with fixed blocks)
+                                          const is10Active = halfElapsed >= 10;
+                                          const is5Active = halfElapsed >= 5;
+                                          const is3Active = halfElapsed >= 3;
 
                                           return (
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '16px', alignItems: 'start' }}>
