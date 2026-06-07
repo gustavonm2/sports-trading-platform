@@ -159,7 +159,7 @@ export default function Radar() {
   
   // Premium filters
   const [marketFilter, setMarketFilter] = useState<'all' | 'corners' | 'goals'>('all');
-  const [apmProfile, setApmProfile] = useState<'conservador' | 'medio' | 'arriscado'>('medio');
+
   
   // 🎯 Threshold configurável para gatilho de entrada (Score Final mínimo para disparar notificação)
   const [cornerTriggerThreshold, setCornerTriggerThreshold] = useState<number>(() => {
@@ -1842,51 +1842,7 @@ export default function Radar() {
           </div>
         </div>
 
-        {/* Sensibilidade APM */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Sensibilidade APM:</span>
-          <div style={{ display: 'inline-flex', background: 'var(--bg-elevated)', padding: 3, borderRadius: 8, border: '1px solid var(--border-color)' }}>
-            <button 
-              onClick={() => setApmProfile('conservador')}
-              style={{
-                padding: '6px 12px', border: 'none', borderRadius: 6,
-                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
-                background: apmProfile === 'conservador' ? '#fbbf24' : 'transparent',
-                color: apmProfile === 'conservador' ? '#1f2937' : 'var(--text-muted)',
-                transition: 'all 0.15s ease',
-                outline: 'none'
-              }}
-            >
-              Conservador
-            </button>
-            <button 
-              onClick={() => setApmProfile('medio')}
-              style={{
-                padding: '6px 12px', border: 'none', borderRadius: 6,
-                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
-                background: apmProfile === 'medio' ? 'var(--accent-primary)' : 'transparent',
-                color: apmProfile === 'medio' ? '#fff' : 'var(--text-muted)',
-                transition: 'all 0.15s ease',
-                outline: 'none'
-              }}
-            >
-              Médio
-            </button>
-            <button 
-              onClick={() => setApmProfile('arriscado')}
-              style={{
-                padding: '6px 12px', border: 'none', borderRadius: 6,
-                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer',
-                background: apmProfile === 'arriscado' ? '#ef4444' : 'transparent',
-                color: apmProfile === 'arriscado' ? '#fff' : 'var(--text-muted)',
-                transition: 'all 0.15s ease',
-                outline: 'none'
-              }}
-            >
-              Arriscado
-            </button>
-          </div>
-        </div>
+
       </div>
 
       {/* ⚠️ Alerta de Limite ou Erro da API Real */}
