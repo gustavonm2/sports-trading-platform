@@ -540,7 +540,7 @@ export default function Radar() {
         if (existingStats) {
           // Fixture JÁ TEM stats da API → merge complementar
           const merged = mergeStats(existingStats, bet365Match);
-          const elapsed = fixture.elapsed || 1;
+          const elapsed = getDisplayElapsed(fixture.id, fixture.elapsed || 1, fixture.status || '') || 1;
           const hasBet365 = (bet365Match.home?.dangerousAttacks || 0) > 0 || 
                             (bet365Match.away?.dangerousAttacks || 0) > 0;
           merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBet365);
@@ -561,7 +561,7 @@ export default function Radar() {
             hasTelemetry: false
           };
           const merged = mergeStats(bridgeStats, bet365Match);
-          const elapsed = fixture.elapsed || 1;
+          const elapsed = getDisplayElapsed(fixture.id, fixture.elapsed || 1, fixture.status || '') || 1;
           const hasBet365 = (bet365Match.home?.dangerousAttacks || 0) > 0 || 
                             (bet365Match.away?.dangerousAttacks || 0) > 0;
           merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBet365);
@@ -599,7 +599,7 @@ export default function Radar() {
     const stats = allStats[fixtureId];
     if (!stats) return 0;
     const fixture = allFixtures.find(f => f.id === fixtureId);
-    const elapsed = fixture?.elapsed || 0;
+    const elapsed = fixture ? getDisplayElapsed(fixture.id, fixture.elapsed || 0, fixture.status || '') : 0;
 
     const unifiedSnapshots = [
       ...(stats.snapshots || []),
@@ -700,7 +700,7 @@ export default function Radar() {
     if (smartFilter === 'none') return true;
     
     const stats = allStats[f.id];
-    const elapsed = f.elapsed || 0;
+    const elapsed = getDisplayElapsed(f.id, f.elapsed || 0, f.status || '');
     const status = (f.status || '').toUpperCase();
     
     if (smartFilter === 'apm_window') {
@@ -1049,7 +1049,7 @@ export default function Radar() {
       const dossier = allDossiers[fixture.id];
       if (!stats) return;
 
-      const elapsed = fixture.elapsed;
+      const elapsed = getDisplayElapsed(fixture.id, fixture.elapsed || 0, fixture.status || '');
       const scoreHome = fixture.goalsHome;
       const scoreAway = fixture.goalsAway;
 
@@ -2420,7 +2420,7 @@ export default function Radar() {
               
               const passesSmartFilterCheck = (filter: string, f: any) => {
                 const stats = allStats[f.id];
-                const elapsed = f.elapsed || 0;
+                const elapsed = getDisplayElapsed(f.id, f.elapsed || 0, f.status || '');
                 const status = (f.status || '').toUpperCase();
                 
                 if (filter === 'apm_window') {
@@ -2935,7 +2935,7 @@ export default function Radar() {
 
                                 const apmData = calculateDynamicAPM(
                                   unifiedSnapshots,
-                                  f.elapsed || 0,
+                                  getDisplayElapsed(f.id, f.elapsed || 0, f.status || ''),
                                   homeDA,
                                   awayDA
                                 );
@@ -3671,7 +3671,7 @@ export default function Radar() {
                                           const plotW = chartW - padL - padR;
                                           const plotH = chartH - padT - padB;
                                           const snaps = unifiedSnapshots;
-                                          const elapsed = f.elapsed || 1;
+                                          const elapsed = getDisplayElapsed(f.id, f.elapsed || 1, f.status || '') || 1;
                                           const halfElapsed = elapsed > 45 ? elapsed - 45 : elapsed;
                                           const isSecondHalf = elapsed > 45;
 
@@ -4178,7 +4178,7 @@ export default function Radar() {
 
                                 const apmData = calculateDynamicAPM(
                                   unifiedSnapshots,
-                                  f.elapsed || 0,
+                                  getDisplayElapsed(f.id, f.elapsed || 0, f.status || ''),
                                   homeDA,
                                   awayDA
                                 );
@@ -4900,7 +4900,7 @@ export default function Radar() {
                                           const plotW = chartW - padL - padR;
                                           const plotH = chartH - padT - padB;
                                           const snaps = unifiedSnapshots;
-                                          const elapsed = f.elapsed || 1;
+                                          const elapsed = getDisplayElapsed(f.id, f.elapsed || 1, f.status || '') || 1;
                                           const halfElapsed = elapsed > 45 ? elapsed - 45 : elapsed;
                                           const isSecondHalf = elapsed > 45;
 
