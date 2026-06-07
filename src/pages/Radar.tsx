@@ -4792,18 +4792,32 @@ export default function Radar() {
                                         flexDirection: 'column',
                                         gap: '12px'
                                       }}>
-                                        <h4 style={{ 
-                                          fontSize: '0.85rem', 
-                                          fontWeight: 800, 
-                                          textTransform: 'uppercase', 
-                                          color: 'var(--accent-primary)', 
-                                          margin: '0', 
-                                          display: 'flex', 
-                                          alignItems: 'center', 
-                                          gap: '6px' 
-                                        }}>
-                                          <Gauge size={16} /> 📊 Detalhamento de Métricas Normalizadas (0-10)
-                                        </h4>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                          <h4 style={{ 
+                                            fontSize: '0.85rem', 
+                                            fontWeight: 800, 
+                                            textTransform: 'uppercase', 
+                                            color: 'var(--accent-primary)', 
+                                            margin: '0', 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            gap: '6px' 
+                                          }}>
+                                            <Gauge size={16} /> 📊 Detalhamento de Métricas Normalizadas (0-10)
+                                          </h4>
+                                          <button onClick={() => setShowWeightsModal(true)} style={{
+                                            background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+                                            borderRadius: '6px', padding: '4px 10px', cursor: 'pointer',
+                                            fontSize: '0.65rem', fontWeight: 700, color: 'var(--accent-primary)',
+                                            display: 'flex', alignItems: 'center', gap: '4px',
+                                            transition: 'all 0.2s ease',
+                                          }}
+                                          onMouseEnter={e => { (e.target as HTMLElement).style.background = 'var(--accent-primary)'; (e.target as HTMLElement).style.color = '#fff'; }}
+                                          onMouseLeave={e => { (e.target as HTMLElement).style.background = 'var(--bg-elevated)'; (e.target as HTMLElement).style.color = 'var(--accent-primary)'; }}
+                                          >
+                                            <SettingsIcon size={12} /> ⚙️ Ajustar Pesos
+                                          </button>
+                                        </div>
 
                                         <div style={{ overflowX: 'auto' }}>
                                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
@@ -4818,43 +4832,43 @@ export default function Radar() {
                                             <tbody>
                                               <tr style={{ borderBottom: '1px dashed var(--border-color)' }}>
                                                 <td style={{ padding: '6px 4px', fontWeight: 600 }}>IAP Normalizado (NIAP)</td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)' }}>40%</td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)', fontWeight: 700 }}>{activeScoreWeights.niap}%</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(homeNiap * 10) / 10}</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(awayNiap * 10) / 10}</td>
                                               </tr>
                                               <tr style={{ borderBottom: '1px dashed var(--border-color)' }}>
                                                 <td style={{ padding: '6px 4px', fontWeight: 600 }}>Chutes no Gol Normalizados (NCG)</td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)' }}>25%</td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)', fontWeight: 700 }}>{activeScoreWeights.ncg}%</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(homeNcg * 10) / 10}</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(awayNcg * 10) / 10}</td>
                                               </tr>
                                               <tr style={{ borderBottom: '1px dashed var(--border-color)' }}>
                                                 <td style={{ padding: '6px 4px', fontWeight: 600 }}>Escanteios Normalizados (NESC)</td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)' }}>15%</td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)', fontWeight: 700 }}>{activeScoreWeights.nesc}%</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(homeNesc * 10) / 10}</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(awayNesc * 10) / 10}</td>
                                               </tr>
                                               <tr style={{ borderBottom: '1px dashed var(--border-color)' }}>
                                                 <td style={{ padding: '6px 4px', fontWeight: 600 }}>Finalizações Normalizadas (NFT)</td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)' }}>10%</td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)', fontWeight: 700 }}>{activeScoreWeights.nft}%</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(homeNft * 10) / 10}</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(awayNft * 10) / 10}</td>
                                               </tr>
                                               <tr style={{ borderBottom: '1px dashed var(--border-color)' }}>
                                                 <td style={{ padding: '6px 4px', fontWeight: 600 }}>Cartões Vermelhos Normalizados (NCV)</td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)' }}>5%</td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)', fontWeight: 700 }}>{activeScoreWeights.ncv}%</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(homeNcv * 10) / 10}</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(awayNcv * 10) / 10}</td>
                                               </tr>
                                               <tr style={{ borderBottom: '1px dashed var(--border-color)' }}>
                                                 <td style={{ padding: '6px 4px', fontWeight: 600 }}>Posse de Bola Normalizada (NPOS)</td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)' }}>3%</td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)', fontWeight: 700 }}>{activeScoreWeights.npos}%</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(homeNpos * 10) / 10}</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(awayNpos * 10) / 10}</td>
                                               </tr>
                                               <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
                                                 <td style={{ padding: '6px 4px', fontWeight: 600 }}>Cartões Amarelos Normalizados (NCA)</td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)' }}>2%</td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px', color: 'var(--text-muted)', fontWeight: 700 }}>{activeScoreWeights.nca}%</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(homeNca * 10) / 10}</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px', fontWeight: 700 }}>{Math.round(awayNca * 10) / 10}</td>
                                               </tr>
