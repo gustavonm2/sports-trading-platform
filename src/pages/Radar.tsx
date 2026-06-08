@@ -1776,13 +1776,24 @@ export default function Radar() {
               </span>
             )}
             {activeDataSource === 'sofascore' && (
-              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
+              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
                 <CheckCircle size={12} /> 📡 SOFASCORE LIVE (100% REAL)
               </span>
             )}
             {activeDataSource === 'apisports_real' && (
-              <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <CheckCircle size={12} /> 📡 API-SPORTS LIVE (ATIVO)
+              apiErrorReason === 'limit_reached' ? (
+                <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.35)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
+                  <ShieldAlert size={12} /> 📡 API-SPORTS (LIMITE ATINGIDO)
+                </span>
+              ) : (
+                <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <CheckCircle size={12} /> 📡 API-SPORTS LIVE (ATIVO)
+                </span>
+              )
+            )}
+            {activeDataSource !== 'apisports_real' && apiErrorReason === 'limit_reached' && (
+              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.35)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
+                <ShieldAlert size={12} /> 📡 API-SPORTS (LIMITE ATINGIDO)
               </span>
             )}
             {bet365Bridge?.connected && (
@@ -1794,7 +1805,33 @@ export default function Radar() {
           <p style={{ color: 'var(--text-muted)' }}>Mapeamento e leitura automatizada do mercado de trading de futebol.</p>
         </div>
 
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          {/* Som Alertas */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Alerta Sonoro:</span>
+            <button 
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className="btn btn-outline"
+              style={{ 
+                padding: '6px 12px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: 6,
+                borderColor: soundEnabled ? 'var(--status-green)' : 'var(--border-color)',
+                backgroundColor: soundEnabled ? 'var(--status-green-glow)' : 'transparent',
+                color: soundEnabled ? 'var(--status-green)' : 'var(--text-primary)',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                outline: 'none'
+              }}
+            >
+              {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+              <span>{soundEnabled ? 'ATIVADO' : 'MUTADO'}</span>
+            </button>
+          </div>
+
           <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
             <RefreshCw size={14} className={loading ? 'pulse-indicator' : ''} />
             Próxima varredura em {countdown}s
@@ -1889,7 +1926,7 @@ export default function Radar() {
       </div>
 
       {/* ⚠️ Alerta de Limite ou Erro da API Real */}
-      {apiErrorReason && (
+      {apiErrorReason && apiErrorReason !== 'limit_reached' && (
         <div className="card" style={{ 
           marginBottom: 20, 
           padding: '16px 20px', 
@@ -1905,76 +1942,18 @@ export default function Radar() {
           </div>
           <div>
             <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--status-red)', marginBottom: 4 }}>
-              {apiErrorReason === 'limit_reached' ? 'Meta Limite Diária de Requisições da API Atingida!' : 'Erro de Conexão com a API!'}
+              Erro de Conexão com a API!
             </h4>
             <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-              {apiErrorReason === 'limit_reached' ? (
-                <span>
-                  A chave integrada atingiu o <strong>limite diário de chamadas gratuitas da API-Sports</strong>. Verifique o limite da sua conta de assinatura ou faça upgrade em <a href="https://dashboard.api-sports.io/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>dashboard.api-sports.io</a>.
-                </span>
-              ) : (
-                <span>
-                  Ocorreu um erro ao validar a chave de API integrada ou houve falha na rede de telemetria. Certifique-se de que sua conexão de internet está ativa e que a API Key integrada está ativa no painel do provedor de dados.
-                </span>
-              )}
+              <span>
+                Ocorreu um erro ao validar a chave de API integrada ou houve falha na rede de telemetria. Certifique-se de que sua conexão de internet está ativa e que a API Key integrada está ativa no painel do provedor de dados.
+              </span>
             </p>
           </div>
         </div>
       )}
 
-      {/* 📡 MONITOR DO SCANNER (Controles Gerais) */}
-      <div className="card glass-panel" style={{ 
-        marginBottom: 24, 
-        padding: '20px 24px', 
-        background: 'linear-gradient(135deg, rgba(30,58,138,0.03) 0%, rgba(255,255,255,1) 100%)',
-        border: '1px solid rgba(30,58,138,0.08)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 20 }}>
-          
-          {/* Status Lote */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span className="pulse-indicator" style={{ width: 14, height: 14, background: 'var(--status-green)' }}></span>
-              <span style={{ position: 'absolute', width: 24, height: 24, border: '2px solid var(--status-green)', borderRadius: '50%', animation: 'ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite' }}></span>
-            </div>
-            <div>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Varredura de IA Ativa</span>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>
-                Lendo {allFixtures.length} {allFixtures.length === 1 ? 'partida' : 'partidas'} ao vivo com Crossover Pré-Live...
-              </h3>
-            </div>
-          </div>
 
-          {/* Filtros e Sons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-            
-            {/* Som Alertas */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Alerta Sonoro:</span>
-              <button 
-                onClick={() => setSoundEnabled(!soundEnabled)}
-                className="btn btn-outline"
-                style={{ 
-                  padding: '8px 12px', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: 8,
-                  borderColor: soundEnabled ? 'var(--status-green)' : 'var(--border-color)',
-                  backgroundColor: soundEnabled ? 'var(--status-green-glow)' : 'transparent',
-                  color: soundEnabled ? 'var(--status-green)' : 'var(--text-primary)'
-                }}
-              >
-                {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-                <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>{soundEnabled ? 'ATIVADO' : 'MUTADO'}</span>
-              </button>
-            </div>
-
-
-
-          </div>
-
-        </div>
-      </div>
 
       {/* 🎰 Painel Scanner — Dropdown Fixo */}
       <div style={{ marginBottom: 24 }}>
