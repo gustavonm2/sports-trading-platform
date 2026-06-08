@@ -668,7 +668,7 @@ export default function Radar() {
     const accelRatio = atm10 > 0 ? atm3 / atm10 : 1.0;
     const momentum = Math.max(0.8, Math.min(1.8, Math.sqrt(accelRatio)));
     // NIAP = Pressão × Escala × Momentum (0-10)
-    const niap = Math.min(10, pressao * 4.0 * momentum);
+    const niap = Math.min(10, pressao * 10 * momentum);
     const ncg = Math.min(10, ((teamStats.shotsOnGoal || 0) / 8) * 10);
     const nesc = Math.min(10, teamStats.corners || 0);
     const nft = Math.min(10, ((teamStats.totalShots || 0) / 15) * 10);
@@ -1142,7 +1142,7 @@ export default function Radar() {
         const pressao = (0.20 * atm10) + (0.30 * atm5) + (0.50 * atm3);
         const accelRatio = atm10 > 0 ? atm3 / atm10 : 1.0;
         const momentum = Math.max(0.8, Math.min(1.8, Math.sqrt(accelRatio)));
-        const niap = Math.min(10, pressao * 4.0 * momentum);
+        const niap = Math.min(10, pressao * 10 * momentum);
         const ncg = Math.min(10, ((teamStats.shotsOnGoal || 0) / 8) * 10);
         const nesc = Math.min(10, teamStats.corners || 0);
         const nft = Math.min(10, ((teamStats.totalShots || 0) / 15) * 10);
@@ -2775,7 +2775,7 @@ export default function Radar() {
                                 const homePressao = (0.20*hAtm10) + (0.30*hAtm5) + (0.50*hAtm3);
                                 const homeAccel = hAtm10 > 0 ? hAtm3/hAtm10 : 1.0;
                                 const homeMomentum = Math.max(0.8, Math.min(1.8, Math.sqrt(homeAccel)));
-                                const homeNiap = Math.min(10, homePressao * 4.0 * homeMomentum);
+                                const homeNiap = Math.min(10, homePressao * 10 * homeMomentum);
                                 const homeNcg = Math.min(10, (homeShotsOn / 8) * 10);
                                 const homeNesc = Math.min(10, homeCorners);
                                 const homeNft = Math.min(10, (((stats.home.totalShots || 0) / 15) * 10));
@@ -2791,7 +2791,7 @@ export default function Radar() {
                                 const awayPressao = (0.20*aAtm10) + (0.30*aAtm5) + (0.50*aAtm3);
                                 const awayAccel = aAtm10 > 0 ? aAtm3/aAtm10 : 1.0;
                                 const awayMomentum = Math.max(0.8, Math.min(1.8, Math.sqrt(awayAccel)));
-                                const awayNiap = Math.min(10, awayPressao * 4.0 * awayMomentum);
+                                const awayNiap = Math.min(10, awayPressao * 10 * awayMomentum);
                                 const awayNcg = Math.min(10, (awayShotsOn / 8) * 10);
                                 const awayNesc = Math.min(10, awayCorners);
                                 const awayNft = Math.min(10, (((stats.away.totalShots || 0) / 15) * 10));
@@ -4120,7 +4120,7 @@ export default function Radar() {
                                 const homePressao = (0.20*hAtm10) + (0.30*hAtm5) + (0.50*hAtm3);
                                 const homeAccel = hAtm10 > 0 ? hAtm3/hAtm10 : 1.0;
                                 const homeMomentum = Math.max(0.8, Math.min(1.8, Math.sqrt(homeAccel)));
-                                const homeNiap = Math.min(10, homePressao * 4.0 * homeMomentum);
+                                const homeNiap = Math.min(10, homePressao * 10 * homeMomentum);
                                 const homeNcg = Math.min(10, (homeShotsOn / 8) * 10);
                                 const homeNesc = Math.min(10, homeCorners);
                                 const homeNft = Math.min(10, (((stats.home.totalShots || 0) / 15) * 10));
@@ -4136,7 +4136,7 @@ export default function Radar() {
                                 const awayPressao = (0.20*aAtm10) + (0.30*aAtm5) + (0.50*aAtm3);
                                 const awayAccel = aAtm10 > 0 ? aAtm3/aAtm10 : 1.0;
                                 const awayMomentum = Math.max(0.8, Math.min(1.8, Math.sqrt(awayAccel)));
-                                const awayNiap = Math.min(10, awayPressao * 4.0 * awayMomentum);
+                                const awayNiap = Math.min(10, awayPressao * 10 * awayMomentum);
                                 const awayNcg = Math.min(10, (awayShotsOn / 8) * 10);
                                 const awayNesc = Math.min(10, awayCorners);
                                 const awayNft = Math.min(10, (((stats.away.totalShots || 0) / 15) * 10));
