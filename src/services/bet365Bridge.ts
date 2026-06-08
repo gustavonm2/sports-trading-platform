@@ -520,13 +520,17 @@ export function calculateDynamicAPM(
     const apm5  = ramp5  * rawApm5  + (1 - ramp5)  * apmGlobal;
     const apm3  = ramp3  * rawApm3  + (1 - ramp3)  * apmGlobal;
 
-    // ─── Fator de Aceleração ──────────────────────────────────────────
-    const MIN_APM_FOR_ACCELERATION = 0.3;
+    // ─── Fator de Aceleração (com piso de relevância) ──────────────────
+    // FA = recentAPM / globalAPM, mas só amplifica de verdade quando 
+    // a pressão absoluta é significativa (>= RELEVANCE_FLOOR AP/min).
+    // Abaixo disso, o FA é amortecido em direção a 1.0.
+    const RELEVANCE_FLOOR = 0.7; // AP/min mínimo para FA ter efeito pleno
     const recentAPM = ramp3 >= 0.5 ? apm3 : ramp5 >= 0.5 ? apm5 : ramp10 >= 0.5 ? apm10 : apmGlobal;
     const rawAcceleration = apmGlobal > 0 ? recentAPM / apmGlobal : 1.0;
-    const accelerationFactor = recentAPM >= MIN_APM_FOR_ACCELERATION
-      ? rawAcceleration 
-      : Math.min(rawAcceleration, 1.0);
+    // Quanto da aceleração "real" aplicar (0 a 1 baseado na pressão absoluta)
+    const relevance = Math.min(1.0, recentAPM / RELEVANCE_FLOOR);
+    // FA amortecido: lerp entre 1.0 (neutro) e rawAcceleration (cheio)
+    const accelerationFactor = 1.0 + (rawAcceleration - 1.0) * relevance;
 
     // ─── IPR com pesos invertidos (prioriza pressão recente) ──────────
     // ATM3 = 50% (mais recente), ATM5 = 30%, ATM10 = 20% (mais antigo)
