@@ -1763,79 +1763,81 @@ export default function Radar() {
       )}
 
       {/* Header Area */}
-      <div className="page-header" style={{ marginBottom: 20 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-            <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              Radar de Oportunidades <Activity size={24} className="pulse-indicator" color="var(--status-green)" />
-            </h1>
-            
-            {/* Status Connection Badges */}
-            {activeDataSource === 'sportsmonks' && (
-              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', border: '1px solid rgba(124, 58, 237, 0.2)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
-                <CheckCircle size={12} /> 📡 SPORTSMONKS LIVE (PREMIUM)
-              </span>
-            )}
-            {activeDataSource === 'sofascore' && (
-              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
-                <CheckCircle size={12} /> 📡 SOFASCORE LIVE (100% REAL)
-              </span>
-            )}
-            {activeDataSource === 'apisports_real' && (
-              apiErrorReason === 'limit_reached' ? (
-                <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.35)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
-                  <ShieldAlert size={12} /> 📡 API-SPORTS (LIMITE ATINGIDO)
-                </span>
-              ) : (
-                <span className="badge badge-green" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <CheckCircle size={12} /> 📡 API-SPORTS LIVE (ATIVO)
-                </span>
-              )
-            )}
-            {activeDataSource !== 'apisports_real' && apiErrorReason === 'limit_reached' && (
-              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.35)', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 4, fontWeight: 700 }}>
-                <ShieldAlert size={12} /> 📡 API-SPORTS (LIMITE ATINGIDO)
-              </span>
-            )}
-            {bet365Bridge?.connected && (
-              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.7rem', padding: '3px 8px', borderRadius: 4, fontWeight: 800, animation: 'pulse 2s ease-in-out infinite' }}>
-                🔗 BET365 BRIDGE ({bet365Bridge.matchCount} jogos)
-              </span>
-            )}
-          </div>
-          <p style={{ color: 'var(--text-muted)' }}>Mapeamento e leitura automatizada do mercado de trading de futebol.</p>
+      <div style={{ marginBottom: 20 }}>
+        {/* Row 1: Title + Subtitle */}
+        <div style={{ marginBottom: 10 }}>
+          <h1 className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            Radar de Oportunidades <Activity size={22} className="pulse-indicator" color="var(--status-green)" />
+          </h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Mapeamento e leitura automatizada do mercado de trading de futebol.</p>
         </div>
 
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-          {/* Som Alertas */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Alerta Sonoro:</span>
-            <button 
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className="btn btn-outline"
-              style={{ 
-                padding: '6px 12px', 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: 6,
-                borderColor: soundEnabled ? 'var(--status-green)' : 'var(--border-color)',
-                backgroundColor: soundEnabled ? 'var(--status-green-glow)' : 'transparent',
-                color: soundEnabled ? 'var(--status-green)' : 'var(--text-primary)',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontWeight: 700,
-                fontSize: '0.8rem',
-                outline: 'none'
-              }}
-            >
-              {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
-              <span>{soundEnabled ? 'ATIVADO' : 'MUTADO'}</span>
-            </button>
-          </div>
+        {/* Row 2: Badges + Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* Status Connection Badges */}
+          {activeDataSource === 'sportsmonks' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', border: '1px solid rgba(124, 58, 237, 0.2)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <CheckCircle size={10} /> SPORTSMONKS
+            </span>
+          )}
+          {activeDataSource === 'sofascore' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <CheckCircle size={10} /> SOFASCORE LIVE
+            </span>
+          )}
+          {activeDataSource === 'apisports_real' && (
+            apiErrorReason === 'limit_reached' ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                <ShieldAlert size={10} /> API-SPORTS LIMITE
+              </span>
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'var(--status-green-glow)', color: 'var(--status-green)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                <CheckCircle size={10} /> API-SPORTS
+              </span>
+            )
+          )}
+          {activeDataSource !== 'apisports_real' && apiErrorReason === 'limit_reached' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <ShieldAlert size={10} /> API-SPORTS LIMITE
+            </span>
+          )}
+          {bet365Bridge?.connected && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              🔗 BET365 ({bet365Bridge.matchCount})
+            </span>
+          )}
 
-          <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <RefreshCw size={14} className={loading ? 'pulse-indicator' : ''} />
-            Próxima varredura em {countdown}s
+          {/* Separator */}
+          <span style={{ width: 1, height: 18, background: 'var(--border-color)', margin: '0 4px', flexShrink: 0 }} />
+
+          {/* Sound Toggle */}
+          <button 
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            style={{ 
+              padding: '3px 8px', 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              gap: 4,
+              border: `1px solid ${soundEnabled ? 'rgba(5, 150, 105, 0.3)' : 'var(--border-color)'}`,
+              borderRadius: 4,
+              background: soundEnabled ? 'var(--status-green-glow)' : 'transparent',
+              color: soundEnabled ? 'var(--status-green)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '0.65rem',
+              outline: 'none',
+              whiteSpace: 'nowrap',
+              fontFamily: 'var(--font-sans)',
+            }}
+          >
+            {soundEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
+            {soundEnabled ? 'SOM ON' : 'SOM OFF'}
+          </button>
+
+          {/* Countdown */}
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+            <RefreshCw size={11} className={loading ? 'pulse-indicator' : ''} />
+            {countdown}s
           </span>
         </div>
       </div>
