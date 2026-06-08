@@ -528,18 +528,21 @@ export function calculateDynamicAPM(
       ? rawAcceleration 
       : Math.min(rawAcceleration, 1.0);
 
-    // ─── IPR com pesos dinâmicos ──────────────────────────────────────
-    const w10 = 0.5 * ramp10;
+    // ─── IPR com pesos invertidos (prioriza pressão recente) ──────────
+    // ATM3 = 50% (mais recente), ATM5 = 30%, ATM10 = 20% (mais antigo)
+    const w3  = 0.5 * ramp3;
     const w5  = 0.3 * ramp5;
-    const w3  = 0.2 * ramp3;
+    const w10 = 0.2 * ramp10;
     const totalWeight = w10 + w5 + w3;
 
-    let ipr: number;
+    let iprBase: number;
     if (totalWeight > 0) {
-      ipr = (apm10 * w10 + apm5 * w5 + apm3 * w3) / totalWeight;
+      iprBase = (apm10 * w10 + apm5 * w5 + apm3 * w3) / totalWeight;
     } else {
-      ipr = apmGlobal;
+      iprBase = apmGlobal;
     }
+    // Aplicar aceleração: distingue pressão constante vs blitz ofensiva
+    const ipr = iprBase * accelerationFactor;
 
     return {
       apmGlobal: Math.round(apmGlobal * 100) / 100,

@@ -3822,7 +3822,7 @@ export default function Radar() {
                                                     );
                                                   })}
                                                   <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.3 }}>
-                                                    IPR: Ponderação ATM10(50%) + ATM5(30%) + ATM3(20%). Acima de <strong>1.0</strong> = pressão forte.
+                                                    IPR = (ATM3×50% + ATM5×30% + ATM10×20%) × Aceleração. Acima de <strong>1.0</strong> = pressão forte.
                                                   </div>
                                                 </div>
                                               </div>
@@ -5168,7 +5168,7 @@ export default function Radar() {
                                                     );
                                                   })}
                                                   <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginTop: '4px', lineHeight: 1.3 }}>
-                                                    IPR: Ponderação ATM10(50%) + ATM5(30%) + ATM3(20%). Acima de <strong>1.0</strong> = pressão forte.
+                                                    IPR = (ATM3×50% + ATM5×30% + ATM10×20%) × Aceleração. Acima de <strong>1.0</strong> = pressão forte.
                                                   </div>
                                                 </div>
                                               </div>
