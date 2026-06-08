@@ -312,7 +312,7 @@ export default function Radar() {
             ...f,
             homeTeam: { ...f.homeTeam, name: match.homeTeam },
             awayTeam: { ...f.awayTeam, name: match.awayTeam },
-            elapsed: Number(match.elapsed) || f.elapsed,
+            elapsed: (Number(match.elapsed) || 0) >= (f.elapsed || 0) ? Number(match.elapsed) : f.elapsed,
             goalsHome,
             goalsAway
           };
@@ -347,7 +347,7 @@ export default function Radar() {
           : findBet365Match(f.homeTeam.name, f.awayTeam.name, bet365Bridge.matches);
         
         if (bridgeMatch) {
-          if (bridgeMatch.elapsed && bridgeMatch.elapsed > 0) {
+          if (bridgeMatch.elapsed && bridgeMatch.elapsed > 0 && bridgeMatch.elapsed >= (f.elapsed || 0)) {
             bridgeElapsed = bridgeMatch.elapsed;
           }
           if (bridgeMatch.period) {
@@ -369,7 +369,8 @@ export default function Radar() {
       });
 
       // Resolver valores finais: Bridge > Scanner > Existente
-      const newElapsed = bridgeElapsed ?? (scanMatch?.elapsed || f.elapsed);
+      const candidateElapsed = bridgeElapsed ?? (scanMatch?.elapsed || f.elapsed);
+      const newElapsed = candidateElapsed >= (f.elapsed || 0) ? candidateElapsed : f.elapsed;
       const newGoalsH = bridgeGoalsH ?? (scanMatch?.homeGoals ?? f.goalsHome);
       const newGoalsA = bridgeGoalsA ?? (scanMatch?.awayGoals ?? f.goalsAway);
       const newStatus = bridgePeriod ?? (scanMatch?.status || f.status);
@@ -459,9 +460,12 @@ export default function Radar() {
       return rawElapsed;
     }
     
+    const maxElapsed = st === 'ET' ? 120 : 90;
+    const anchor = elapsedAnchorRef.current[fixtureId];
+    const lastKnown = anchor ? anchor.baseElapsed : 0;
+    
     // 🥇 PRIORIDADE 1: Bridge elapsed (zero delay)
     if (bet365Bridge?.connected && bet365Bridge.matches.length > 0) {
-      // Buscar o jogo correspondente na bridge
       const allFx = [...(fixtures || []), ...(manualFixtures || [])];
       const fixture = allFx.find(f => f.id === fixtureId);
       if (fixture) {
@@ -469,25 +473,29 @@ export default function Radar() {
           ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
           : findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bet365Bridge.matches);
         
-        if (bridgeMatch?.elapsed && bridgeMatch.elapsed > 0) {
-          // Bridge tem elapsed! Usar como âncora de alta precisão
-          const bridgeAge = (Date.now() - bridgeMatch.timestamp) / 60000; // minutos desde o último scan
+        if (bridgeMatch?.elapsed != null && bridgeMatch.elapsed > 0) {
+          const bridgeAge = (Date.now() - bridgeMatch.timestamp) / 60000;
           const bridgeInterpolated = bridgeMatch.elapsed + Math.floor(bridgeAge);
-          const maxElapsed = st === 'ET' ? 120 : 90;
           
-          // Atualizar âncora com dados da bridge
-          elapsedAnchorRef.current[fixtureId] = { 
-            baseElapsed: bridgeMatch.elapsed, 
-            baseTimestamp: bridgeMatch.timestamp 
-          };
-          
-          return Math.min(maxElapsed, bridgeInterpolated);
+          // 🛡️ FILTRO MONOTÔNICO: impedir que elapsed volte atrás
+          // Tolerância de 2 min para atraso normal da API, exceto intervalo (45→46)
+          const isHalftimeTransition = lastKnown >= 43 && lastKnown <= 48 && bridgeMatch.elapsed >= 45;
+          if (bridgeMatch.elapsed >= lastKnown - 2 || isHalftimeTransition || lastKnown === 0) {
+            // Valor válido — atualizar âncora
+            elapsedAnchorRef.current[fixtureId] = { 
+              baseElapsed: bridgeMatch.elapsed, 
+              baseTimestamp: bridgeMatch.timestamp 
+            };
+            return Math.min(maxElapsed, bridgeInterpolated);
+          } else {
+            // ⚠️ Bridge zerou/retrocedeu — IGNORAR e continuar interpolando da última âncora boa
+            console.warn(`[Elapsed Filter] 🛡️ Bridge zerou para ${bridgeMatch.elapsed}' (último: ${lastKnown}'). Ignorando.`);
+          }
         }
       }
     }
     
     // 🥈 PRIORIDADE 2: Âncora interpolada (fallback API)
-    const anchor = elapsedAnchorRef.current[fixtureId];
     if (!anchor) {
       elapsedAnchorRef.current[fixtureId] = { baseElapsed: rawElapsed, baseTimestamp: Date.now() };
       return rawElapsed;
@@ -503,7 +511,6 @@ export default function Radar() {
     const minutesSinceAnchor = (Date.now() - anchor.baseTimestamp) / 60000;
     const interpolated = anchor.baseElapsed + Math.floor(minutesSinceAnchor);
     
-    const maxElapsed = st === 'ET' ? 120 : 90;
     return Math.min(maxElapsed, interpolated);
   }, [bet365Bridge, fixtures, manualFixtures]);
   
