@@ -381,6 +381,123 @@ export async function saveTradeEntry(entry: TradeEntry): Promise<TradeEntry> {
 }
 
 /**
+ * saveSimplifiedTradeEntry — Salva uma entrada simplificada (vinda do Diário).
+ * Preenche todos os campos obrigatórios de métricas com 0.
+ * Retorna o registro inserido.
+ */
+export async function saveSimplifiedTradeEntry(params: {
+  diaryTradeId: string;
+  matchName: string;
+  market: string;
+  odd: number;
+  stake: number;
+  status: 'GREEN' | 'RED' | 'PENDING';
+  profitLoss: number;
+}): Promise<TradeEntry | null> {
+  // Parse team names from "Team A x Team B"
+  const parts = params.matchName.split(/\s+x\s+/i);
+  const homeTeam = parts[0]?.trim() || params.matchName;
+  const awayTeam = parts[1]?.trim() || 'N/A';
+
+  // Map Diary market to learning market_type
+  const marketType: MarketType = params.market.toLowerCase().includes('gol') ? 'gols' : 'escanteios';
+
+  // Map outcome
+  let outcome: TradeOutcome | undefined;
+  if (params.status === 'GREEN') outcome = 'green';
+  else if (params.status === 'RED') outcome = 'red';
+
+  const entry: Partial<TradeEntry> = {
+    // Match info
+    fixture_id: 0,
+    league: 'Manual',
+    home_team: homeTeam,
+    away_team: awayTeam,
+    elapsed: 0,
+    period: 'N/A',
+    goals_home: 0,
+    goals_away: 0,
+    source: 'diary',
+    league_tier: 40,
+
+    // APM (all zero — not available from Diary)
+    home_apm_global: 0, home_apm_10: 0, home_apm_5: 0, home_apm_3: 0, home_ipr: 0, home_acceleration_factor: 0,
+    away_apm_global: 0, away_apm_10: 0, away_apm_5: 0, away_apm_3: 0, away_ipr: 0, away_acceleration_factor: 0,
+
+    // Normalized (all zero)
+    home_niap: 0, home_ncg: 0, home_nesc: 0, home_nft: 0, home_ncv: 0, home_npos: 0, home_nca: 0,
+    away_niap: 0, away_ncg: 0, away_nesc: 0, away_nft: 0, away_ncv: 0, away_npos: 0, away_nca: 0,
+
+    // Scores (all zero)
+    home_score: 0, away_score: 0, home_pls: 0, away_pls: 0, home_qual_pct: 0, away_qual_pct: 0,
+
+    // Raw stats (all zero)
+    home_shots_on: 0, home_total_shots: 0, home_corners: 0, home_possession: 0, home_da: 0, home_yellow: 0, home_red: 0,
+    away_shots_on: 0, away_total_shots: 0, away_corners: 0, away_possession: 0, away_da: 0, away_yellow: 0, away_red: 0,
+
+    // Trade context
+    market_type: marketType,
+    bet_type: params.market,
+    operating_mode: 'manual',
+    score_weights: {},
+
+    // Resolution
+    outcome,
+    resolved_at: outcome ? new Date().toISOString() : undefined,
+    profit_loss: params.profitLoss,
+    notes: `Diary ID: ${params.diaryTradeId}`,
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from('trade_entries')
+      .insert([entry])
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('[LearningEngine] Erro ao sincronizar com aprendizagem (tabela pode não existir):', error.message);
+      return null;
+    }
+
+    return data as TradeEntry;
+  } catch (err) {
+    console.warn('[LearningEngine] Sincronização com aprendizagem falhou silenciosamente:', err);
+    return null;
+  }
+}
+
+/**
+ * syncDiaryOutcome — Atualiza o outcome de uma entrada do learning vinculada a um diary trade.
+ * Busca pelo notes contendo o diary ID e atualiza.
+ */
+export async function syncDiaryOutcome(
+  diaryTradeId: string,
+  outcome: TradeOutcome,
+  profitLoss: number
+): Promise<void> {
+  try {
+    const { data, error } = await supabase
+      .from('trade_entries')
+      .update({
+        outcome,
+        resolved_at: new Date().toISOString(),
+        profit_loss: profitLoss,
+      })
+      .like('notes', `%${diaryTradeId}%`)
+      .select();
+
+    if (error) {
+      console.warn('[LearningEngine] Erro ao sincronizar outcome:', error.message);
+    } else if (data && data.length === 0) {
+      console.warn('[LearningEngine] Nenhuma entrada encontrada para diary ID:', diaryTradeId);
+    }
+  } catch (err) {
+    console.warn('[LearningEngine] syncDiaryOutcome falhou silenciosamente:', err);
+  }
+}
+
+/**
  * resolveTradeEntry — Atualiza o resultado de um trade existente.
  * Registra o outcome, dados finais e lucro/prejuízo.
  */

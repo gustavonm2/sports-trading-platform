@@ -4,6 +4,7 @@ import {
   DollarSign, TrendingUp, Award, Percent, ArrowUpRight
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
+import { saveSimplifiedTradeEntry, syncDiaryOutcome } from '../services/learningEngine';
 
 interface Trade {
   id: string;
@@ -100,10 +101,13 @@ export default function Diary() {
       profit_loss: profitLoss
     };
 
+    let generatedTradeId = '';
+
     if (usingFallback) {
       // Local replication
+      generatedTradeId = crypto.randomUUID();
       const newTrade: Trade = {
-        id: crypto.randomUUID(),
+        id: generatedTradeId,
         created_at: new Date().toISOString(),
         ...newTradeData
       };
@@ -113,8 +117,9 @@ export default function Diary() {
     } else {
       // Supabase
       try {
-        const { error } = await supabase.from('trades').insert([newTradeData]);
+        const { data, error } = await supabase.from('trades').insert([newTradeData]).select().single();
         if (error) throw error;
+        generatedTradeId = data?.id || 'supabase-' + Date.now();
         await fetchTrades();
       } catch (err) {
         alert("Erro ao salvar no banco de dados. Tentando replicar localmente.");
@@ -125,6 +130,19 @@ export default function Diary() {
     // Reset form
     setMatchName('');
     setIsOpenModal(false);
+
+    // 🧠 Sync with Learning module (fire-and-forget)
+    if (generatedTradeId) {
+      saveSimplifiedTradeEntry({
+        diaryTradeId: generatedTradeId,
+        matchName,
+        market,
+        odd: oddNum,
+        stake: stakeNum,
+        status,
+        profitLoss,
+      }).catch(() => {}); // silent fail
+    }
   };
 
   // Quick Resolve: mark pending trade as GREEN or RED
@@ -152,6 +170,13 @@ export default function Diary() {
         console.error("Error updating trade:", err);
       }
     }
+
+    // 🧠 Sync outcome with Learning module (fire-and-forget)
+    syncDiaryOutcome(
+      id,
+      newStatus === 'GREEN' ? 'green' : 'red',
+      profitLoss
+    ).catch(() => {}); // silent fail
   };
 
   // Delete trade
