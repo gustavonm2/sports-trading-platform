@@ -137,6 +137,7 @@ export default function Radar() {
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const [showMatchesTable, setShowMatchesTable] = useState(false);
+  const [scannerDropdownOpen, setScannerDropdownOpen] = useState(false);
   const [fixtureSourceFilter, setFixtureSourceFilter] = useState<'all' | 'api' | 'bet365' | 'favorites'>('all');
   const [alertFilter, setAlertFilter] = useState<'all' | 'entrada' | 'potencial'>('all');
   
@@ -1975,48 +1976,87 @@ export default function Radar() {
         </div>
       </div>
 
-      {/* 🎰 Painel Scanner — Jogos Ao Vivo Bet365 */}
-      {scannerMatches.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div 
-            className="card glass-panel" 
-            style={{ 
-              padding: '16px 20px', 
-              borderRadius: 12, 
-              border: '1px solid rgba(168, 85, 247, 0.3)',
-              background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.05) 0%, rgba(139, 92, 246, 0.02) 100%)',
-              boxShadow: '0 4px 20px rgba(168, 85, 247, 0.08)'
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: '1.2rem' }}>🎰</span>
-                <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-                  Jogos Ao Vivo — Bet365 Scanner
-                </span>
-                <span className="badge" style={{ 
-                  background: 'rgba(168, 85, 247, 0.15)', 
-                  color: '#a855f7', 
-                  fontWeight: 700, 
-                  fontSize: '0.75rem',
-                  padding: '3px 8px'
-                }}>
-                  {scannerMatches.length} {scannerMatches.length === 1 ? 'jogo' : 'jogos'}
-                </span>
-                {scannerEnabled && (
-                  <span className="badge pulse-indicator" style={{ 
-                    background: 'rgba(16, 185, 129, 0.15)', 
-                    color: '#10b981', 
-                    fontWeight: 700,
-                    fontSize: '0.7rem',
-                    padding: '2px 6px'
-                  }}>
-                    SCANNER ATIVO
-                  </span>
-                )}
-              </div>
+      {/* 🎰 Painel Scanner — Dropdown Fixo */}
+      <div style={{ marginBottom: 24 }}>
+        <button
+          onClick={() => scannerMatches.length > 0 && setScannerDropdownOpen(!scannerDropdownOpen)}
+          style={{
+            width: '100%',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '12px 20px',
+            borderRadius: scannerDropdownOpen ? '12px 12px 0 0' : 12,
+            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.06) 0%, rgba(139, 92, 246, 0.03) 100%)',
+            border: '1px solid rgba(168, 85, 247, 0.25)',
+            borderBottom: scannerDropdownOpen ? '1px solid rgba(168, 85, 247, 0.12)' : '1px solid rgba(168, 85, 247, 0.25)',
+            cursor: scannerMatches.length > 0 ? 'pointer' : 'default',
+            transition: 'all 0.2s ease',
+            outline: 'none',
+            boxShadow: '0 4px 20px rgba(168, 85, 247, 0.06)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: '1.1rem' }}>🎰</span>
+            <span style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+              Bet365 Scanner
+            </span>
+            {scannerMatches.length === 0 ? (
+              <span style={{ 
+                fontSize: '0.75rem', 
+                color: 'var(--text-muted)', 
+                fontWeight: 500 
+              }}>
+                — Nenhum jogo detectado
+              </span>
+            ) : (
+              <span className="badge" style={{ 
+                background: 'rgba(168, 85, 247, 0.15)', 
+                color: '#a855f7', 
+                fontWeight: 700, 
+                fontSize: '0.75rem',
+                padding: '3px 10px',
+                animation: 'pulse 2s ease-in-out infinite'
+              }}>
+                {scannerMatches.length} {scannerMatches.length === 1 ? 'jogo encontrado' : 'jogos encontrados'}
+              </span>
+            )}
+            {scannerEnabled && (
+              <span style={{ 
+                width: 8, height: 8, borderRadius: '50%', 
+                background: '#10b981', 
+                boxShadow: '0 0 6px #10b981',
+                flexShrink: 0
+              }} />
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {scannerMatches.length > 0 && (
+              <span style={{ 
+                fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 500 
+              }}>
+                {scannerDropdownOpen ? '▲ Fechar' : '▼ Ver jogos'}
+              </span>
+            )}
+          </div>
+        </button>
+
+        {/* Dropdown com lista de jogos */}
+        {scannerDropdownOpen && scannerMatches.length > 0 && (
+          <div style={{
+            border: '1px solid rgba(168, 85, 247, 0.25)',
+            borderTop: 'none',
+            borderRadius: '0 0 12px 12px',
+            background: 'linear-gradient(180deg, rgba(168, 85, 247, 0.03) 0%, rgba(139, 92, 246, 0.01) 100%)',
+            padding: '12px 16px',
+            maxHeight: 350,
+            overflowY: 'auto',
+          }}>
+            {/* Botão Acompanhar Todos */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   scannerMatches.forEach(m => {
                     if (!scannerFixtureIdsRef.current.has(m.matchKey)) {
                       addScannerFixture(m);
@@ -2025,9 +2065,9 @@ export default function Radar() {
                 }}
                 className="btn"
                 style={{
-                  fontSize: '0.8rem',
-                  padding: '6px 14px',
-                  borderRadius: 8,
+                  fontSize: '0.75rem',
+                  padding: '5px 12px',
+                  borderRadius: 6,
                   background: 'rgba(168, 85, 247, 0.12)',
                   color: '#a855f7',
                   border: '1px solid rgba(168, 85, 247, 0.3)',
@@ -2040,100 +2080,92 @@ export default function Radar() {
               </button>
             </div>
 
-            {/* Lista de jogos agrupados por liga */}
-            <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-              {(() => {
-                // Agrupar por liga
-                const grouped: Record<string, ScannerMatch[]> = {};
-                scannerMatches.forEach(m => {
-                  const league = m.league || 'Outros';
-                  if (!grouped[league]) grouped[league] = [];
-                  grouped[league].push(m);
-                });
-                
-                return Object.entries(grouped).map(([league, matches]) => (
-                  <div key={league} style={{ marginBottom: 12 }}>
-                    <div style={{ 
-                      fontSize: '0.75rem', 
-                      fontWeight: 700, 
-                      color: '#a855f7', 
-                      textTransform: 'uppercase',
-                      marginBottom: 6,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6
-                    }}>
-                      🏆 {league}
-                    </div>
-                    {matches.map(match => {
-                      const isAdded = scannerFixtureIdsRef.current.has(match.matchKey);
-                      return (
-                        <div 
-                          key={match.matchKey}
+            {/* Lista agrupada por liga */}
+            {(() => {
+              const grouped: Record<string, ScannerMatch[]> = {};
+              scannerMatches.forEach(m => {
+                const league = m.league || 'Outros';
+                if (!grouped[league]) grouped[league] = [];
+                grouped[league].push(m);
+              });
+              
+              return Object.entries(grouped).map(([league, matches]) => (
+                <div key={league} style={{ marginBottom: 10 }}>
+                  <div style={{ 
+                    fontSize: '0.7rem', 
+                    fontWeight: 700, 
+                    color: '#a855f7', 
+                    textTransform: 'uppercase',
+                    marginBottom: 4,
+                    letterSpacing: '0.03em'
+                  }}>
+                    🏆 {league}
+                  </div>
+                  {matches.map(match => {
+                    const isAdded = scannerFixtureIdsRef.current.has(match.matchKey);
+                    return (
+                      <div 
+                        key={match.matchKey}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '6px 10px',
+                          borderRadius: 6,
+                          background: isAdded ? 'rgba(16, 185, 129, 0.06)' : 'rgba(255,255,255,0.02)',
+                          border: `1px solid ${isAdded ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)'}`,
+                          marginBottom: 3,
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', minWidth: 180 }}>
+                            {match.homeTeam} <span style={{ color: 'var(--text-muted)', margin: '0 3px' }}>vs</span> {match.awayTeam}
+                          </span>
+                          <span style={{ 
+                            fontSize: '0.8rem', fontWeight: 800, 
+                            color: 'var(--text-primary)',
+                            background: 'rgba(255,255,255,0.06)',
+                            padding: '1px 6px', borderRadius: 4,
+                            minWidth: 36, textAlign: 'center'
+                          }}>
+                            {match.homeGoals} - {match.awayGoals}
+                          </span>
+                          <span style={{ 
+                            fontSize: '0.7rem', 
+                            color: match.status === 'HT' ? '#f59e0b' : '#10b981',
+                            fontWeight: 600
+                          }}>
+                            {match.timer || `${match.elapsed}'`} {match.status}
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); !isAdded && addScannerFixture(match); }}
+                          disabled={isAdded}
                           style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            padding: '8px 12px',
-                            borderRadius: 8,
-                            background: isAdded ? 'rgba(16, 185, 129, 0.06)' : 'rgba(255,255,255,0.02)',
-                            border: `1px solid ${isAdded ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,0.05)'}`,
-                            marginBottom: 4,
-                            transition: 'all 0.2s'
+                            fontSize: '0.7rem',
+                            padding: '3px 10px',
+                            borderRadius: 5,
+                            background: isAdded ? 'rgba(16, 185, 129, 0.1)' : 'rgba(168, 85, 247, 0.1)',
+                            color: isAdded ? '#10b981' : '#a855f7',
+                            border: `1px solid ${isAdded ? 'rgba(16, 185, 129, 0.3)' : 'rgba(168, 85, 247, 0.3)'}`,
+                            fontWeight: 700,
+                            cursor: isAdded ? 'default' : 'pointer',
+                            transition: 'all 0.2s',
+                            minWidth: 90
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', minWidth: 200 }}>
-                              {match.homeTeam} <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>vs</span> {match.awayTeam}
-                            </span>
-                            <span style={{ 
-                              fontSize: '0.85rem', 
-                              fontWeight: 800, 
-                              color: 'var(--text-primary)',
-                              background: 'rgba(255,255,255,0.06)',
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                              minWidth: 40,
-                              textAlign: 'center'
-                            }}>
-                              {match.homeGoals} - {match.awayGoals}
-                            </span>
-                            <span style={{ 
-                              fontSize: '0.75rem', 
-                              color: match.status === 'HT' ? '#f59e0b' : '#10b981',
-                              fontWeight: 600
-                            }}>
-                              {match.timer || `${match.elapsed}'`} {match.status}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => !isAdded && addScannerFixture(match)}
-                            disabled={isAdded}
-                            style={{
-                              fontSize: '0.75rem',
-                              padding: '4px 12px',
-                              borderRadius: 6,
-                              background: isAdded ? 'rgba(16, 185, 129, 0.1)' : 'rgba(168, 85, 247, 0.1)',
-                              color: isAdded ? '#10b981' : '#a855f7',
-                              border: `1px solid ${isAdded ? 'rgba(16, 185, 129, 0.3)' : 'rgba(168, 85, 247, 0.3)'}`,
-                              fontWeight: 700,
-                              cursor: isAdded ? 'default' : 'pointer',
-                              transition: 'all 0.2s',
-                              minWidth: 100
-                            }}
-                          >
-                            {isAdded ? '✅ Adicionado' : '▶ Acompanhar'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ));
-              })()}
-            </div>
+                          {isAdded ? '✅ Adicionado' : '▶ Acompanhar'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ));
+            })()}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Seletor de Partidas Ativas (Dropdown / Tabela Collapsible) */}
       <div style={{ marginBottom: 24 }}>
