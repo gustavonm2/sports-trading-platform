@@ -38,7 +38,9 @@
     {
       "matches": [
         "http://localhost:*/*",
-        "https://*.vercel.app/*"
+        "https://*.vercel.app/*",
+        "https://*.trademoreira.com.br/*",
+        "https://trademoreira.com.br/*"
       ],
       "js": ["content-platform.js"],
       "run_at": "document_idle"
