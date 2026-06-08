@@ -169,6 +169,27 @@ export default function Radar() {
   useEffect(() => {
     localStorage.setItem('corner_trigger_threshold', String(cornerTriggerThreshold));
   }, [cornerTriggerThreshold]);
+
+  // 🔔 Janelas de Notificação (carregadas do Layout/Supabase via localStorage)
+  const getNotificationWindows = useCallback(() => {
+    try {
+      const saved = localStorage.getItem('notification_windows');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  }, []);
+
+  const isAlertAllowed = useCallback((elapsed: number, period: string, market: 'gols' | 'escanteios'): boolean => {
+    const windows = getNotificationWindows();
+    if (!windows || windows.length === 0) return true; // sem config = permite tudo
+    
+    const normalizedPeriod = period === '1H' ? '1H' : '2H';
+    const matching = windows.find((w: any) => w.market === market && w.period === normalizedPeriod);
+    
+    if (!matching) return true; // sem janela definida = permite
+    if (!matching.enabled) return false; // janela desativada = bloqueia
+    
+    return elapsed >= matching.min_minute && elapsed <= matching.max_minute;
+  }, [getNotificationWindows]);
   
   // General status
   const [apiErrorReason, setApiErrorReason] = useState<'limit_reached' | 'invalid_key' | 'network_error' | null>(null);
@@ -1216,8 +1237,10 @@ export default function Radar() {
       // ═══════════════════════════════════════════════════════════════
       const isCornerWindow = ((elapsed >= 35 && elapsed <= 45 && fixture.status === '1H') || 
                              (elapsed >= 85 && elapsed <= 95 && fixture.status === '2H'));
+      // 🔔 Verificar janela de notificação configurada
+      const isCornerAlertAllowed = isAlertAllowed(elapsed, fixture.status || '', 'escanteios');
 
-      if (isCornerWindow) {
+      if (isCornerWindow && isCornerAlertAllowed) {
         // ─── Histerese + Confirmação por Scans (Mandante) ───
         const homeTriggerKey = `${fixture.id}-canto-home`;
         const homeTriggerState = triggerStateRef.current[homeTriggerKey] || { active: false, scansAbove: 0 };
@@ -1277,7 +1300,8 @@ export default function Radar() {
       // Critérios: IIM combinado + Chutes ao Gol + Placar 0x0 (todos reais)
       // ═══════════════════════════════════════════════════════════════
       const isTimeOverHT = elapsed >= htMinElapsed && elapsed <= htMaxElapsed && scoreHome === 0 && scoreAway === 0;
-      if (isTimeOverHT) {
+      const isGoalsAlertAllowed = isAlertAllowed(elapsed, fixture.status || '', 'gols');
+      if (isTimeOverHT && isGoalsAlertAllowed) {
         const combinedIIM = Number((stats.home.iim + stats.away.iim).toFixed(2));
         const combinedShots = stats.home.shotsOnGoal + stats.away.shotsOnGoal;
         const combinedTotalShots = stats.home.totalShots + stats.away.totalShots;
@@ -1316,7 +1340,8 @@ export default function Radar() {
       // Critérios: IIM + Posse + Placar desfavorável (todos dados reais)
       // ═══════════════════════════════════════════════════════════════
       const isTimeSecondHalf = elapsed >= backFavMinElapsed;
-      if (isTimeSecondHalf && fixture.status !== 'HT') {
+      const isViradaAlertAllowed = isAlertAllowed(elapsed, fixture.status || '', 'gols');
+      if (isTimeSecondHalf && fixture.status !== 'HT' && isViradaAlertAllowed) {
         
         // Avalia se Mandante é favorito (dados reais: posse + volume de chutes)
         const isHomeFav = stats.home.possession >= backFavMinPossession || stats.home.totalShots > stats.away.totalShots * 1.5;
@@ -1387,8 +1412,10 @@ export default function Radar() {
       if (activeMode === 'funnel') {
         const isFunilWindow = (elapsed >= 38 && elapsed <= 45 && fixture.status === '1H') ||
                               (elapsed >= 85 && elapsed <= 90 && fixture.status === '2H');
+        const isFunilMarket = fixture.status === '1H' ? 'gols' as const : 'escanteios' as const;
+        const isFunilAlertAllowed = isAlertAllowed(elapsed, fixture.status || '', isFunilMarket);
         
-        if (isFunilWindow) {
+        if (isFunilWindow && isFunilAlertAllowed) {
           // Identifica time dominante (maior IIM)
           const homeDominant = stats.home.iim > stats.away.iim;
           const dominantIIM = homeDominant ? stats.home.iim : stats.away.iim;

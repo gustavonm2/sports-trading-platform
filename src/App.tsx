@@ -5,6 +5,7 @@ import Radar from './pages/Radar';
 import PreLive from './pages/PreLive';
 import Diary from './pages/Diary';
 import Scheduler from './pages/Scheduler';
+import Learning from './pages/Learning';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
           <Route path="prelive" element={<PreLive />} />
           <Route path="scheduler" element={<Scheduler />} />
           <Route path="diary" element={<Diary />} />
+          <Route path="learning" element={<Learning />} />
         </Route>
       </Routes>
     </BrowserRouter>
