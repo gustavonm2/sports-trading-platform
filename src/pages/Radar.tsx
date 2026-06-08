@@ -142,7 +142,7 @@ export default function Radar() {
   const [alertFilter, setAlertFilter] = useState<'all' | 'entrada' | 'potencial'>('all');
   
   // 🧠 Smart Filters
-  const [smartFilter, setSmartFilter] = useState<'none' | 'apm_window' | 'draw_underdog' | 'high_pressure'>('none');
+  const [smartFilters, setSmartFilters] = useState<Set<string>>(new Set());
 
   // ⭐ Favorites system
   const [favoriteFixtureIds, setFavoriteFixtureIds] = useState<Set<number>>(() => {
@@ -747,19 +747,20 @@ export default function Radar() {
     return Math.min(100, Math.round(scoreFinal * 10.0));
   }, [getScoreFinalForSide, getPLSForSide]);
 
-  // 🧠 Smart Filter logic
+  // 🧠 Smart Filter logic (multi-select OR)
   const passesSmartFilter = useCallback((f: any): boolean => {
-    if (smartFilter === 'none') return true;
+    if (smartFilters.size === 0) return true;
     
     const stats = allStats[f.id];
     const elapsed = getDisplayElapsed(f.id, f.elapsed || 0, f.status || '');
     const status = (f.status || '').toUpperCase();
     
-    if (smartFilter === 'apm_window') {
-      return (elapsed >= 15 && elapsed <= 32) && status !== 'HT' && status !== 'FT';
+    // OR logic: match passes if it satisfies ANY active filter
+    if (smartFilters.has('apm_window')) {
+      if ((elapsed >= 15 && elapsed <= 32) && status !== 'HT' && status !== 'FT') return true;
     }
     
-    if (smartFilter === 'draw_underdog') {
+    if (smartFilters.has('draw_underdog')) {
       const goalsH = f.goalsHome ?? 0;
       const goalsA = f.goalsAway ?? 0;
       if (goalsH === goalsA) return true;
@@ -774,21 +775,21 @@ export default function Radar() {
         if (homeIsFav && goalsH < goalsA) return true;
         if (!homeIsFav && goalsA < goalsH) return true;
       }
-      return false;
     }
     
-    if (smartFilter === 'high_pressure') {
-      if (!stats) return false;
-      const homeIIM = stats.home?.iim || 0;
-      const awayIIM = stats.away?.iim || 0;
-      const maxIIM = Math.max(homeIIM, awayIIM);
-      const isCornerZone = (elapsed >= 35 && elapsed <= 45 && status === '1H') || 
-                           (elapsed >= 75 && status === '2H');
-      return maxIIM >= 1.0 && isCornerZone;
+    if (smartFilters.has('high_pressure')) {
+      if (stats) {
+        const homeIIM = stats.home?.iim || 0;
+        const awayIIM = stats.away?.iim || 0;
+        const maxIIM = Math.max(homeIIM, awayIIM);
+        const isCornerZone = (elapsed >= 35 && elapsed <= 45 && status === '1H') || 
+                             (elapsed >= 75 && status === '2H');
+        if (maxIIM >= 1.0 && isCornerZone) return true;
+      }
     }
     
-    return true;
-  }, [smartFilter, allStats]);
+    return false;
+  }, [smartFilters, allStats]);
 
   // 🚀 Gravador Resiliente de Snapshots no Frontend (Varre a cada atualização de allStats)
   useEffect(() => {
@@ -2297,7 +2298,7 @@ export default function Radar() {
               const countDrawUnderdog = allFixturesForCount.filter(f => passesSmartFilterCheck('draw_underdog', f)).length;
               const countHighPressure = allFixturesForCount.filter(f => passesSmartFilterCheck('high_pressure', f)).length;
               
-              const smartFilters = [
+              const smartFilterDefs = [
                 { key: 'none' as const, label: 'TODOS', icon: '🔍', color: 'var(--text-muted)', count: allFixturesForCount.length, desc: '' },
                 { key: 'apm_window' as const, label: 'JANELA APM', icon: '⏱️', color: '#f59e0b', count: countApmWindow, desc: '15-32 min' },
                 { key: 'draw_underdog' as const, label: 'EMPATE / FAVORITO ↓', icon: '⚖️', color: '#8b5cf6', count: countDrawUnderdog, desc: 'Placares favoráveis' },
@@ -2307,38 +2308,56 @@ export default function Radar() {
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginRight: 4 }}>FILTRO:</span>
-                  {smartFilters.map(sf => (
-                    <button
-                      key={sf.key}
-                      onClick={() => setSmartFilter(sf.key)}
-                      title={sf.desc}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: 16,
-                        border: smartFilter === sf.key ? `2px solid ${sf.color}` : '2px solid transparent',
-                        background: smartFilter === sf.key ? `${sf.color}18` : 'var(--bg-card)',
-                        color: smartFilter === sf.key ? sf.color : 'var(--text-muted)',
-                        fontSize: '0.7rem',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        opacity: sf.key !== 'none' && sf.count === 0 ? 0.4 : 1,
-                      }}
-                    >
-                      {sf.icon} {sf.label}
-                      <span style={{
-                        fontSize: '0.6rem',
-                        background: smartFilter === sf.key ? `${sf.color}25` : 'var(--bg-surface)',
-                        padding: '1px 5px',
-                        borderRadius: 8,
-                        marginLeft: 1,
-                        fontWeight: 700,
-                      }}>{sf.count}</span>
-                    </button>
-                  ))}
+                  {smartFilterDefs.map(sf => {
+                    const isActive = sf.key === 'none' ? smartFilters.size === 0 : smartFilters.has(sf.key);
+                    const handleClick = () => {
+                      if (sf.key === 'none') {
+                        setSmartFilters(new Set());
+                      } else {
+                        setSmartFilters(prev => {
+                          const next = new Set(prev);
+                          if (next.has(sf.key)) {
+                            next.delete(sf.key);
+                          } else {
+                            next.add(sf.key);
+                          }
+                          return next;
+                        });
+                      }
+                    };
+                    return (
+                      <button
+                        key={sf.key}
+                        onClick={handleClick}
+                        title={sf.desc}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 16,
+                          border: isActive ? `2px solid ${sf.color}` : '2px solid transparent',
+                          background: isActive ? `${sf.color}18` : 'var(--bg-card)',
+                          color: isActive ? sf.color : 'var(--text-muted)',
+                          fontSize: '0.7rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          opacity: sf.key !== 'none' && sf.count === 0 ? 0.4 : 1,
+                        }}
+                      >
+                        {sf.icon} {sf.label}
+                        <span style={{
+                          fontSize: '0.6rem',
+                          background: isActive ? `${sf.color}25` : 'var(--bg-surface)',
+                          padding: '1px 5px',
+                          borderRadius: 8,
+                          marginLeft: 1,
+                          fontWeight: 700,
+                        }}>{sf.count}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               );
             })()}
