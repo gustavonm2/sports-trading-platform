@@ -857,6 +857,16 @@ export default function Radar() {
   const MIN_SCANS_ABOVE = 2; // Scans consecutivos acima do threshold para confirmar gatilho
   const scoreEmaRef = useRef<Record<number, { home: number; away: number }>>({});
   const triggerStateRef = useRef<Record<string, { active: boolean; scansAbove: number }>>({});
+  const prevWeightsRef = useRef<string>(JSON.stringify(activeScoreWeights));
+  useEffect(() => {
+    const k = JSON.stringify(activeScoreWeights);
+    if (k !== prevWeightsRef.current) {
+      console.log('🔄 Pesos alterados — resetando EMA para recálculo imediato');
+      scoreEmaRef.current = {};
+      prevWeightsRef.current = k;
+    }
+  }, [activeScoreWeights]);
+
 
   // Synthesize native audio chimes for premium user feedback without external asset dependencies
   const playAlertSound = () => {
