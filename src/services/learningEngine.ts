@@ -500,7 +500,7 @@ export async function syncDiaryOutcome(
 
 /**
  * resolveTradeEntry — Atualiza o resultado de um trade existente.
- * Registra o outcome, dados finais e lucro/prejuízo.
+ * Agora opera diretamente na tabela `trades` do Diário.
  */
 export async function resolveTradeEntry(
   id: string,
@@ -514,30 +514,28 @@ export async function resolveTradeEntry(
     notes?: string;
   }
 ): Promise<TradeEntry> {
-  const updatePayload: Partial<TradeEntry> = {
-    outcome,
-    resolved_at: new Date().toISOString(),
-    final_goals_home: resolution.finalGoalsHome,
-    final_goals_away: resolution.finalGoalsAway,
-    final_corners_home: resolution.finalCornersHome,
-    final_corners_away: resolution.finalCornersAway,
-    profit_loss: resolution.profitLoss,
-    notes: resolution.notes,
+  // Map outcome to Diary status format
+  const status = outcome === 'green' ? 'GREEN' : outcome === 'red' ? 'RED' : 'PENDING';
+
+  const updatePayload: Record<string, any> = {
+    status,
+    profit_loss: resolution.profitLoss || 0,
   };
 
   const { data, error } = await supabase
-    .from('trade_entries')
+    .from('trades')
     .update(updatePayload)
     .eq('id', id)
     .select()
     .single();
 
   if (error) {
-    console.error('[LearningEngine] Erro ao resolver trade entry:', error);
-    throw new Error(`Falha ao resolver entrada de trade: ${error.message}`);
+    console.error('[LearningEngine] Erro ao resolver trade:', error);
+    throw new Error(`Falha ao resolver trade: ${error.message}`);
   }
 
-  return data as TradeEntry;
+  // Converte de volta para o formato TradeEntry
+  return convertDiaryToTradeEntry(data);
 }
 
 /** Filtros opcionais para buscar entradas */
@@ -559,27 +557,23 @@ export interface TradeEntryFilters {
 }
 
 /**
- * getTradeEntries — Busca entradas de trade com filtros opcionais.
- * Ordena por data de criação decrescente por padrão.
+ * getTradeEntries — Busca entradas de trade DIRETAMENTE da tabela `trades` do Diário.
+ * Converte os registros do formato simplificado para o formato TradeEntry da Aprendizagem.
+ * Isso garante que toda entrada no Diário apareça automaticamente na Aprendizagem.
  */
 export async function getTradeEntries(filters?: TradeEntryFilters): Promise<TradeEntry[]> {
+  // Primeiro tenta ler da tabela `trades` (Diário) — fonte primária
   let query = supabase
-    .from('trade_entries')
+    .from('trades')
     .select('*')
     .order('created_at', { ascending: false });
 
-  // Aplica filtros condicionais
-  if (filters?.marketType) {
-    query = query.eq('market_type', filters.marketType);
-  }
+  // Aplica filtros de outcome mapeando GREEN→green, RED→red
   if (filters?.outcome) {
-    query = query.eq('outcome', filters.outcome);
+    query = query.eq('status', filters.outcome.toUpperCase());
   }
   if (filters?.resolvedOnly) {
-    query = query.not('outcome', 'is', null);
-  }
-  if (filters?.leagueTier) {
-    query = query.eq('league_tier', filters.leagueTier);
+    query = query.neq('status', 'PENDING');
   }
   if (filters?.dateFrom) {
     query = query.gte('created_at', filters.dateFrom);
@@ -594,11 +588,67 @@ export async function getTradeEntries(filters?: TradeEntryFilters): Promise<Trad
   const { data, error } = await query;
 
   if (error) {
-    console.error('[LearningEngine] Erro ao buscar trade entries:', error);
-    throw new Error(`Falha ao buscar entradas de trade: ${error.message}`);
+    console.error('[LearningEngine] Erro ao buscar trades do diário:', error);
+    // Fallback: tenta ler de localStorage
+    const localTrades = localStorage.getItem('trades_db_replica');
+    if (localTrades) {
+      const parsed = JSON.parse(localTrades);
+      return parsed.map((t: any) => convertDiaryToTradeEntry(t));
+    }
+    return [];
   }
 
-  return (data || []) as TradeEntry[];
+  // Converte cada registro do Diário para o formato TradeEntry
+  return (data || []).map((t: any) => convertDiaryToTradeEntry(t));
+}
+
+/**
+ * Converte um registro da tabela `trades` (Diário) para o formato TradeEntry (Aprendizagem).
+ */
+function convertDiaryToTradeEntry(t: any): TradeEntry {
+  // Parse team names from "Team A x Team B"
+  const parts = (t.match_name || '').split(/\s+x\s+/i);
+  const homeTeam = parts[0]?.trim() || t.match_name || 'N/A';
+  const awayTeam = parts[1]?.trim() || 'N/A';
+
+  // Map market string to MarketType
+  const marketStr = (t.market || '').toLowerCase();
+  const marketType: MarketType = marketStr.includes('gol') || marketStr.includes('over') ? 'gols' : 'escanteios';
+
+  // Map status to outcome
+  let outcome: TradeOutcome | undefined;
+  if (t.status === 'GREEN') outcome = 'green';
+  else if (t.status === 'RED') outcome = 'red';
+
+  return {
+    id: t.id,
+    created_at: t.created_at,
+    fixture_id: 0,
+    league: 'Manual',
+    home_team: homeTeam,
+    away_team: awayTeam,
+    elapsed: 0,
+    period: 'N/A',
+    goals_home: 0,
+    goals_away: 0,
+    source: 'diary',
+    league_tier: 40,
+    home_apm_global: 0, home_apm_10: 0, home_apm_5: 0, home_apm_3: 0, home_ipr: 0, home_acceleration_factor: 0,
+    away_apm_global: 0, away_apm_10: 0, away_apm_5: 0, away_apm_3: 0, away_ipr: 0, away_acceleration_factor: 0,
+    home_niap: 0, home_ncg: 0, home_nesc: 0, home_nft: 0, home_ncv: 0, home_npos: 0, home_nca: 0,
+    away_niap: 0, away_ncg: 0, away_nesc: 0, away_nft: 0, away_ncv: 0, away_npos: 0, away_nca: 0,
+    home_score: 0, away_score: 0, home_pls: 0, away_pls: 0, home_qual_pct: 0, away_qual_pct: 0,
+    home_shots_on: 0, home_total_shots: 0, home_corners: 0, home_possession: 0, home_da: 0, home_yellow: 0, home_red: 0,
+    away_shots_on: 0, away_total_shots: 0, away_corners: 0, away_possession: 0, away_da: 0, away_yellow: 0, away_red: 0,
+    market_type: marketType,
+    bet_type: t.market || '',
+    operating_mode: 'manual',
+    score_weights: {},
+    outcome,
+    resolved_at: outcome ? t.created_at : undefined,
+    profit_loss: t.profit_loss || 0,
+    notes: '',
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
