@@ -203,8 +203,9 @@ export default function Radar() {
   const [countdown, setCountdown] = useState(25); // 25s scanner refresh
   // Gotten opportunities tracking
   const [gottenOppIds, setGottenOppIds] = useState<Set<string>>(new Set());
-  // Dismissed fixture IDs — hides notifications for these matches
-  const [dismissedFixtureIds, setDismissedFixtureIds] = useState<Set<number>>(new Set());
+  // Dismissed fixture IDs — hides notifications for these matches (ref for persistence across effects)
+  const dismissedFixtureIdsRef = useRef<Set<number>>(new Set());
+  const [dismissedVersion, setDismissedVersion] = useState(0); // trigger re-render when dismissed changes
   const [defaultStake, setDefaultStake] = useState<number>(() => {
     const saved = localStorage.getItem('trade_default_stake');
     return saved ? Number(saved) : 200;
@@ -857,7 +858,8 @@ export default function Radar() {
     setGottenOppIds(newGotten);
 
     // Auto-dismiss: hide notification for this fixture
-    setDismissedFixtureIds(prev => new Set(prev).add(opp.fixtureId));
+    dismissedFixtureIdsRef.current.add(opp.fixtureId);
+    setDismissedVersion(v => v + 1);
 
     const stakeVal = Number(localStorage.getItem('trade_default_stake')) || defaultStake;
     const matchName = `${opp.match.homeTeam.name} x ${opp.match.awayTeam.name}`;
@@ -1550,8 +1552,9 @@ export default function Radar() {
       }
     });
 
-    // Sound alerts triggers
+    // Sound alerts triggers — skip dismissed fixtures
     activeOpps.forEach(opp => {
+      if (dismissedFixtureIdsRef.current.has(opp.fixtureId)) return;
       if (!alertedIdsRef.current.has(opp.id)) {
         alertedIdsRef.current.add(opp.id);
         if (soundEnabled && !playedSoundThisTick) {
@@ -1691,14 +1694,15 @@ export default function Radar() {
 
   // Handle Recusar — dismiss notification for this fixture
   const handleRecusar = useCallback((opp: Opportunity) => {
-    setDismissedFixtureIds(prev => new Set(prev).add(opp.fixtureId));
+    dismissedFixtureIdsRef.current.add(opp.fixtureId);
+    setDismissedVersion(v => v + 1);
   }, []);
 
   // Filtered active opportunities by confidence, market preference, and dismissed
-  const filteredOpps = opportunities
+  const filteredOpps = useMemo(() => opportunities
     .filter(opp => {
       // Exclude dismissed fixtures
-      if (dismissedFixtureIds.has(opp.fixtureId)) return false;
+      if (dismissedFixtureIdsRef.current.has(opp.fixtureId)) return false;
       if (marketFilter === 'corners') {
         return opp.strategyName === 'Canto Limite';
       }
@@ -1706,7 +1710,7 @@ export default function Radar() {
         return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito' || opp.strategyName === 'Funil';
       }
       return true;
-    });
+    }), [opportunities, marketFilter, dismissedVersion]);
 
   return (
     <div>
