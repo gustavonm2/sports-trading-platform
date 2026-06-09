@@ -456,13 +456,14 @@ export async function saveSimplifiedTradeEntry(params: {
       .single();
 
     if (error) {
-      console.warn('[LearningEngine] Erro ao sincronizar com aprendizagem (tabela pode não existir):', error.message);
+      console.error('[LearningEngine] ❌ Erro ao sincronizar com aprendizagem:', error.code, error.message, error.details, error.hint);
       return null;
     }
 
+    console.log('[LearningEngine] ✅ Entrada salva na aprendizagem:', data?.id);
     return data as TradeEntry;
   } catch (err) {
-    console.warn('[LearningEngine] Sincronização com aprendizagem falhou silenciosamente:', err);
+    console.error('[LearningEngine] ❌ Exception ao sincronizar:', err);
     return null;
   }
 }

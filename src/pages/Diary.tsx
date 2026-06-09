@@ -127,22 +127,31 @@ export default function Diary() {
       }
     }
 
-    // Reset form
-    setMatchName('');
-    setIsOpenModal(false);
-
-    // 🧠 Sync with Learning module (fire-and-forget)
+    // 🧠 Sync with Learning module BEFORE resetting form fields
+    const matchNameForSync = matchName; // capture before reset
     if (generatedTradeId) {
       saveSimplifiedTradeEntry({
         diaryTradeId: generatedTradeId,
-        matchName,
+        matchName: matchNameForSync,
         market,
         odd: oddNum,
         stake: stakeNum,
         status,
         profitLoss,
-      }).catch(() => {}); // silent fail
+      }).then(result => {
+        if (result) {
+          console.log('[Diary→Learning] ✅ Entrada sincronizada:', result.id);
+        } else {
+          console.error('[Diary→Learning] ❌ Falha ao sincronizar entrada');
+        }
+      }).catch(err => {
+        console.error('[Diary→Learning] ❌ Erro:', err);
+      });
     }
+
+    // Reset form
+    setMatchName('');
+    setIsOpenModal(false);
   };
 
   // Quick Resolve: mark pending trade as GREEN or RED
