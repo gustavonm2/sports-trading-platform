@@ -853,6 +853,80 @@ export default function Radar() {
 
     const stakeVal = Number(localStorage.getItem('trade_default_stake')) || defaultStake;
     const matchName = `${opp.match.homeTeam.name} x ${opp.match.awayTeam.name}`;
+
+    // 📸 SNAPSHOT: Captura todas as métricas do jogo no momento da entrada
+    const stats = allStats[opp.fixtureId];
+    const fixture = allFixtures.find(f => f.id === opp.fixtureId);
+    const elapsed = fixture ? getDisplayElapsed(fixture.id, fixture.elapsed || 0, fixture.status || '') : 0;
+
+    // Calcular APM/IPR
+    let homeIpr = 0, awayIpr = 0;
+    let homeApm10 = 0, awayApm10 = 0, homeApm5 = 0, awayApm5 = 0, homeApm3 = 0, awayApm3 = 0;
+    if (stats) {
+      const unifiedSnapshots = [
+        ...(stats.snapshots || []),
+        ...(platformSnapshots[opp.fixtureId] || [])
+      ].reduce((acc: TelemetrySnapshot[], curr: any) => {
+        if (!acc.some((s: TelemetrySnapshot) => s.elapsed === curr.elapsed)) acc.push(curr);
+        return acc;
+      }, [] as TelemetrySnapshot[]).sort((a: TelemetrySnapshot, b: TelemetrySnapshot) => a.elapsed - b.elapsed);
+
+      const apmData = calculateDynamicAPM(
+        unifiedSnapshots, elapsed,
+        stats.home.dangerousAttacks || 0,
+        stats.away.dangerousAttacks || 0
+      );
+      homeIpr = apmData.home.ipr;
+      awayIpr = apmData.away.ipr;
+      homeApm10 = apmData.home.apm10;
+      awayApm10 = apmData.away.apm10;
+      homeApm5 = apmData.home.apm5;
+      awayApm5 = apmData.away.apm5;
+      homeApm3 = apmData.home.apm3;
+      awayApm3 = apmData.away.apm3;
+    }
+
+    // Calcular Score Final
+    const homeScore = getScoreFinalForSide(opp.fixtureId, true);
+    const awayScore = getScoreFinalForSide(opp.fixtureId, false);
+
+    // Montar objeto de métricas
+    const metricsSnapshot = {
+      elapsed,
+      period: elapsed <= 45 ? '1H' : elapsed > 45 && elapsed <= 90 ? '2H' : 'HT',
+      league: fixture?.leagueName || opp.match?.leagueName || 'N/A',
+      goals_home: fixture?.goalsHome ?? 0,
+      goals_away: fixture?.goalsAway ?? 0,
+      // Score composto
+      home_score: homeScore,
+      away_score: awayScore,
+      // IPR
+      home_ipr: Math.round(homeIpr * 100) / 100,
+      away_ipr: Math.round(awayIpr * 100) / 100,
+      // ATM (APM por janela)
+      home_apm_10: Math.round(homeApm10 * 100) / 100,
+      away_apm_10: Math.round(awayApm10 * 100) / 100,
+      home_apm_5: Math.round(homeApm5 * 100) / 100,
+      away_apm_5: Math.round(awayApm5 * 100) / 100,
+      home_apm_3: Math.round(homeApm3 * 100) / 100,
+      away_apm_3: Math.round(awayApm3 * 100) / 100,
+      // Stats brutos
+      home_shots_on: stats?.home?.shotsOnGoal || 0,
+      away_shots_on: stats?.away?.shotsOnGoal || 0,
+      home_total_shots: stats?.home?.totalShots || 0,
+      away_total_shots: stats?.away?.totalShots || 0,
+      home_corners: stats?.home?.corners || 0,
+      away_corners: stats?.away?.corners || 0,
+      home_possession: Number(stats?.home?.possession) || 0,
+      away_possession: Number(stats?.away?.possession) || 0,
+      home_da: stats?.home?.dangerousAttacks || 0,
+      away_da: stats?.away?.dangerousAttacks || 0,
+      // Cartões
+      home_yellow: stats?.home?.yellowCards || 0,
+      away_yellow: stats?.away?.yellowCards || 0,
+      home_red: stats?.home?.redCards || 0,
+      away_red: stats?.away?.redCards || 0,
+    };
     
     const newTradeData = {
       match_name: matchName,
@@ -860,13 +934,14 @@ export default function Radar() {
       odd: 1.80,
       stake: stakeVal,
       status: 'PENDING',
-      profit_loss: 0
+      profit_loss: 0,
+      metrics: metricsSnapshot,
     };
 
     try {
       const { error } = await supabase.from('trades').insert([newTradeData]);
       if (error) throw error;
-      console.log("Trade persisted to Supabase cloud sync!");
+      console.log("✅ Trade + Snapshot de métricas salvo no Supabase!", metricsSnapshot);
     } catch (e) {
       console.warn("Supabase insert failed. Falling back to local replication.", e);
       const localTrades = localStorage.getItem('trades_db_replica');

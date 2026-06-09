@@ -604,6 +604,7 @@ export async function getTradeEntries(filters?: TradeEntryFilters): Promise<Trad
 
 /**
  * Converte um registro da tabela `trades` (Diário) para o formato TradeEntry (Aprendizagem).
+ * Se o registro possui `metrics` JSONB (capturado via Peguei no Radar), usa os dados reais.
  */
 function convertDiaryToTradeEntry(t: any): TradeEntry {
   // Parse team names from "Team A x Team B"
@@ -620,30 +621,75 @@ function convertDiaryToTradeEntry(t: any): TradeEntry {
   if (t.status === 'GREEN') outcome = 'green';
   else if (t.status === 'RED') outcome = 'red';
 
+  // 📸 Ler métricas do snapshot (capturadas pelo Peguei no Radar)
+  const m = t.metrics || {};
+  const hasMetrics = Object.keys(m).length > 0;
+
   return {
     id: t.id,
     created_at: t.created_at,
     fixture_id: 0,
-    league: 'Manual',
+    league: m.league || 'Manual',
     home_team: homeTeam,
     away_team: awayTeam,
-    elapsed: 0,
-    period: 'N/A',
-    goals_home: 0,
-    goals_away: 0,
-    source: 'diary',
+    elapsed: m.elapsed || 0,
+    period: m.period || 'N/A',
+    goals_home: m.goals_home ?? 0,
+    goals_away: m.goals_away ?? 0,
+    source: hasMetrics ? 'radar' : 'diary',
     league_tier: 40,
-    home_apm_global: 0, home_apm_10: 0, home_apm_5: 0, home_apm_3: 0, home_ipr: 0, home_acceleration_factor: 0,
-    away_apm_global: 0, away_apm_10: 0, away_apm_5: 0, away_apm_3: 0, away_ipr: 0, away_acceleration_factor: 0,
+
+    // APM
+    home_apm_global: 0,
+    home_apm_10: m.home_apm_10 || 0,
+    home_apm_5: m.home_apm_5 || 0,
+    home_apm_3: m.home_apm_3 || 0,
+    home_ipr: m.home_ipr || 0,
+    home_acceleration_factor: 0,
+
+    away_apm_global: 0,
+    away_apm_10: m.away_apm_10 || 0,
+    away_apm_5: m.away_apm_5 || 0,
+    away_apm_3: m.away_apm_3 || 0,
+    away_ipr: m.away_ipr || 0,
+    away_acceleration_factor: 0,
+
+    // Normalized (calculated from raw stats)
     home_niap: 0, home_ncg: 0, home_nesc: 0, home_nft: 0, home_ncv: 0, home_npos: 0, home_nca: 0,
     away_niap: 0, away_ncg: 0, away_nesc: 0, away_nft: 0, away_ncv: 0, away_npos: 0, away_nca: 0,
-    home_score: 0, away_score: 0, home_pls: 0, away_pls: 0, home_qual_pct: 0, away_qual_pct: 0,
-    home_shots_on: 0, home_total_shots: 0, home_corners: 0, home_possession: 0, home_da: 0, home_yellow: 0, home_red: 0,
-    away_shots_on: 0, away_total_shots: 0, away_corners: 0, away_possession: 0, away_da: 0, away_yellow: 0, away_red: 0,
+
+    // Scores compostos
+    home_score: m.home_score || 0,
+    away_score: m.away_score || 0,
+    home_pls: 0,
+    away_pls: 0,
+    home_qual_pct: 0,
+    away_qual_pct: 0,
+
+    // Stats brutos
+    home_shots_on: m.home_shots_on || 0,
+    home_total_shots: m.home_total_shots || 0,
+    home_corners: m.home_corners || 0,
+    home_possession: m.home_possession || 0,
+    home_da: m.home_da || 0,
+    home_yellow: m.home_yellow || 0,
+    home_red: m.home_red || 0,
+
+    away_shots_on: m.away_shots_on || 0,
+    away_total_shots: m.away_total_shots || 0,
+    away_corners: m.away_corners || 0,
+    away_possession: m.away_possession || 0,
+    away_da: m.away_da || 0,
+    away_yellow: m.away_yellow || 0,
+    away_red: m.away_red || 0,
+
+    // Context
     market_type: marketType,
     bet_type: t.market || '',
-    operating_mode: 'manual',
+    operating_mode: hasMetrics ? 'radar' : 'manual',
     score_weights: {},
+
+    // Resolution
     outcome,
     resolved_at: outcome ? t.created_at : undefined,
     profit_loss: t.profit_loss || 0,
