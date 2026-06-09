@@ -203,6 +203,8 @@ export default function Radar() {
   const [countdown, setCountdown] = useState(25); // 25s scanner refresh
   // Gotten opportunities tracking
   const [gottenOppIds, setGottenOppIds] = useState<Set<string>>(new Set());
+  // Dismissed fixture IDs — hides notifications for these matches
+  const [dismissedFixtureIds, setDismissedFixtureIds] = useState<Set<number>>(new Set());
   const [defaultStake, setDefaultStake] = useState<number>(() => {
     const saved = localStorage.getItem('trade_default_stake');
     return saved ? Number(saved) : 200;
@@ -853,6 +855,9 @@ export default function Radar() {
     const newGotten = new Set(gottenOppIds);
     newGotten.add(opp.id);
     setGottenOppIds(newGotten);
+
+    // Auto-dismiss: hide notification for this fixture
+    setDismissedFixtureIds(prev => new Set(prev).add(opp.fixtureId));
 
     const stakeVal = Number(localStorage.getItem('trade_default_stake')) || defaultStake;
     const matchName = `${opp.match.homeTeam.name} x ${opp.match.awayTeam.name}`;
@@ -1684,9 +1689,16 @@ export default function Radar() {
     return manualFixtures.filter((f: any) => f.source !== 'scanner');
   }, [manualFixtures]);
 
-  // Filtered active opportunities by confidence and granular market preference
+  // Handle Recusar — dismiss notification for this fixture
+  const handleRecusar = useCallback((opp: Opportunity) => {
+    setDismissedFixtureIds(prev => new Set(prev).add(opp.fixtureId));
+  }, []);
+
+  // Filtered active opportunities by confidence, market preference, and dismissed
   const filteredOpps = opportunities
     .filter(opp => {
+      // Exclude dismissed fixtures
+      if (dismissedFixtureIds.has(opp.fixtureId)) return false;
       if (marketFilter === 'corners') {
         return opp.strategyName === 'Canto Limite';
       }
@@ -5619,6 +5631,20 @@ export default function Radar() {
                       </button>
 
                       <button
+                        onClick={() => handleRecusar(opp)}
+                        className="btn btn-outline"
+                        style={{
+                          padding: '8px 16px', fontSize: '0.8rem', fontWeight: 700,
+                          background: 'rgba(239, 68, 68, 0.06)',
+                          color: '#ef4444',
+                          border: '1px solid rgba(239, 68, 68, 0.2)',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        ✕ Recusar
+                      </button>
+
+                      <button
                         onClick={() => handlePeguei(opp)}
                         disabled={gottenOppIds.has(opp.id)}
                         className="btn"
@@ -5776,6 +5802,12 @@ export default function Radar() {
                         >{bk.logo} {bk.shortName}</a>
                       ))}
                     </div>
+                    <button onClick={() => handleRecusar(opp)} className="btn btn-outline"
+                      style={{ padding: '6px 12px', fontSize: '0.7rem', fontWeight: 700,
+                        background: 'rgba(239,68,68,0.06)', color: '#ef4444',
+                        border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer'
+                      }}
+                    >✕ Recusar</button>
                     <button onClick={() => handlePeguei(opp)} disabled={gottenOppIds.has(opp.id)} className="btn"
                       style={{ padding: '6px 14px', fontSize: '0.75rem', fontWeight: 800,
                         background: gottenOppIds.has(opp.id) ? 'rgba(16,185,129,0.1)' : 'var(--accent-primary)',
