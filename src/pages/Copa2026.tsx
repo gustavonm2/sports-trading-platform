@@ -302,6 +302,11 @@ export default function Copa2026() {
     return saved !== 'false';
   });
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const [jogosDoDiaOpen, setJogosDoDiaOpen] = useState(true);
   const notifiedRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const groups = useRef(buildGroups()).current;
@@ -369,13 +374,33 @@ export default function Copa2026() {
     });
   }, [now, notificationsEnabled, allMatches, sendMatchNotification]);
 
-  // ─── Derived data ───
-  const todayStr = now.toDateString();
-  const todayMatches = allMatches.filter(m => {
-    // Convert match date to local date string
+  // ─── Derived data ───\n
+  // Matches for selected date in Jogos do Dia card
+  const selectedDateMatches = allMatches.filter(m => {
     const matchLocal = new Date(m.date);
-    return matchLocal.toDateString() === todayStr;
-  });
+    const mStr = `${matchLocal.getFullYear()}-${String(matchLocal.getMonth() + 1).padStart(2, '0')}-${String(matchLocal.getDate()).padStart(2, '0')}`;
+    return mStr === selectedDate;
+  }).sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  // Helper to shift selected date
+  const shiftDate = (days: number) => {
+    const parts = selectedDate.split('-').map(Number);
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    d.setDate(d.getDate() + days);
+    setSelectedDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  };
+
+  const setToday = () => {
+    const d = new Date();
+    setSelectedDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  };
+
+  // Format selected date for display
+  const selectedDateDisplay = (() => {
+    const parts = selectedDate.split('-').map(Number);
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    return d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  })();
 
   const filteredGroups = selectedGroup === 'all'
     ? groups
@@ -777,37 +802,161 @@ export default function Copa2026() {
         </div>
       </div>
 
-      {/* ── Today's Matches ── */}
-      {todayMatches.length > 0 && (
-        <div style={{
-          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.03), rgba(59, 130, 246, 0.02))',
-          border: '1px solid rgba(37, 99, 235, 0.12)',
-          borderRadius: 14, padding: 20,
-        }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16,
-          }}>
-            <div style={{
-              background: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
-              borderRadius: 8, padding: '6px 12px',
-              display: 'flex', alignItems: 'center', gap: 6,
+      {/* ── Jogos do Dia Card ── */}
+      <div style={{
+        background: 'var(--bg-surface)',
+        border: '1px solid rgba(37, 99, 235, 0.15)',
+        borderRadius: 14,
+        overflow: 'hidden',
+        boxShadow: '0 2px 12px rgba(15,23,42,0.04)',
+      }}>
+        {/* Card Header — clickable */}
+        <div
+          onClick={() => setJogosDoDiaOpen(!jogosDoDiaOpen)}
+          style={{
+            background: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
+            padding: '14px 22px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            cursor: 'pointer',
+            userSelect: 'none',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Calendar size={18} color="#fff" />
+            <span style={{
+              fontSize: '0.95rem', fontWeight: 800, color: '#fff',
+              letterSpacing: '0.03em',
             }}>
-              <Calendar size={14} color="#fff" />
-              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Jogos de Hoje
+              ⚽ Jogos do Dia
+            </span>
+            {selectedDateMatches.length > 0 && (
+              <span style={{
+                background: 'rgba(255,255,255,0.25)',
+                color: '#fff', fontWeight: 800,
+                fontSize: '0.7rem', padding: '2px 8px',
+                borderRadius: 10,
+              }}>
+                {selectedDateMatches.length} {selectedDateMatches.length === 1 ? 'jogo' : 'jogos'}
+              </span>
+            )}
+          </div>
+          <ChevronDown size={18} color="#fff" style={{
+            transform: jogosDoDiaOpen ? 'rotate(180deg)' : 'rotate(0)',
+            transition: 'transform 0.2s ease',
+          }} />
+        </div>
+
+        {/* Card Body */}
+        {jogosDoDiaOpen && (
+          <div style={{ padding: '18px 22px' }}>
+            {/* Date picker row */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18,
+              flexWrap: 'wrap',
+            }}>
+              {/* Arrow left */}
+              <button
+                onClick={() => shiftDate(-1)}
+                style={{
+                  width: 34, height: 34, borderRadius: 8,
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-elevated)',
+                  cursor: 'pointer', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  color: 'var(--text-secondary)', fontSize: '1rem',
+                  fontWeight: 700, transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(37,99,235,0.08)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
+              >
+                ‹
+              </button>
+
+              {/* Date input */}
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                min="2026-06-11"
+                max="2026-07-19"
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-elevated)',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-sans)',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              />
+
+              {/* Arrow right */}
+              <button
+                onClick={() => shiftDate(1)}
+                style={{
+                  width: 34, height: 34, borderRadius: 8,
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-elevated)',
+                  cursor: 'pointer', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  color: 'var(--text-secondary)', fontSize: '1rem',
+                  fontWeight: 700, transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(37,99,235,0.08)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
+              >
+                ›
+              </button>
+
+              {/* Hoje button */}
+              <button
+                onClick={setToday}
+                style={{
+                  padding: '7px 14px', borderRadius: 8,
+                  border: '1px solid rgba(37, 99, 235, 0.2)',
+                  background: 'rgba(37, 99, 235, 0.06)',
+                  color: '#2563eb', fontWeight: 700,
+                  fontSize: '0.78rem', cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(37,99,235,0.12)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(37,99,235,0.06)')}
+              >
+                📅 Hoje
+              </button>
+
+              {/* Selected date label */}
+              <span style={{
+                fontSize: '0.82rem', color: 'var(--text-muted)',
+                fontWeight: 600, textTransform: 'capitalize',
+                marginLeft: 4,
+              }}>
+                {selectedDateDisplay}
               </span>
             </div>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-              {now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
-            </span>
+
+            {/* Matches list */}
+            {selectedDateMatches.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {selectedDateMatches.map(m => renderMatchCard(m, true))}
+              </div>
+            ) : (
+              <div style={{
+                textAlign: 'center', padding: '32px 16px',
+                color: 'var(--text-muted)',
+              }}>
+                <Calendar size={32} color="var(--text-muted)" style={{ opacity: 0.4, marginBottom: 8 }} />
+                <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>Nenhum jogo nesta data</p>
+                <p style={{ fontSize: '0.78rem', marginTop: 4, opacity: 0.7 }}>A fase de grupos vai de 11/jun a 27/jun</p>
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {todayMatches
-              .sort((a, b) => a.date.getTime() - b.date.getTime())
-              .map(m => renderMatchCard(m, true))}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* ── Group Sections ── */}
       {filteredGroups.map(group => (
