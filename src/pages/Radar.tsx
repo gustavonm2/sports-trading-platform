@@ -15,6 +15,8 @@ import { supabase } from '../services/supabase';
 import { getEnabledBookmakers } from '../config/bookmakers';
 import { onBet365Data, findBet365Match, mergeStats, calculateEnrichedIIM, calculateDynamicAPM } from '../services/bet365Bridge';
 import type { Bet365BridgePayload, Bet365MatchData } from '../services/bet365Bridge';
+import { initCloudSync, broadcastBridgeData, broadcastScannerData, onCloudBridgeData, onCloudScannerData, markAsOperator, getCloudSyncStatus } from '../services/cloudSync';
+import type { CloudSyncStatus } from '../services/cloudSync';
 
 // Fuzzy team matching helper to link Sportsmonks/Sofascore matches to API-Sports dossiers
 function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefined | null): boolean {
@@ -139,6 +141,7 @@ export default function Radar() {
   const [showMatchesTable, setShowMatchesTable] = useState(false);
   const [scannerDropdownOpen, setScannerDropdownOpen] = useState(false);
   const [fixtureSourceFilter, setFixtureSourceFilter] = useState<'all' | 'api' | 'bet365' | 'favorites'>('all');
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>({ connected: false, isOperator: false, lastCloudData: null, activeDevices: 1 });
   const [alertFilter, setAlertFilter] = useState<'all' | 'entrada' | 'potencial'>('all');
   
   // 🧠 Smart Filters
@@ -1573,27 +1576,70 @@ export default function Radar() {
     return () => clearInterval(interval);
   }, [fetchLiveMatches]);
 
-  // ─── Bet365 Bridge Listener ───
+  // ─── Cloud Sync Initialization ───
+  useEffect(() => {
+    const cleanup = initCloudSync();
+
+    // Atualizar status periodicamente
+    const statusInterval = setInterval(() => {
+      setCloudSyncStatus(getCloudSyncStatus());
+    }, 2000);
+
+    return () => {
+      cleanup();
+      clearInterval(statusInterval);
+    };
+  }, []);
+
+  // ─── Bet365 Bridge Listener (local + cloud broadcast) ───
   useEffect(() => {
     const cleanup = onBet365Data((payload) => {
       setBet365Bridge(payload);
       bet365DataRef.current = payload.matches;
+
+      // 📡 Se temos extensão local, somos operador → transmitir para a nuvem
+      markAsOperator();
+      broadcastBridgeData(payload);
     });
 
     return cleanup;
   }, []);
 
-  // ─── Bet365 Scanner Listener ───
+  // ─── Bet365 Scanner Listener (local + cloud broadcast) ───
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'BET365_SCANNER_MATCHES') {
         const payload = e.data.payload;
         setScannerMatches(payload.matches || []);
         setScannerEnabled(payload.scannerEnabled || false);
+
+        // 📡 Operador → transmitir para a nuvem
+        markAsOperator();
+        broadcastScannerData(payload.matches || [], payload.scannerEnabled || false);
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
+  }, []);
+
+  // ─── Cloud Sync Receiver (receber dados de outro operador) ───
+  useEffect(() => {
+    const cleanupBridge = onCloudBridgeData((payload) => {
+      setBet365Bridge(payload);
+      bet365DataRef.current = payload.matches;
+      console.log('[CloudSync] 📡 Bridge data recebida via cloud:', payload.matchCount, 'jogos');
+    });
+
+    const cleanupScanner = onCloudScannerData((matches, scannerEnabled) => {
+      setScannerMatches(matches);
+      setScannerEnabled(scannerEnabled);
+      console.log('[CloudSync] 📡 Scanner data recebida via cloud:', matches.length, 'jogos');
+    });
+
+    return () => {
+      cleanupBridge();
+      cleanupScanner();
+    };
   }, []);
 
   // 🎰 Função para adicionar jogo do Scanner como fixture manual (com nomes reais!)
@@ -1908,6 +1954,27 @@ export default function Radar() {
             {soundEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
             {soundEnabled ? 'SOM ON' : 'SOM OFF'}
           </button>
+
+          {/* Cloud Sync Status Badge */}
+          <span style={{
+            padding: '3px 8px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            border: `1px solid ${cloudSyncStatus.connected ? (cloudSyncStatus.isOperator ? 'rgba(5, 150, 105, 0.3)' : 'rgba(59, 130, 246, 0.3)') : 'var(--border-color)'}`,
+            borderRadius: 4,
+            background: cloudSyncStatus.connected ? (cloudSyncStatus.isOperator ? 'var(--status-green-glow)' : 'rgba(59, 130, 246, 0.1)') : 'transparent',
+            color: cloudSyncStatus.connected ? (cloudSyncStatus.isOperator ? 'var(--status-green)' : '#3b82f6') : 'var(--text-muted)',
+            fontWeight: 700,
+            fontSize: '0.6rem',
+            whiteSpace: 'nowrap',
+            fontFamily: 'var(--font-sans)',
+          }}>
+            {cloudSyncStatus.connected ? (
+              cloudSyncStatus.isOperator ? '🟢 OPERADOR' : '📡 CLOUD SYNC'
+            ) : '⚪ OFFLINE'}
+            {cloudSyncStatus.activeDevices > 1 && ` (${cloudSyncStatus.activeDevices})`}
+          </span>
 
           {/* Countdown */}
           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
