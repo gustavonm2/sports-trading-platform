@@ -6,6 +6,7 @@ import PreLive from './pages/PreLive';
 import Diary from './pages/Diary';
 import Scheduler from './pages/Scheduler';
 import Learning from './pages/Learning';
+import Copa2026 from './pages/Copa2026';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="scheduler" element={<Scheduler />} />
           <Route path="diary" element={<Diary />} />
           <Route path="learning" element={<Learning />} />
+          <Route path="copa2026" element={<Copa2026 />} />
         </Route>
       </Routes>
     </BrowserRouter>

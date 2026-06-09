@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar, 
   Shield, TrendingUp, CheckCircle, Clock, Download, Brain,
-  Bell, ChevronDown, ChevronUp, Goal, CornerDownRight
+  Bell, ChevronDown, ChevronUp, Goal, CornerDownRight, Trophy
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 
@@ -228,6 +228,24 @@ export default function Layout() {
               borderRadius: 4,
               lineHeight: 1.3
             }}>IA</span>
+          </Link>
+
+          <Link 
+            to="/copa2026" 
+            className={`nav-item ${isLinkActive('/copa2026') ? 'active' : ''}`}
+          >
+            <Trophy size={20} />
+            Copa 2026
+            <span style={{ 
+              marginLeft: 'auto', 
+              fontSize: '0.55rem', 
+              fontWeight: 800, 
+              background: 'rgba(234, 179, 8, 0.15)', 
+              color: '#eab308', 
+              padding: '2px 6px', 
+              borderRadius: 4,
+              lineHeight: 1.3
+            }}>🏆</span>
           </Link>
         </nav>
 
