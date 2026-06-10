@@ -203,9 +203,26 @@ export default function Radar() {
   const [countdown, setCountdown] = useState(25); // 25s scanner refresh
   // Gotten opportunities tracking
   const [gottenOppIds, setGottenOppIds] = useState<Set<string>>(new Set());
-  // Dismissed fixture IDs — hides notifications for these matches (ref for persistence across effects)
-  const dismissedFixtureIdsRef = useRef<Set<number>>(new Set());
-  const [dismissedVersion, setDismissedVersion] = useState(0); // trigger re-render when dismissed changes
+  // Dismissed fixture IDs — hides notifications for these matches
+  // Persisted in localStorage to survive navigation/reload
+  const dismissedFixtureIdsRef = useRef<Set<number>>(
+    (() => {
+      try {
+        const saved = localStorage.getItem('dismissed_fixture_ids');
+        if (saved) return new Set(JSON.parse(saved) as number[]);
+      } catch { /* ignore */ }
+      return new Set<number>();
+    })()
+  );
+  const [dismissedVersion, setDismissedVersion] = useState(0);
+
+  const dismissFixture = useCallback((fixtureId: number) => {
+    dismissedFixtureIdsRef.current.add(fixtureId);
+    try {
+      localStorage.setItem('dismissed_fixture_ids', JSON.stringify([...dismissedFixtureIdsRef.current]));
+    } catch { /* ignore */ }
+    setDismissedVersion(v => v + 1);
+  }, []);
   const [defaultStake, setDefaultStake] = useState<number>(() => {
     const saved = localStorage.getItem('trade_default_stake');
     return saved ? Number(saved) : 200;
@@ -858,8 +875,7 @@ export default function Radar() {
     setGottenOppIds(newGotten);
 
     // Auto-dismiss: hide notification for this fixture
-    dismissedFixtureIdsRef.current.add(opp.fixtureId);
-    setDismissedVersion(v => v + 1);
+    dismissFixture(opp.fixtureId);
 
     const stakeVal = Number(localStorage.getItem('trade_default_stake')) || defaultStake;
     const matchName = `${opp.match.homeTeam.name} x ${opp.match.awayTeam.name}`;
@@ -1552,9 +1568,11 @@ export default function Radar() {
       }
     });
 
-    // Sound alerts triggers — skip dismissed fixtures
-    activeOpps.forEach(opp => {
-      if (dismissedFixtureIdsRef.current.has(opp.fixtureId)) return;
+    // Filter out dismissed fixtures BEFORE setting state and playing sounds
+    const nonDismissedOpps = activeOpps.filter(opp => !dismissedFixtureIdsRef.current.has(opp.fixtureId));
+
+    // Sound alerts triggers — only for non-dismissed
+    nonDismissedOpps.forEach(opp => {
       if (!alertedIdsRef.current.has(opp.id)) {
         alertedIdsRef.current.add(opp.id);
         if (soundEnabled && !playedSoundThisTick) {
@@ -1564,7 +1582,7 @@ export default function Radar() {
       }
     });
 
-    setOpportunities(activeOpps);
+    setOpportunities(nonDismissedOpps);
   }, [allFixtures, allStats, allDossiers, soundEnabled, activeMode]);
 
   // Main polling effect for scanner (every 25 seconds for highly responsive scans)
@@ -1694,9 +1712,8 @@ export default function Radar() {
 
   // Handle Recusar — dismiss notification for this fixture
   const handleRecusar = useCallback((opp: Opportunity) => {
-    dismissedFixtureIdsRef.current.add(opp.fixtureId);
-    setDismissedVersion(v => v + 1);
-  }, []);
+    dismissFixture(opp.fixtureId);
+  }, [dismissFixture]);
 
   // Filtered active opportunities by confidence, market preference, and dismissed
   const filteredOpps = useMemo(() => opportunities

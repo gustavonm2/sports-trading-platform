@@ -1,14 +1,11 @@
 /**
  * cloudSync.ts — Sincronização em Tempo Real via Supabase
  * 
- * ABORDAGEM: Tabela `live_sync` no Supabase (persistência) + Realtime CDC (atualizações em tempo real)
+ * Usa tabela `live_sync` no Supabase:
+ * - Operador (PC com extensões): UPSERT dados na tabela a cada 3s
+ * - Receptores (outros dispositivos): Polling da tabela a cada 5s + Realtime CDC como bônus
  * 
- * FLUXO:
- * 1. Operador (PC com extensões) → UPSERT dados na tabela `live_sync`
- * 2. Receptores (outros dispositivos) → Lêem da tabela ao conectar + ouvem mudanças via Realtime
- * 
- * Isso resolve o problema do Broadcast efêmero: se o receptor abrir depois,
- * ele pega os dados mais recentes da tabela.
+ * O polling garante que funciona mesmo se o Realtime CDC não estiver habilitado.
  */
 
 import { supabase } from './supabase';
@@ -29,6 +26,7 @@ type ScannerCallback = (matches: any[], scannerEnabled: boolean) => void;
 // ─── Estado interno ───
 
 let realtimeChannel: RealtimeChannel | null = null;
+let pollInterval: ReturnType<typeof setInterval> | null = null;
 let bridgeCallbacks: BridgeCallback[] = [];
 let scannerCallbacks: ScannerCallback[] = [];
 let _isOperator = false;
@@ -37,84 +35,107 @@ let _lastCloudData: number | null = null;
 let _activeDevices = 1;
 let _lastBridgeWrite = 0;
 let _lastScannerWrite = 0;
-let _initialLoadDone = false;
+let _lastKnownUpdatedAt = '';
 
-const WRITE_THROTTLE_MS = 3000; // Não gravar mais que 1x a cada 3s
+const WRITE_THROTTLE_MS = 3000;
+const POLL_INTERVAL_MS = 5000; // Poll a cada 5s para receptores
 const OPERATOR_ID = `op_${Math.random().toString(36).slice(2, 8)}_${Date.now()}`;
 
 // ─── Inicialização ───
 
 export function initCloudSync(): () => void {
-  if (realtimeChannel) {
-    console.log('[CloudSync] Canal já inicializado');
+  if (pollInterval) {
+    console.log('[CloudSync] Já inicializado');
     return () => {};
   }
 
-  console.log('[CloudSync] 🔌 Inicializando Cloud Sync (Tabela + Realtime CDC)...');
+  console.log('[CloudSync] 🔌 Inicializando Cloud Sync...');
 
-  // 1) Carregar dados iniciais da tabela (para quem abre depois do operador)
-  loadInitialData();
+  // 1) Carregar dados iniciais
+  loadDataFromTable();
 
-  // 2) Ouvir mudanças em tempo real na tabela live_sync
-  realtimeChannel = supabase
-    .channel('live-sync-changes')
-    .on(
-      'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'live_sync', filter: 'id=eq.main' },
-      (payload) => {
-        const newData = payload.new as any;
-        if (!newData) return;
+  // 2) Polling periódico (funciona sempre, independente de CDC)
+  pollInterval = setInterval(() => {
+    if (!_isOperator) {
+      loadDataFromTable();
+    }
+  }, POLL_INTERVAL_MS);
 
-        // Se foi eu que gravei, ignorar (evitar loop)
-        if (newData.operator_id === OPERATOR_ID) return;
+  // 3) Tentar Realtime CDC como bônus (atualização mais rápida)
+  try {
+    realtimeChannel = supabase
+      .channel('live-sync-cdc')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'live_sync', filter: 'id=eq.main' },
+        (payload) => {
+          const newData = payload.new as any;
+          if (!newData || newData.operator_id === OPERATOR_ID) return;
+          if (_isOperator) return;
 
-        _lastCloudData = Date.now();
-        console.log('[CloudSync] 📡 Dados recebidos via Realtime CDC');
-
-        // Distribuir para callbacks
-        if (newData.bridge_data && !_isOperator) {
-          const bridgePayload = newData.bridge_data;
-          if (bridgePayload && Object.keys(bridgePayload).length > 0) {
-            console.log('[CloudSync] 📡 Bridge recebida:', bridgePayload.matchCount || 0, 'jogos');
-            bridgeCallbacks.forEach(cb => {
-              try { cb(bridgePayload); } catch (e) { console.error('[CloudSync] Erro callback bridge:', e); }
-            });
-          }
+          console.log('[CloudSync] ⚡ Realtime CDC recebido');
+          processCloudData(newData);
         }
-
-        if (newData.scanner_data && !_isOperator) {
-          const scannerPayload = newData.scanner_data;
-          if (scannerPayload) {
-            console.log('[CloudSync] 📡 Scanner recebida:', (scannerPayload.matches || []).length, 'jogos');
-            scannerCallbacks.forEach(cb => {
-              try { cb(scannerPayload.matches || [], scannerPayload.scannerEnabled || false); } catch (e) { console.error('[CloudSync] Erro callback scanner:', e); }
-            });
-          }
+      )
+      .subscribe((status, err) => {
+        console.log('[CloudSync] Realtime status:', status, err || '');
+        if (status === 'SUBSCRIBED') {
+          _connected = true;
+          console.log('[CloudSync] ✅ Realtime CDC conectado (bônus)');
         }
-      }
-    )
-    .subscribe((status, err) => {
-      console.log('[CloudSync] Canal Realtime status:', status, err || '');
-      if (status === 'SUBSCRIBED') {
-        _connected = true;
-        console.log('[CloudSync] ✅ Conectado ao Realtime CDC!');
-      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-        _connected = false;
-        console.warn('[CloudSync] ❌ Canal erro:', status, err);
-      } else if (status === 'TIMED_OUT') {
-        _connected = false;
-        console.warn('[CloudSync] ⏰ Timeout');
-      }
-    });
+      });
+  } catch (e) {
+    console.warn('[CloudSync] Realtime CDC não disponível, usando apenas polling', e);
+  }
+
+  _connected = true; // Polling sempre funciona
 
   return () => {
     cleanupCloudSync();
   };
 }
 
-// ─── Carregar dados iniciais (para receptores que abrem depois) ───
+// ─── Processar dados recebidos da tabela ───
 
-async function loadInitialData(): Promise<void> {
+function processCloudData(data: any): void {
+  if (!data) return;
+  
+  // Verificar se é update novo
+  const updatedAt = data.updated_at || '';
+  if (updatedAt === _lastKnownUpdatedAt) return; // Já processado
+  _lastKnownUpdatedAt = updatedAt;
+
+  // Verificar se dados são recentes (últimos 5 minutos)
+  const updatedTime = new Date(updatedAt).getTime();
+  if (Date.now() - updatedTime > 5 * 60 * 1000) return; // Muito antigo
+
+  _lastCloudData = Date.now();
+
+  // Bridge data
+  if (data.bridge_data && Object.keys(data.bridge_data).length > 0) {
+    const bridgePayload = data.bridge_data;
+    console.log('[CloudSync] 📡 Bridge:', bridgePayload.matchCount || 0, 'jogos');
+    bridgeCallbacks.forEach(cb => {
+      try { cb(bridgePayload); } catch (e) { console.error('[CloudSync] Erro bridge:', e); }
+    });
+  }
+
+  // Scanner data
+  if (data.scanner_data) {
+    const scannerPayload = data.scanner_data;
+    const matches = scannerPayload.matches || [];
+    if (matches.length > 0 || scannerPayload.scannerEnabled) {
+      console.log('[CloudSync] 📡 Scanner:', matches.length, 'jogos');
+      scannerCallbacks.forEach(cb => {
+        try { cb(matches, scannerPayload.scannerEnabled || false); } catch (e) { console.error('[CloudSync] Erro scanner:', e); }
+      });
+    }
+  }
+}
+
+// ─── Carregar dados da tabela (polling + carga inicial) ───
+
+async function loadDataFromTable(): Promise<void> {
   try {
     const { data, error } = await supabase
       .from('live_sync')
@@ -123,46 +144,21 @@ async function loadInitialData(): Promise<void> {
       .single();
 
     if (error) {
-      console.warn('[CloudSync] ⚠️ Erro ao carregar dados iniciais:', error.message);
-      // Criar registro se não existe
       if (error.code === 'PGRST116') {
+        // Tabela existe mas sem registro — criar
         await supabase.from('live_sync').insert({ id: 'main' });
-        console.log('[CloudSync] 📝 Registro inicial criado');
+        console.log('[CloudSync] 📝 Registro criado');
+      } else {
+        console.warn('[CloudSync] ⚠️ Erro ao ler tabela:', error.message);
       }
       return;
     }
 
-    if (!data) return;
-
-    // Se os dados foram atualizados nos últimos 5 minutos, considerar válidos
-    const updatedAt = new Date(data.updated_at).getTime();
-    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
-
-    if (updatedAt > fiveMinAgo) {
-      console.log('[CloudSync] 📦 Dados iniciais carregados (de', Math.round((Date.now() - updatedAt) / 1000), 's atrás)');
-
-      // Bridge data
-      if (data.bridge_data && Object.keys(data.bridge_data).length > 0) {
-        _lastCloudData = Date.now();
-        bridgeCallbacks.forEach(cb => {
-          try { cb(data.bridge_data); } catch (e) { console.error(e); }
-        });
-      }
-
-      // Scanner data
-      if (data.scanner_data && data.scanner_data.matches?.length > 0) {
-        _lastCloudData = Date.now();
-        scannerCallbacks.forEach(cb => {
-          try { cb(data.scanner_data.matches || [], data.scanner_data.scannerEnabled || false); } catch (e) { console.error(e); }
-        });
-      }
-    } else {
-      console.log('[CloudSync] 📦 Dados iniciais muito antigos, ignorando');
+    if (data) {
+      processCloudData(data);
     }
-
-    _initialLoadDone = true;
   } catch (e) {
-    console.error('[CloudSync] ❌ Erro loadInitialData:', e);
+    console.error('[CloudSync] ❌ Erro polling:', e);
   }
 }
 
@@ -170,11 +166,15 @@ export function cleanupCloudSync(): void {
   if (realtimeChannel) {
     supabase.removeChannel(realtimeChannel);
     realtimeChannel = null;
-    _connected = false;
-    console.log('[CloudSync] 🔌 Canal desconectado');
   }
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  _connected = false;
   bridgeCallbacks = [];
   scannerCallbacks = [];
+  console.log('[CloudSync] 🔌 Desconectado');
 }
 
 // ─── Broadcasting (Operador → Banco) ───
@@ -183,10 +183,8 @@ export function broadcastBridgeData(payload: any): void {
   const now = Date.now();
   if (now - _lastBridgeWrite < WRITE_THROTTLE_MS) return;
   _lastBridgeWrite = now;
-
   _isOperator = true;
 
-  // UPSERT na tabela — grava os dados para que receptores possam ler
   supabase
     .from('live_sync')
     .upsert({
@@ -197,9 +195,9 @@ export function broadcastBridgeData(payload: any): void {
     }, { onConflict: 'id' })
     .then(({ error }) => {
       if (error) {
-        console.warn('[CloudSync] ⚠️ Erro ao gravar bridge:', error.message);
+        console.warn('[CloudSync] ⚠️ Erro bridge write:', error.message);
       } else {
-        console.log('[CloudSync] 📤 Bridge gravada no banco');
+        console.log('[CloudSync] 📤 Bridge gravada');
       }
     });
 }
@@ -208,7 +206,6 @@ export function broadcastScannerData(matches: any[], scannerEnabled: boolean): v
   const now = Date.now();
   if (now - _lastScannerWrite < WRITE_THROTTLE_MS) return;
   _lastScannerWrite = now;
-
   _isOperator = true;
 
   supabase
@@ -221,9 +218,9 @@ export function broadcastScannerData(matches: any[], scannerEnabled: boolean): v
     }, { onConflict: 'id' })
     .then(({ error }) => {
       if (error) {
-        console.warn('[CloudSync] ⚠️ Erro ao gravar scanner:', error.message);
+        console.warn('[CloudSync] ⚠️ Erro scanner write:', error.message);
       } else {
-        console.log('[CloudSync] 📤 Scanner gravada no banco');
+        console.log('[CloudSync] 📤 Scanner gravada');
       }
     });
 }
@@ -232,10 +229,8 @@ export function broadcastScannerData(matches: any[], scannerEnabled: boolean): v
 
 export function onCloudBridgeData(callback: BridgeCallback): () => void {
   bridgeCallbacks.push(callback);
-  // Se já carregou dados iniciais e é receptor, re-carregar
-  if (_initialLoadDone && !_isOperator) {
-    loadInitialData();
-  }
+  // Re-carregar dados para o novo callback
+  if (!_isOperator) loadDataFromTable();
   return () => {
     bridgeCallbacks = bridgeCallbacks.filter(cb => cb !== callback);
   };
@@ -243,9 +238,7 @@ export function onCloudBridgeData(callback: BridgeCallback): () => void {
 
 export function onCloudScannerData(callback: ScannerCallback): () => void {
   scannerCallbacks.push(callback);
-  if (_initialLoadDone && !_isOperator) {
-    loadInitialData();
-  }
+  if (!_isOperator) loadDataFromTable();
   return () => {
     scannerCallbacks = scannerCallbacks.filter(cb => cb !== callback);
   };
