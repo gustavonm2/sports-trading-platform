@@ -2274,10 +2274,41 @@ export default function Radar() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (window.confirm(`Limpar ${manualFixtures.filter((f: any) => f.source === 'scanner').length} jogos do scanner?\n\nIsso remove jogos travados. Jogos ativos serão re-adicionados automaticamente.`)) {
+                  const scannerCount = manualFixtures.filter((f: any) => f.source === 'scanner').length;
+                  if (window.confirm(`🗑️ LIMPAR TUDO (${scannerCount} jogos)\n\nIsso remove TODOS os jogos do scanner e seus dados acumulados (stats, alertas, snapshots).\n\nJogos ativos serão re-adicionados do zero pelo scanner.`)) {
+                    // 1. Pegar IDs dos scanner fixtures para limpar dados associados
+                    const scannerIds = new Set(
+                      manualFixtures.filter((f: any) => f.source === 'scanner').map(f => f.id)
+                    );
+                    
+                    // 2. Remover fixtures do scanner
                     setManualFixtures(prev => prev.filter((f: any) => f.source !== 'scanner'));
+                    
+                    // 3. Limpar localStorage
+                    localStorage.removeItem('bet365_manual_fixtures');
+                    localStorage.removeItem('dismissed_fixture_ids');
+                    
+                    // 4. Limpar sessionStorage (telemetry snapshots)
+                    sessionStorage.removeItem('platform_telemetry_snapshots');
+                    
+                    // 5. Limpar TODOS os refs de tracking
                     scannerFixtureIdsRef.current.clear();
-                    console.log('[Scanner] 🗑️ Todos os jogos do scanner foram limpos manualmente');
+                    newFixtureIdsRef.current.clear();
+                    setNewFixtureIds(new Set());
+                    alertedIdsRef.current.clear();
+                    dismissedFixtureIdsRef.current.clear();
+                    setDismissedVersion(v => v + 1);
+                    scoreEmaRef.current = {};
+                    triggerStateRef.current = {};
+                    elapsedAnchorRef.current = {};
+                    
+                    // 6. Limpar snapshots de telemetria em memória
+                    setPlatformSnapshots({});
+                    
+                    // 7. Limpar oportunidades ativas
+                    setOpportunities([]);
+                    
+                    console.log(`[Scanner] 🗑️ LIMPEZA TOTAL: ${scannerCount} jogos + todos os dados associados`);
                   }
                 }}
                 style={{
