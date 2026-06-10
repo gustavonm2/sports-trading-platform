@@ -456,7 +456,13 @@ export default function Radar() {
           // REGRA 2: Fixtures do scanner sem timestamp (legados de sessões antigas) — remover sempre
           if ((f as any).source === 'scanner' && addedAt === 0) return false;
 
-          // REGRA 3: Scanner ativo + jogo sumiu do In-Play
+          // REGRA 3: Scanner inativo — fixtures do scanner com mais de 90min sem scanner ativo
+          if ((f as any).source === 'scanner' && scannerMatches.length === 0) {
+            const SCANNER_INACTIVE_AGE = 90 * 60 * 1000; // 90 minutos
+            if (addedAt > 0 && (now - addedAt) > SCANNER_INACTIVE_AGE) return false;
+          }
+
+          // REGRA 4: Scanner ativo + jogo sumiu do In-Play
           if ((f as any).source === 'scanner' && scannerMatches.length > 0) {
             const stillLive = scannerMatches.some(m => 
               m.homeTeam.toLowerCase() === f.homeTeam.name.toLowerCase() && 
@@ -2262,6 +2268,29 @@ export default function Radar() {
               }}>
                 {scannerDropdownOpen ? '▲ Fechar' : '▼ Ver jogos'}
               </span>
+            )}
+            {/* Botão Limpar Travados */}
+            {manualFixtures.filter((f: any) => f.source === 'scanner').length > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (window.confirm(`Limpar ${manualFixtures.filter((f: any) => f.source === 'scanner').length} jogos do scanner?\n\nIsso remove jogos travados. Jogos ativos serão re-adicionados automaticamente.`)) {
+                    setManualFixtures(prev => prev.filter((f: any) => f.source !== 'scanner'));
+                    scannerFixtureIdsRef.current.clear();
+                    console.log('[Scanner] 🗑️ Todos os jogos do scanner foram limpos manualmente');
+                  }
+                }}
+                style={{
+                  background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
+                  borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
+                  fontSize: '0.65rem', fontWeight: 700, color: '#ef4444',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  whiteSpace: 'nowrap',
+                }}
+                title="Remove todos os jogos do scanner (jogos ativos serão re-adicionados)"
+              >
+                🗑️ Limpar
+              </button>
             )}
           </div>
         </button>
