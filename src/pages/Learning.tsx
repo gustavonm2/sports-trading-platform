@@ -943,7 +943,7 @@ export default function Learning() {
                 }}
               >
                 {geminiLoading ? (
-                  <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Gerando...</>
+                  <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Analisando (pode retentar)...</>
                 ) : (
                   <><Brain size={16} /> 🧠 Gerar Análise com IA</>
                 )}
@@ -965,12 +965,32 @@ export default function Learning() {
 
             {geminiError && (
               <div style={{
-                marginTop: 12, padding: '10px 14px', borderRadius: 8,
-                background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(220, 38, 38, 0.15)',
-                display: 'flex', alignItems: 'center', gap: 8,
+                marginTop: 12, padding: '14px 18px', borderRadius: 10,
+                background: geminiError.includes('⏳') 
+                  ? 'rgba(245, 158, 11, 0.06)' 
+                  : 'rgba(239, 68, 68, 0.06)',
+                border: `1px solid ${geminiError.includes('⏳') 
+                  ? 'rgba(245, 158, 11, 0.2)' 
+                  : 'rgba(220, 38, 38, 0.15)'}`,
               }}>
-                <XCircle size={14} color="var(--status-red)" />
-                <span style={{ fontSize: '0.8rem', color: 'var(--status-red)' }}>{geminiError}</span>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  {geminiError.includes('⏳') 
+                    ? <AlertTriangle size={16} color="var(--status-yellow)" style={{ marginTop: 2, flexShrink: 0 }} />
+                    : <XCircle size={16} color="var(--status-red)" style={{ marginTop: 2, flexShrink: 0 }} />
+                  }
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {geminiError.split('\n').map((line, idx) => (
+                      <span key={idx} style={{ 
+                        fontSize: line.startsWith('•') ? '0.78rem' : '0.82rem', 
+                        color: line.startsWith('•') ? 'var(--text-secondary)' : (geminiError.includes('⏳') ? 'var(--status-yellow)' : 'var(--status-red)'),
+                        fontWeight: idx === 0 ? 700 : 400,
+                        lineHeight: 1.5,
+                      }}>
+                        {line || null}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>

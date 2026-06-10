@@ -1059,6 +1059,48 @@ function generateLocalRecommendations(
 /** URL base da API Gemini */
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
+/** Configuração de retry para rate limits */
+const RETRY_CONFIG = {
+  maxAttempts: 3,
+  baseDelayMs: 2000,   // 2s inicial
+  maxDelayMs: 30000,   // máximo 30s
+};
+
+/**
+ * Utilitário de sleep para aguardar entre retries.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Extrai o tempo de espera sugerido pela API (retryDelay) se presente na resposta.
+ * Caso não encontre, usa o cálculo de backoff exponencial.
+ */
+function getRetryDelay(attempt: number, errorBody?: string): number {
+  // Tenta extrair retryDelay da resposta da API (ex: "retryDelay": "11s")
+  if (errorBody) {
+    const match = errorBody.match(/"retryDelay"\s*:\s*"([\d.]+)s?"/i);
+    if (match) {
+      const seconds = parseFloat(match[1]);
+      if (!isNaN(seconds) && seconds > 0 && seconds < 120) {
+        return Math.ceil(seconds * 1000) + 500; // Adiciona 500ms de margem
+      }
+    }
+    // Tenta extrair "Please retry in X.XXs"
+    const match2 = errorBody.match(/retry in ([\d.]+)s/i);
+    if (match2) {
+      const seconds = parseFloat(match2[1]);
+      if (!isNaN(seconds) && seconds > 0 && seconds < 120) {
+        return Math.ceil(seconds * 1000) + 500;
+      }
+    }
+  }
+  // Backoff exponencial: 2s, 4s, 8s...
+  const delay = RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
+  return Math.min(delay, RETRY_CONFIG.maxDelayMs);
+}
+
 /**
  * generateGeminiReport — Envia um lote de trades para o Gemini 2.0 Flash
  * e recebe análise de padrões e recomendações em português.
@@ -1151,96 +1193,140 @@ Analise os padrões dos trades acima e responda OBRIGATORIAMENTE em formato JSON
 
 Responda APENAS com o JSON válido, sem markdown ou texto adicional.`;
 
-  try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{ text: prompt }],
-        }],
-        generationConfig: {
-          temperature: 0.3, // Baixa temperatura para análise mais factual
-          maxOutputTokens: 4096,
-        },
-      }),
-    });
+  const requestBody = JSON.stringify({
+    contents: [{
+      parts: [{ text: prompt }],
+    }],
+    generationConfig: {
+      temperature: 0.3, // Baixa temperatura para análise mais factual
+      maxOutputTokens: 4096,
+    },
+  });
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error('[LearningEngine] Erro na API Gemini:', response.status, errorBody);
-      throw new Error(`API Gemini retornou status ${response.status}: ${errorBody}`);
-    }
+  let lastError: Error | null = null;
 
-    const data = await response.json();
-
-    // Extrai o texto da resposta do Gemini
-    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) {
-      throw new Error('Resposta vazia do Gemini. Verifique a chave da API e os limites de uso.');
-    }
-
-    // Limpa possíveis wrappers de markdown (```json ... ```)
-    const cleanedText = rawText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .trim();
-
-    // Parse do JSON retornado
-    let geminiResponse: any;
+  for (let attempt = 0; attempt < RETRY_CONFIG.maxAttempts; attempt++) {
     try {
-      geminiResponse = JSON.parse(cleanedText);
-    } catch {
-      console.error('[LearningEngine] Falha ao parsear resposta do Gemini:', cleanedText);
-      throw new Error('Resposta do Gemini não é um JSON válido. Tente novamente.');
+      const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+      });
+
+      if (response.status === 429) {
+        const errorBody = await response.text();
+        const delayMs = getRetryDelay(attempt, errorBody);
+        const delaySec = Math.round(delayMs / 1000);
+        console.warn(`[LearningEngine] ⏳ Rate limit (429). Tentativa ${attempt + 1}/${RETRY_CONFIG.maxAttempts}. Aguardando ${delaySec}s...`);
+
+        if (attempt < RETRY_CONFIG.maxAttempts - 1) {
+          await sleep(delayMs);
+          continue; // Retry
+        }
+
+        // Esgotou todas as tentativas
+        throw new Error(
+          `⏳ Limite de requisições da API Gemini atingido (Free Tier).\n\n` +
+          `Você excedeu a cota gratuita do modelo gemini-2.0-flash.\n\n` +
+          `Opções:\n` +
+          `• Aguarde alguns minutos e tente novamente\n` +
+          `• Ative o plano pago em console.cloud.google.com\n` +
+          `• Use a "Análise Local" (aba Análise) que não depende de API`
+        );
+      }
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error('[LearningEngine] Erro na API Gemini:', response.status, errorBody);
+
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('🔑 Chave da API Gemini inválida ou sem permissão. Verifique sua API Key.');
+        }
+
+        throw new Error(`API Gemini retornou erro ${response.status}. Tente novamente.`);
+      }
+
+      const data = await response.json();
+
+      // Extrai o texto da resposta do Gemini
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) {
+        throw new Error('Resposta vazia do Gemini. Verifique a chave da API e os limites de uso.');
+      }
+
+      // Limpa possíveis wrappers de markdown (```json ... ```)
+      const cleanedText = rawText
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+      // Parse do JSON retornado
+      let geminiResponse: any;
+      try {
+        geminiResponse = JSON.parse(cleanedText);
+      } catch {
+        console.error('[LearningEngine] Falha ao parsear resposta do Gemini:', cleanedText);
+        throw new Error('Resposta do Gemini não é um JSON válido. Tente novamente.');
+      }
+
+      // Converte recomendações do Gemini para o formato AIRecommendation
+      const recommendations: AIRecommendation[] = (geminiResponse.recomendacoes || []).map((rec: any) => ({
+        type: (['avoid', 'prefer', 'insight', 'warning'].includes(rec.type) ? rec.type : 'insight') as AIRecommendation['type'],
+        confidence: Math.min(100, Math.max(0, Number(rec.confidence) || 50)),
+        description: String(rec.description || ''),
+        conditions: rec.conditions || {},
+        estimated_impact: rec.estimated_impact || undefined,
+      }));
+
+      // Executa também a análise local para enriquecer com dados estatísticos precisos
+      const localReport = analyzePatterns(entries);
+
+      // Determinar período coberto
+      const dates = entries
+        .map(e => e.created_at)
+        .filter((d): d is string => !!d)
+        .sort();
+
+      return {
+        period_start: dates[0] || new Date().toISOString(),
+        period_end: dates[dates.length - 1] || new Date().toISOString(),
+        total_entries: resolved.length,
+        overall_win_rate: geminiResponse.win_rate_geral ?? localReport.overall_win_rate,
+        win_rate_by_tier: localReport.win_rate_by_tier,
+        win_rate_by_elapsed: localReport.win_rate_by_elapsed,
+        win_rate_by_score_range: localReport.win_rate_by_score_range,
+        win_rate_by_market: localReport.win_rate_by_market,
+        top_green_correlations: localReport.top_green_correlations,
+        top_red_correlations: localReport.top_red_correlations,
+        recommendations,
+        analysis_source: 'gemini',
+        raw_summary: {
+          resumo_geral: geminiResponse.resumo_geral,
+          padroes_identificados: geminiResponse.padroes_identificados,
+          metricas_chave: geminiResponse.metricas_chave,
+        },
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Se não é rate limit e não é erro de rede, não faz retry
+      if (!lastError.message.includes('429') && !lastError.message.includes('fetch') && !lastError.message.includes('Failed to fetch')) {
+        throw lastError;
+      }
+
+      // Para erros de rede, retry
+      if (attempt < RETRY_CONFIG.maxAttempts - 1) {
+        const delayMs = getRetryDelay(attempt);
+        console.warn(`[LearningEngine] ⏳ Erro de rede. Retry ${attempt + 1}/${RETRY_CONFIG.maxAttempts} em ${Math.round(delayMs / 1000)}s...`);
+        await sleep(delayMs);
+        continue;
+      }
     }
-
-    // Converte recomendações do Gemini para o formato AIRecommendation
-    const recommendations: AIRecommendation[] = (geminiResponse.recomendacoes || []).map((rec: any) => ({
-      type: (['avoid', 'prefer', 'insight', 'warning'].includes(rec.type) ? rec.type : 'insight') as AIRecommendation['type'],
-      confidence: Math.min(100, Math.max(0, Number(rec.confidence) || 50)),
-      description: String(rec.description || ''),
-      conditions: rec.conditions || {},
-      estimated_impact: rec.estimated_impact || undefined,
-    }));
-
-    // Executa também a análise local para enriquecer com dados estatísticos precisos
-    const localReport = analyzePatterns(entries);
-
-    // Determinar período coberto
-    const dates = entries
-      .map(e => e.created_at)
-      .filter((d): d is string => !!d)
-      .sort();
-
-    return {
-      period_start: dates[0] || new Date().toISOString(),
-      period_end: dates[dates.length - 1] || new Date().toISOString(),
-      total_entries: resolved.length,
-      overall_win_rate: geminiResponse.win_rate_geral ?? localReport.overall_win_rate,
-      win_rate_by_tier: localReport.win_rate_by_tier,
-      win_rate_by_elapsed: localReport.win_rate_by_elapsed,
-      win_rate_by_score_range: localReport.win_rate_by_score_range,
-      win_rate_by_market: localReport.win_rate_by_market,
-      top_green_correlations: localReport.top_green_correlations,
-      top_red_correlations: localReport.top_red_correlations,
-      recommendations,
-      analysis_source: 'gemini',
-      raw_summary: {
-        resumo_geral: geminiResponse.resumo_geral,
-        padroes_identificados: geminiResponse.padroes_identificados,
-        metricas_chave: geminiResponse.metricas_chave,
-      },
-    };
-  } catch (error) {
-    // Se for erro já tratado (não de rede), re-lança
-    if (error instanceof Error && !error.message.includes('fetch')) {
-      throw error;
-    }
-    console.error('[LearningEngine] Erro de rede ao chamar Gemini:', error);
-    throw new Error('Falha na comunicação com a API Gemini. Verifique sua conexão.');
   }
+
+  // Se chegou aqui, esgotou todas as tentativas
+  throw lastError || new Error('Falha na comunicação com a API Gemini após múltiplas tentativas.');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
