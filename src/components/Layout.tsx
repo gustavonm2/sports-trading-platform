@@ -188,13 +188,30 @@ export default function Layout() {
           <span className="title-glow" style={{ fontSize: '1.1rem' }}>TradePro</span>
         </div>
         <button
-          onClick={() => { setSidebarOpen(true); setTimeout(() => setNotifOpen(true), 100); }}
+          onClick={() => {
+            if ('Notification' in window) {
+              if (Notification.permission === 'default') {
+                Notification.requestPermission().then(p => {
+                  if (p === 'granted') {
+                    alert('✅ Notificações push ativadas! Você receberá alertas do Radar.');
+                  }
+                });
+              } else if (Notification.permission === 'granted') {
+                alert('✅ Push notifications já estão ativas!');
+              } else {
+                alert('⚠️ Notificações bloqueadas pelo navegador.\n\nPara ativar:\n1. Acesse as configurações do Safari\n2. Encontre este site\n3. Permita notificações');
+              }
+            } else {
+              alert('⚠️ Este navegador não suporta notificações push.\n\nNo iPhone, use o Safari e adicione à Tela de Início.');
+            }
+          }}
           style={{
             background: 'none', border: 'none', cursor: 'pointer',
-            color: 'var(--text-muted)', padding: 8, borderRadius: 8,
+            color: ('Notification' in window && Notification.permission === 'granted') ? 'var(--status-green)' : 'var(--text-muted)',
+            padding: 8, borderRadius: 8,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
-          aria-label="Notificações"
+          aria-label="Ativar notificações"
         >
           <Bell size={20} />
         </button>
