@@ -327,6 +327,10 @@ export default function Radar() {
     }
   });
 
+  // 🆕 Rastrear fixtures recém-adicionados (badge "NOVO" por 60s)
+  const newFixtureIdsRef = useRef<Set<number>>(new Set());
+  const [newFixtureIds, setNewFixtureIds] = useState<Set<number>>(new Set());
+
   useEffect(() => {
     localStorage.setItem('bet365_manual_fixtures', JSON.stringify(manualFixtures));
   }, [manualFixtures]);
@@ -1724,6 +1728,14 @@ export default function Radar() {
 
     setManualFixtures(prev => [...prev, newFixture]);
 
+    // 🆕 Marcar como novo por 60 segundos
+    newFixtureIdsRef.current.add(id);
+    setNewFixtureIds(new Set(newFixtureIdsRef.current));
+    setTimeout(() => {
+      newFixtureIdsRef.current.delete(id);
+      setNewFixtureIds(new Set(newFixtureIdsRef.current));
+    }, 60000);
+
     console.log(`[Scanner] ➕ Fixture criada: ${match.homeTeam} vs ${match.awayTeam}. Abra na Bet365 para conectar a Bridge.`);
   }, [manualFixtures]);
 
@@ -2703,6 +2715,15 @@ export default function Radar() {
                               <div>
                                 <div style={{ fontWeight: 800, fontSize: '0.875rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                   <span>{f.homeTeam.name} <span style={{ color: 'var(--accent-primary)', fontWeight: 500 }}>vs</span> {f.awayTeam.name}</span>
+                                  {newFixtureIds.has(f.id) && (
+                                    <span style={{
+                                      fontSize: '0.55rem', fontWeight: 900, color: '#fff',
+                                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                                      padding: '2px 8px', borderRadius: 4, letterSpacing: '0.05em',
+                                      animation: 'pulse 2s infinite',
+                                      boxShadow: '0 0 8px rgba(16, 185, 129, 0.4)',
+                                    }}>🆕 NOVO</span>
+                                  )}
                                   {(f as any).matchUrl && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                       <a 
