@@ -1053,11 +1053,14 @@ function generateLocalRecommendations(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// INTEGRAÇÃO COM GEMINI AI
+// INTEGRAÇÃO COM OPENAI (ChatGPT)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** URL base da API Gemini */
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+/** URL da API OpenAI Chat Completions */
+const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+
+/** Modelo padrão — gpt-4o-mini é rápido e barato */
+const OPENAI_MODEL = 'gpt-4o-mini';
 
 /** Configuração de retry para rate limits */
 const RETRY_CONFIG = {
@@ -1074,26 +1077,15 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Extrai o tempo de espera sugerido pela API (retryDelay) se presente na resposta.
- * Caso não encontre, usa o cálculo de backoff exponencial.
+ * Calcula delay para retry com backoff exponencial.
+ * Tenta extrair retry-after do header ou corpo do erro.
  */
-function getRetryDelay(attempt: number, errorBody?: string): number {
-  // Tenta extrair retryDelay da resposta da API (ex: "retryDelay": "11s")
-  if (errorBody) {
-    const match = errorBody.match(/"retryDelay"\s*:\s*"([\d.]+)s?"/i);
-    if (match) {
-      const seconds = parseFloat(match[1]);
-      if (!isNaN(seconds) && seconds > 0 && seconds < 120) {
-        return Math.ceil(seconds * 1000) + 500; // Adiciona 500ms de margem
-      }
-    }
-    // Tenta extrair "Please retry in X.XXs"
-    const match2 = errorBody.match(/retry in ([\d.]+)s/i);
-    if (match2) {
-      const seconds = parseFloat(match2[1]);
-      if (!isNaN(seconds) && seconds > 0 && seconds < 120) {
-        return Math.ceil(seconds * 1000) + 500;
-      }
+function getRetryDelay(attempt: number, retryAfterHeader?: string | null): number {
+  // Tenta usar o header Retry-After da OpenAI
+  if (retryAfterHeader) {
+    const seconds = parseFloat(retryAfterHeader);
+    if (!isNaN(seconds) && seconds > 0 && seconds < 120) {
+      return Math.ceil(seconds * 1000) + 500;
     }
   }
   // Backoff exponencial: 2s, 4s, 8s...
@@ -1102,22 +1094,25 @@ function getRetryDelay(attempt: number, errorBody?: string): number {
 }
 
 /**
- * generateGeminiReport — Envia um lote de trades para o Gemini 2.0 Flash
+ * generateGeminiReport — Envia um lote de trades para o ChatGPT (OpenAI)
  * e recebe análise de padrões e recomendações em português.
  *
- * A chave da API é lida de localStorage ('gemini_api_key').
- * Retorna um LearningReport com fonte 'gemini'.
+ * A chave da API é lida de localStorage ('openai_api_key').
+ * Retorna um LearningReport com fonte 'gemini' (mantido para compatibilidade).
+ *
+ * NOTA: O nome da função foi mantido como generateGeminiReport para
+ * compatibilidade com o restante do código. Internamente usa OpenAI.
  */
 export async function generateGeminiReport(entries: TradeEntry[]): Promise<LearningReport> {
-  const apiKey = localStorage.getItem('gemini_api_key');
+  const apiKey = localStorage.getItem('openai_api_key');
   if (!apiKey) {
-    throw new Error('Chave da API Gemini não configurada. Salve em localStorage com a chave "gemini_api_key".');
+    throw new Error('Chave da API OpenAI não configurada. Insira sua API Key acima.');
   }
 
   // Filtra apenas entries resolvidas para análise
   const resolved = entries.filter(e => e.outcome === 'green' || e.outcome === 'red');
   if (resolved.length < 3) {
-    throw new Error('Mínimo de 3 trades resolvidos necessários para gerar relatório Gemini.');
+    throw new Error('Mínimo de 3 trades resolvidos necessários para gerar relatório.');
   }
 
   // Prepara resumo dos dados para o prompt (evita enviar dados demais)
@@ -1149,14 +1144,16 @@ export async function generateGeminiReport(entries: TradeEntry[]): Promise<Learn
     resultado: e.outcome,
   }));
 
-  // Prompt estruturado em português
-  const prompt = `Você é um analista especializado em trading esportivo ao vivo. Analise os seguintes ${resolved.length} trades registrados e forneça insights estatísticos e recomendações práticas.
+  // Prompt estruturado em português (system + user)
+  const systemPrompt = `Você é um analista especializado em trading esportivo ao vivo. Responda SEMPRE em JSON válido, sem markdown, sem texto adicional. Idioma: português brasileiro.`;
+
+  const userPrompt = `Analise os seguintes ${resolved.length} trades registrados e forneça insights estatísticos e recomendações práticas.
 
 ## DADOS DOS TRADES:
 ${JSON.stringify(tradeSummaries, null, 2)}
 
 ## INSTRUÇÕES:
-Analise os padrões dos trades acima e responda OBRIGATORIAMENTE em formato JSON válido com a seguinte estrutura:
+Responda OBRIGATORIAMENTE em formato JSON válido com a seguinte estrutura:
 
 {
   "resumo_geral": "Texto resumindo os principais achados",
@@ -1191,67 +1188,83 @@ Analise os padrões dos trades acima e responda OBRIGATORIAMENTE em formato JSON
 4. Avalie se a aceleração (APM3 vs APM Global) é preditiva
 5. Recomende thresholds específicos para métricas-chave
 
-Responda APENAS com o JSON válido, sem markdown ou texto adicional.`;
+Responda APENAS com o JSON válido.`;
 
   const requestBody = JSON.stringify({
-    contents: [{
-      parts: [{ text: prompt }],
-    }],
-    generationConfig: {
-      temperature: 0.3, // Baixa temperatura para análise mais factual
-      maxOutputTokens: 4096,
-    },
+    model: OPENAI_MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+    response_format: { type: 'json_object' },
   });
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < RETRY_CONFIG.maxAttempts; attempt++) {
     try {
-      const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+      const response = await fetch(OPENAI_API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
         body: requestBody,
       });
 
       if (response.status === 429) {
-        const errorBody = await response.text();
-        const delayMs = getRetryDelay(attempt, errorBody);
+        const retryAfter = response.headers.get('retry-after');
+        const delayMs = getRetryDelay(attempt, retryAfter);
         const delaySec = Math.round(delayMs / 1000);
         console.warn(`[LearningEngine] ⏳ Rate limit (429). Tentativa ${attempt + 1}/${RETRY_CONFIG.maxAttempts}. Aguardando ${delaySec}s...`);
 
         if (attempt < RETRY_CONFIG.maxAttempts - 1) {
           await sleep(delayMs);
-          continue; // Retry
+          continue;
         }
 
-        // Esgotou todas as tentativas
         throw new Error(
-          `⏳ Limite de requisições da API Gemini atingido (Free Tier).\n\n` +
-          `Você excedeu a cota gratuita do modelo gemini-2.0-flash.\n\n` +
+          `⏳ Limite de requisições da API OpenAI atingido.\n\n` +
           `Opções:\n` +
           `• Aguarde alguns minutos e tente novamente\n` +
-          `• Ative o plano pago em console.cloud.google.com\n` +
+          `• Verifique seu saldo em platform.openai.com\n` +
           `• Use a "Análise Local" (aba Análise) que não depende de API`
         );
       }
 
       if (!response.ok) {
         const errorBody = await response.text();
-        console.error('[LearningEngine] Erro na API Gemini:', response.status, errorBody);
+        console.error('[LearningEngine] Erro na API OpenAI:', response.status, errorBody);
 
-        if (response.status === 401 || response.status === 403) {
-          throw new Error('🔑 Chave da API Gemini inválida ou sem permissão. Verifique sua API Key.');
+        if (response.status === 401) {
+          throw new Error('🔑 API Key inválida. Verifique sua chave da OpenAI.');
+        }
+        if (response.status === 403) {
+          throw new Error('🔑 Sem permissão. Verifique se sua API Key tem acesso ao modelo gpt-4o-mini.');
+        }
+        if (response.status === 402) {
+          throw new Error('💳 Saldo insuficiente na conta OpenAI. Adicione créditos em platform.openai.com/billing.');
         }
 
-        throw new Error(`API Gemini retornou erro ${response.status}. Tente novamente.`);
+        // Tenta extrair mensagem de erro da OpenAI
+        try {
+          const errJson = JSON.parse(errorBody);
+          const msg = errJson?.error?.message || `Erro ${response.status}`;
+          throw new Error(`API OpenAI: ${msg}`);
+        } catch (parseErr) {
+          if (parseErr instanceof Error && parseErr.message.startsWith('API OpenAI:')) throw parseErr;
+          throw new Error(`API OpenAI retornou erro ${response.status}. Tente novamente.`);
+        }
       }
 
       const data = await response.json();
 
-      // Extrai o texto da resposta do Gemini
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      // Extrai o texto da resposta da OpenAI
+      const rawText = data?.choices?.[0]?.message?.content;
       if (!rawText) {
-        throw new Error('Resposta vazia do Gemini. Verifique a chave da API e os limites de uso.');
+        throw new Error('Resposta vazia da OpenAI. Verifique a chave da API.');
       }
 
       // Limpa possíveis wrappers de markdown (```json ... ```)
@@ -1262,16 +1275,16 @@ Responda APENAS com o JSON válido, sem markdown ou texto adicional.`;
         .trim();
 
       // Parse do JSON retornado
-      let geminiResponse: any;
+      let aiResponse: any;
       try {
-        geminiResponse = JSON.parse(cleanedText);
+        aiResponse = JSON.parse(cleanedText);
       } catch {
-        console.error('[LearningEngine] Falha ao parsear resposta do Gemini:', cleanedText);
-        throw new Error('Resposta do Gemini não é um JSON válido. Tente novamente.');
+        console.error('[LearningEngine] Falha ao parsear resposta:', cleanedText);
+        throw new Error('Resposta da IA não é um JSON válido. Tente novamente.');
       }
 
-      // Converte recomendações do Gemini para o formato AIRecommendation
-      const recommendations: AIRecommendation[] = (geminiResponse.recomendacoes || []).map((rec: any) => ({
+      // Converte recomendações para o formato AIRecommendation
+      const recommendations: AIRecommendation[] = (aiResponse.recomendacoes || []).map((rec: any) => ({
         type: (['avoid', 'prefer', 'insight', 'warning'].includes(rec.type) ? rec.type : 'insight') as AIRecommendation['type'],
         confidence: Math.min(100, Math.max(0, Number(rec.confidence) || 50)),
         description: String(rec.description || ''),
@@ -1292,7 +1305,7 @@ Responda APENAS com o JSON válido, sem markdown ou texto adicional.`;
         period_start: dates[0] || new Date().toISOString(),
         period_end: dates[dates.length - 1] || new Date().toISOString(),
         total_entries: resolved.length,
-        overall_win_rate: geminiResponse.win_rate_geral ?? localReport.overall_win_rate,
+        overall_win_rate: aiResponse.win_rate_geral ?? localReport.overall_win_rate,
         win_rate_by_tier: localReport.win_rate_by_tier,
         win_rate_by_elapsed: localReport.win_rate_by_elapsed,
         win_rate_by_score_range: localReport.win_rate_by_score_range,
@@ -1302,9 +1315,9 @@ Responda APENAS com o JSON válido, sem markdown ou texto adicional.`;
         recommendations,
         analysis_source: 'gemini',
         raw_summary: {
-          resumo_geral: geminiResponse.resumo_geral,
-          padroes_identificados: geminiResponse.padroes_identificados,
-          metricas_chave: geminiResponse.metricas_chave,
+          resumo_geral: aiResponse.resumo_geral,
+          padroes_identificados: aiResponse.padroes_identificados,
+          metricas_chave: aiResponse.metricas_chave,
         },
       };
     } catch (error) {
@@ -1326,7 +1339,7 @@ Responda APENAS com o JSON válido, sem markdown ou texto adicional.`;
   }
 
   // Se chegou aqui, esgotou todas as tentativas
-  throw lastError || new Error('Falha na comunicação com a API Gemini após múltiplas tentativas.');
+  throw lastError || new Error('Falha na comunicação com a API após múltiplas tentativas.');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

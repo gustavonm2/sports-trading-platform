@@ -184,7 +184,7 @@ export default function Learning() {
   const [analysis, setAnalysis] = useState<LearningReport | null>(null);
 
   // Tab 3: Gemini
-  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
+  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('openai_api_key') || '');
   const [geminiLoading, setGeminiLoading] = useState(false);
   const [geminiError, setGeminiError] = useState('');
   const [currentReport, setCurrentReport] = useState<LearningReport | null>(null);
@@ -294,12 +294,12 @@ export default function Learning() {
   /** Gerar relatório Gemini (a key é lida de localStorage internamente) */
   const handleGenerateReport = async () => {
     if (!geminiKey.trim()) {
-      setGeminiError('Insira sua API Key do Gemini antes de gerar o relatório.');
+      setGeminiError('Insira sua API Key da OpenAI antes de gerar o relatório.');
       return;
     }
 
     // Salva a key no localStorage para que o service a leia
-    localStorage.setItem('gemini_api_key', geminiKey);
+    localStorage.setItem('openai_api_key', geminiKey);
     setGeminiLoading(true);
     setGeminiError('');
 
@@ -326,7 +326,7 @@ export default function Learning() {
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'entries', label: 'Entradas', icon: <BookOpen size={16} /> },
     { id: 'analysis', label: 'Análise', icon: <BarChart3 size={16} /> },
-    { id: 'gemini', label: 'IA Gemini', icon: <Brain size={16} /> },
+    { id: 'gemini', label: 'IA ChatGPT', icon: <Brain size={16} /> },
   ];
 
   return (
@@ -920,14 +920,14 @@ export default function Learning() {
             </div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
-                <label style={labelStyle}>GEMINI API KEY</label>
+                <label style={labelStyle}>OPENAI API KEY</label>
                 <input
                   type="password"
-                  placeholder="Cole sua API Key do Google AI Studio..."
+                  placeholder="Cole sua API Key da OpenAI (sk-...)..."
                   value={geminiKey}
                   onChange={e => {
                     setGeminiKey(e.target.value);
-                    localStorage.setItem('gemini_api_key', e.target.value);
+                    localStorage.setItem('openai_api_key', e.target.value);
                   }}
                   style={inputStyle}
                 />
@@ -1005,7 +1005,7 @@ export default function Learning() {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <Sparkles size={18} color="var(--accent-primary)" />
-                  <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Relatório Gemini AI</h3>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Relatório ChatGPT</h3>
                 </div>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '4px 10px', borderRadius: 20, fontWeight: 600 }}>
                   {currentReport.created_at
@@ -1204,7 +1204,7 @@ export default function Learning() {
                               : '—'}
                           </span>
                           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            {report.analysis_source === 'gemini' ? 'Gemini AI' : 'Análise Local'} · {report.recommendations.length} recomendações · WR: {report.overall_win_rate}%
+                            {report.analysis_source === 'gemini' ? 'ChatGPT' : 'Análise Local'} · {report.recommendations.length} recomendações · WR: {report.overall_win_rate}%
                           </span>
                         </div>
                       </div>
