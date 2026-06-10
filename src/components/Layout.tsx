@@ -3,8 +3,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar, 
   Shield, TrendingUp, CheckCircle, Clock, Download, Brain,
-  Bell, ChevronDown, ChevronUp, Goal, CornerDownRight, Trophy
+  Bell, ChevronDown, ChevronUp, Goal, CornerDownRight, Trophy,
+  Menu, X
 } from 'lucide-react';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { supabase } from '../services/supabase';
 
 // Tipo para janelas de notificação
@@ -29,6 +31,8 @@ export default function Layout() {
   const searchParams = new URLSearchParams(location.search);
   const currentMode = searchParams.get('mode') || 'classico';
   const [notifOpen, setNotifOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [windows, setWindows] = useState<NotificationWindow[]>(() => {
     const saved = localStorage.getItem('notification_windows');
     return saved ? JSON.parse(saved) : DEFAULT_WINDOWS;
@@ -75,6 +79,8 @@ export default function Layout() {
     }
     return true;
   };
+
+  const closeSidebar = () => setSidebarOpen(false);
 
   const inputStyle: React.CSSProperties = {
     width: 48,
@@ -164,8 +170,58 @@ export default function Layout() {
 
   return (
     <div className="app-layout">
+      {/* Mobile Header */}
+      <div className="mobile-header">
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--text-primary)', padding: 8, borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          aria-label="Menu"
+        >
+          {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+          <Activity className="pulse-indicator" style={{ width: 20, height: 20 }} color="var(--accent-primary)" />
+          <span className="title-glow" style={{ fontSize: '1.1rem' }}>TradePro</span>
+        </div>
+        <button
+          onClick={() => { setSidebarOpen(true); setTimeout(() => setNotifOpen(true), 100); }}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--text-muted)', padding: 8, borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          aria-label="Notificações"
+        >
+          <Bell size={20} />
+        </button>
+      </div>
+
+      {/* Sidebar Backdrop (mobile only) */}
+      {isMobile && sidebarOpen && (
+        <div className="sidebar-backdrop" onClick={closeSidebar} />
+      )}
+
       {/* Sidebar */}
-      <aside className="sidebar" style={{ minWidth: 260 }}>
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`} style={!isMobile ? { minWidth: 260 } : undefined}>
+        {/* Close button for mobile */}
+        {isMobile && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+            <button
+              onClick={closeSidebar}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text-muted)', padding: 4,
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        )}
+
         <div className="sidebar-logo">
           <Activity className="pulse-indicator" style={{ width: 24, height: 24 }} color="var(--accent-primary)" />
           <span className="title-glow">TradePro</span>
@@ -175,6 +231,7 @@ export default function Layout() {
           <Link 
             to="/dashboard" 
             className={`nav-item ${isLinkActive('/dashboard') ? 'active' : ''}`}
+            onClick={closeSidebar}
           >
             <LayoutDashboard size={20} />
             Dashboard
@@ -183,6 +240,7 @@ export default function Layout() {
           <Link 
             to="/radar" 
             className={`nav-item ${isLinkActive('/radar', 'classico') && location.search === '' ? 'active' : ''}`}
+            onClick={closeSidebar}
           >
             <Activity size={20} />
             Radar Ao Vivo
@@ -191,6 +249,7 @@ export default function Layout() {
           <Link 
             to="/prelive" 
             className={`nav-item ${isLinkActive('/prelive') ? 'active' : ''}`}
+            onClick={closeSidebar}
           >
             <Calendar size={20} />
             Varredura Pré-Live
@@ -199,6 +258,7 @@ export default function Layout() {
           <Link 
             to="/scheduler" 
             className={`nav-item ${isLinkActive('/scheduler') ? 'active' : ''}`}
+            onClick={closeSidebar}
           >
             <Clock size={20} />
             Scheduler de Operação
@@ -207,6 +267,7 @@ export default function Layout() {
           <Link 
             to="/diary" 
             className={`nav-item ${isLinkActive('/diary') ? 'active' : ''}`}
+            onClick={closeSidebar}
           >
             <BookOpen size={20} />
             Diário & Banca
@@ -215,6 +276,7 @@ export default function Layout() {
           <Link 
             to="/learning" 
             className={`nav-item ${isLinkActive('/learning') ? 'active' : ''}`}
+            onClick={closeSidebar}
           >
             <Brain size={20} />
             Aprendizagem
@@ -233,6 +295,7 @@ export default function Layout() {
           <Link 
             to="/copa2026" 
             className={`nav-item ${isLinkActive('/copa2026') ? 'active' : ''}`}
+            onClick={closeSidebar}
           >
             <Trophy size={20} />
             Copa 2026
@@ -258,6 +321,7 @@ export default function Layout() {
             <Link 
               to="/radar?mode=arriscado" 
               className={`nav-item ${isLinkActive('/radar', 'arriscado') ? 'active' : ''}`}
+              onClick={closeSidebar}
             >
               <TrendingUp size={18} />
               Arriscado
@@ -266,6 +330,7 @@ export default function Layout() {
             <Link 
               to="/radar?mode=classico" 
               className={`nav-item ${isLinkActive('/radar', 'classico') ? 'active' : ''}`}
+              onClick={closeSidebar}
             >
               <CheckCircle size={18} />
               Clássico
@@ -274,6 +339,7 @@ export default function Layout() {
             <Link 
               to="/radar?mode=conservador" 
               className={`nav-item ${isLinkActive('/radar', 'conservador') ? 'active' : ''}`}
+              onClick={closeSidebar}
             >
               <Shield size={18} />
               Conservador
@@ -341,6 +407,7 @@ export default function Layout() {
               download="bet365-bridge.zip"
               className="nav-item"
               style={{ textDecoration: 'none' }}
+              onClick={closeSidebar}
             >
               <Download size={18} />
               Bet365 Bridge

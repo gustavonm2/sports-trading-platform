@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { useSearchParams } from 'react-router-dom';
 import { 
   Activity, Zap, ShieldAlert, Shield,
@@ -128,6 +129,7 @@ interface ScannerMatch {
 export default function Radar() {
   const [searchParams] = useSearchParams();
   const activeMode = searchParams.get('mode') || 'apm_pure';
+  const isMobile = useIsMobile();
   
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [selectedFixture, setSelectedFixture] = useState<Fixture | null>(null);
@@ -1025,6 +1027,27 @@ export default function Radar() {
     }
   };
 
+  // 📱 Push Notification via Service Worker (funciona com tela bloqueada)
+  const sendPushNotification = (opp: Opportunity) => {
+    if (!('serviceWorker' in navigator) || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') {
+      Notification.requestPermission();
+      return;
+    }
+    navigator.serviceWorker.ready.then(reg => {
+      const matchName = `${opp.match.homeTeam.name} ${opp.match.goalsHome}×${opp.match.goalsAway} ${opp.match.awayTeam.name}`;
+      reg.showNotification(`🎯 ${opp.strategyName}`, {
+        body: `${matchName} · ${opp.teamName} · Confiança: ${opp.confidence}%`,
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+        vibrate: [200, 100, 200, 100, 300],
+        tag: `opp-${opp.id}`,
+        data: { url: '/radar' },
+        requireInteraction: true,
+      } as NotificationOptions);
+    }).catch(() => {});
+  };
+
 
 
   // Fetch match stats and pre-match dossiers for all live matches in background to perform scans
@@ -1579,6 +1602,8 @@ export default function Radar() {
           playAlertSound();
           playedSoundThisTick = true;
         }
+        // 📱 Push notification para mobile
+        sendPushNotification(opp);
       }
     });
 
@@ -1757,7 +1782,7 @@ export default function Radar() {
           }} onClick={() => setShowWeightsModal(false)}>
             <div style={{
               background: 'var(--bg-primary)', borderRadius: '16px',
-              border: '1px solid var(--border-color)', width: '560px', maxHeight: '90vh',
+              border: '1px solid var(--border-color)', width: isMobile ? '95vw' : '560px', maxWidth: '560px', maxHeight: '90vh',
               overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
             }} onClick={e => e.stopPropagation()}>
               {/* Header */}
@@ -1927,7 +1952,7 @@ export default function Radar() {
         </div>
 
         {/* Row 2: Badges + Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 8, flexWrap: 'wrap' }}>
           {/* Status Connection Badges */}
           {activeDataSource === 'sportsmonks' && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', border: '1px solid rgba(124, 58, 237, 0.2)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
@@ -1987,6 +2012,37 @@ export default function Radar() {
             {soundEnabled ? <Volume2 size={10} /> : <VolumeX size={10} />}
             {soundEnabled ? 'SOM ON' : 'SOM OFF'}
           </button>
+
+          {/* 📱 Push Notification Toggle */}
+          {'Notification' in window && (
+            <button 
+              onClick={() => {
+                if (Notification.permission === 'default') {
+                  Notification.requestPermission();
+                }
+              }}
+              style={{ 
+                padding: '3px 8px', 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                gap: 4,
+                border: `1px solid ${Notification.permission === 'granted' ? 'rgba(5, 150, 105, 0.3)' : 'var(--border-color)'}`,
+                borderRadius: 4,
+                background: Notification.permission === 'granted' ? 'var(--status-green-glow)' : 'transparent',
+                color: Notification.permission === 'granted' ? 'var(--status-green)' : 'var(--text-muted)',
+                cursor: Notification.permission === 'default' ? 'pointer' : 'default',
+                fontWeight: 700,
+                fontSize: '0.65rem',
+                outline: 'none',
+                whiteSpace: 'nowrap',
+                fontFamily: 'var(--font-sans)',
+              }}
+              title={Notification.permission === 'granted' ? 'Push notifications ativadas' : Notification.permission === 'denied' ? 'Bloqueado pelo navegador' : 'Clique para ativar push notifications'}
+            >
+              {Notification.permission === 'granted' ? '🔔' : Notification.permission === 'denied' ? '🔕' : '🔔'}
+              {Notification.permission === 'granted' ? 'PUSH ON' : Notification.permission === 'denied' ? 'PUSH OFF' : 'ATIVAR PUSH'}
+            </button>
+          )}
 
           {/* Cloud Sync Status Badge */}
           <span style={{
@@ -2549,6 +2605,7 @@ export default function Radar() {
                 <p style={{ fontWeight: 600 }}>Nenhuma partida ao vivo sob varredura no momento.</p>
               </div>
             ) : (
+              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 800 }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid var(--border-color)' }}>
@@ -3105,7 +3162,7 @@ export default function Radar() {
                                     </div>
 
                                     {/* Comparison Columns Container */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '24px' }}>
                                       
                                       {/* 1. ATAQUE & VOLUME DE JOGO */}
                                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -3389,7 +3446,7 @@ export default function Radar() {
                                       paddingTop: '20px', 
                                       borderTop: '1px solid var(--border-color)',
                                       display: 'grid', 
-                                      gridTemplateColumns: '1fr 1.2fr', 
+                                      gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', 
                                       gap: '24px' 
                                     }}>
                                       {/* Left Card: Pre-Live (PLS) & Qualidade do Confronto */}
@@ -3808,7 +3865,7 @@ export default function Radar() {
                                           const is3Active = halfElapsed >= 3;
 
                                           return (
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '16px', alignItems: 'start' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 280px', gap: '16px', alignItems: 'start' }}>
                                               {/* LEFT: SVG Chart */}
                                               <div style={{ background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '16px 12px 12px' }}>
                                                 {/* Chart Header */}
@@ -4450,7 +4507,7 @@ export default function Radar() {
                                     </div>
 
                                     {/* Comparison Columns Container */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '24px' }}>
                                       
                                       {/* 1. ATAQUE & VOLUME DE JOGO */}
                                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -4734,7 +4791,7 @@ export default function Radar() {
                                       paddingTop: '20px', 
                                       borderTop: '1px solid var(--border-color)',
                                       display: 'grid', 
-                                      gridTemplateColumns: '1fr 1.2fr', 
+                                      gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', 
                                       gap: '24px' 
                                     }}>
                                       {/* Left Card: Pre-Live (PLS) & Qualidade do Confronto */}
@@ -5152,7 +5209,7 @@ export default function Radar() {
                                           const toYapm = (v: number) => padT + plotH - (v / maxApm) * plotH;
 
                                           return (
-                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '16px', alignItems: 'start' }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 280px', gap: '16px', alignItems: 'start' }}>
                                               {/* LEFT: SVG Chart */}
                                               <div style={{ background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '16px 12px 12px' }}>
                                                 {/* Chart Header */}
@@ -5426,13 +5483,14 @@ export default function Radar() {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}
       </div>
 
       {/* Grid Duplo do Scanner */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1.2fr 1fr', gap: 24, alignItems: 'start' }}>
         
         {/* Coluna Esquerda: Oportunidades Ativas do Bot */}
         <div>

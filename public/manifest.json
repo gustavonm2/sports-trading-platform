@@ -1,0 +1,18 @@
+{
+  "name": "Trade Moreira - Radar",
+  "short_name": "TradeRadar",
+  "description": "Radar de trading esportivo ao vivo com notificações push",
+  "start_url": "/radar",
+  "display": "standalone",
+  "background_color": "#0c1222",
+  "theme_color": "#1e3a8a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
