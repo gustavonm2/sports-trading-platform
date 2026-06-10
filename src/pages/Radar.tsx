@@ -2276,12 +2276,7 @@ export default function Radar() {
                   e.stopPropagation();
                   const scannerCount = manualFixtures.filter((f: any) => f.source === 'scanner').length;
                   if (window.confirm(`🗑️ LIMPAR TUDO (${scannerCount} jogos)\n\nIsso remove TODOS os jogos do scanner e seus dados acumulados (stats, alertas, snapshots).\n\nJogos ativos serão re-adicionados do zero pelo scanner.`)) {
-                    // 1. Pegar IDs dos scanner fixtures para limpar dados associados
-                    const scannerIds = new Set(
-                      manualFixtures.filter((f: any) => f.source === 'scanner').map(f => f.id)
-                    );
-                    
-                    // 2. Remover fixtures do scanner
+                    // 1. Remover fixtures do scanner
                     setManualFixtures(prev => prev.filter((f: any) => f.source !== 'scanner'));
                     
                     // 3. Limpar localStorage
