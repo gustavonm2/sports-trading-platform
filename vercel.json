@@ -11,6 +11,10 @@
     {
       "source": "/api-sports/(.*)",
       "destination": "https://v3.football.api-sports.io/$1"
+    },
+    {
+      "source": "/((?!api-|assets/).*)",
+      "destination": "/index.html"
     }
   ]
 }
