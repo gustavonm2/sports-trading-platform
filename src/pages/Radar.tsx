@@ -330,6 +330,48 @@ export default function Radar() {
   // 🆕 Rastrear fixtures recém-adicionados (badge "NOVO" por 60s)
   const newFixtureIdsRef = useRef<Set<number>>(new Set());
   const [newFixtureIds, setNewFixtureIds] = useState<Set<number>>(new Set());
+  const knownFixtureIdsRef = useRef<Set<number>>(new Set());
+
+  // Inicializar: marcar fixtures recentes (addedAt < 60s) como NOVO
+  useEffect(() => {
+    const now = Date.now();
+    const NEW_THRESHOLD = 60000; // 60s
+    manualFixtures.forEach(f => {
+      knownFixtureIdsRef.current.add(f.id);
+      const addedAt = (f as any).addedAt || 0;
+      if (addedAt > 0 && (now - addedAt) < NEW_THRESHOLD && !newFixtureIdsRef.current.has(f.id)) {
+        newFixtureIdsRef.current.add(f.id);
+        const remaining = NEW_THRESHOLD - (now - addedAt);
+        setTimeout(() => {
+          newFixtureIdsRef.current.delete(f.id);
+          setNewFixtureIds(new Set(newFixtureIdsRef.current));
+        }, remaining);
+      }
+    });
+    if (newFixtureIdsRef.current.size > 0) {
+      setNewFixtureIds(new Set(newFixtureIdsRef.current));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Apenas na montagem
+
+  // Detectar novos fixtures adicionados (por qualquer caminho)
+  useEffect(() => {
+    let changed = false;
+    manualFixtures.forEach(f => {
+      if (!knownFixtureIdsRef.current.has(f.id)) {
+        knownFixtureIdsRef.current.add(f.id);
+        newFixtureIdsRef.current.add(f.id);
+        changed = true;
+        setTimeout(() => {
+          newFixtureIdsRef.current.delete(f.id);
+          setNewFixtureIds(new Set(newFixtureIdsRef.current));
+        }, 60000);
+      }
+    });
+    if (changed) {
+      setNewFixtureIds(new Set(newFixtureIdsRef.current));
+    }
+  }, [manualFixtures]);
 
   useEffect(() => {
     localStorage.setItem('bet365_manual_fixtures', JSON.stringify(manualFixtures));
@@ -1733,14 +1775,6 @@ export default function Radar() {
     } as any;
 
     setManualFixtures(prev => [...prev, newFixture]);
-
-    // 🆕 Marcar como novo por 60 segundos
-    newFixtureIdsRef.current.add(id);
-    setNewFixtureIds(new Set(newFixtureIdsRef.current));
-    setTimeout(() => {
-      newFixtureIdsRef.current.delete(id);
-      setNewFixtureIds(new Set(newFixtureIdsRef.current));
-    }, 60000);
 
     console.log(`[Scanner] ➕ Fixture criada: ${match.homeTeam} vs ${match.awayTeam}. Abra na Bet365 para conectar a Bridge.`);
   }, [manualFixtures]);
