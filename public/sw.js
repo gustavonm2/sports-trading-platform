@@ -4,7 +4,7 @@
 // Handles push notifications for Radar opportunities and basic offline caching.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const CACHE_NAME = 'trademoreira-v1';
+const CACHE_NAME = 'trademoreira-v2';
 
 // Assets to pre-cache for offline shell
 const PRECACHE_URLS = [
