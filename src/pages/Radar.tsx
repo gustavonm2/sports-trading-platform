@@ -3272,7 +3272,8 @@ export default function Radar() {
                                     </div>
 
                                     {/* Comparison Columns Container */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '24px' }}>
+                                    {!isMobile && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
                                       
                                       {/* 1. ATAQUE & VOLUME DE JOGO */}
                                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -3549,8 +3550,10 @@ export default function Radar() {
                                       </div>
 
                                     </div>
+                                    )}
 
                                     {/* 🏆 ANÁLISE PRÉ-LIVE (PLS) & SCORE DE CANTOS */}
+                                    {!isMobile && (
                                     <div style={{ 
                                       marginTop: '24px', 
                                       paddingTop: '20px', 
@@ -3846,6 +3849,7 @@ export default function Radar() {
                                         </div>
                                       </div>
                                     </div>
+                                    )}
 
                                     {/* ⚡ GRÁFICO DE PRESSÃO — Visualização completa */}
                                     {stats.hasBridge && (
@@ -4617,7 +4621,8 @@ export default function Radar() {
                                     </div>
 
                                     {/* Comparison Columns Container */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '24px' }}>
+                                    {!isMobile && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
                                       
                                       {/* 1. ATAQUE & VOLUME DE JOGO */}
                                       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -4894,8 +4899,10 @@ export default function Radar() {
                                       </div>
 
                                     </div>
+                                    )}
 
                                     {/* 🏆 ANÁLISE PRÉ-LIVE (PLS) & SCORE DE CANTOS */}
+                                    {!isMobile && (
                                     <div style={{ 
                                       marginTop: '24px', 
                                       paddingTop: '20px', 
@@ -5191,6 +5198,7 @@ export default function Radar() {
                                         </div>
                                       </div>
                                     </div>
+                                    )}
 
                                     {/* ⚡ GRÁFICO DE PRESSÃO — Visualização completa */}
                                     {stats.hasBridge && (
