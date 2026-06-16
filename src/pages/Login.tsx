@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../services/supabase';
 import './Login.css';
 
 const Login: React.FC = () => {
@@ -13,12 +14,44 @@ const Login: React.FC = () => {
 
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Temporary MOCK authentication.
-    // In the future, here you'd fetch your backend API using the SQL users table.
-    localStorage.setItem('auth_token', 'mock_token_123');
-    navigate('/dashboard');
+    
+    if (isRegistering) {
+      // Create account
+      const { data, error } = await supabase
+        .from('users')
+        .insert([{ nome, sobrenome, email, senha: password }])
+        .select()
+        .single();
+        
+      if (error) {
+        alert('Erro ao criar conta: ' + error.message);
+        return;
+      }
+      
+      // Auto-login after registration
+      localStorage.setItem('auth_token', data.id.toString());
+      localStorage.setItem('user_name', data.nome);
+      navigate('/dashboard');
+    } else {
+      // Login
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .eq('senha', password)
+        .single();
+        
+      if (error || !data) {
+        alert('E-mail ou senha incorretos!');
+        return;
+      }
+      
+      localStorage.setItem('auth_token', data.id.toString());
+      localStorage.setItem('user_name', data.nome);
+      navigate('/dashboard');
+    }
   };
 
   return (
