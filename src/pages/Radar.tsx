@@ -2245,28 +2245,72 @@ export default function Radar() {
                   <p>Nenhum jogo rolando no momento</p>
                 </div>
               ) : mobileLiveMatches.map((f: any) => {
-                const s = allStats[f.id];
+                const isExpanded = expandedFixtureId === f.id;
                 return (
-                  <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{f.leagueName} • {getDisplayElapsed(f.id, f.elapsed, f.status)}'</div>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      <span style={{ display: 'block', marginBottom: '2px' }}>{f.homeTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}</span></span>
-                      <span style={{ display: 'block' }}>{f.awayTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span></span>
+                  <div key={f.id} style={{ display: 'flex', flexDirection: 'column', padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                    <div 
+                      onClick={() => setExpandedFixtureId(isExpanded ? null : f.id)}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{f.leagueName} • {getDisplayElapsed(f.id, f.elapsed, f.status)}'</div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          <span style={{ display: 'block', marginBottom: '2px' }}>{f.homeTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}</span></span>
+                          <span style={{ display: 'block' }}>{f.awayTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span></span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '16px', gap: '4px' }}>
+                        {s && (
+                          <>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
+                              🚩 {s.home.corners} x {s.away.corners}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
+                              ATM Global: {s.home.apmGlobal || 0} x {s.away.apmGlobal || 0}
+                            </div>
+                          </>
+                        )}
+                        <div style={{ marginTop: '4px' }}>
+                          {isExpanded ? <ChevronUp size={16} color="var(--text-muted)" /> : <ChevronDown size={16} color="var(--text-muted)" />}
+                        </div>
+                      </div>
                     </div>
+                    {isExpanded && s && (() => {
+                      const unifiedSnapshots = [...(s.snapshots || []), ...(platformSnapshots[f.id] || [])].sort((a,b) => a.elapsed - b.elapsed);
+                      const apmData = calculateDynamicAPM(unifiedSnapshots, getDisplayElapsed(f.id, f.elapsed, f.status), s.home.dangerousAttacks, s.away.dangerousAttacks, s);
+                      const homeApm3 = apmData.home.apm3;
+                      const awayApm3 = apmData.away.apm3;
+                      return (
+                        <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 10</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                              <span style={{ color: 'var(--text-primary)' }}>{s.home.apm10 || 0}</span>
+                              <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
+                              <span style={{ color: 'var(--text-primary)' }}>{s.away.apm10 || 0}</span>
+                            </div>
+                          </div>
+                          <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 5</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                              <span style={{ color: 'var(--text-primary)' }}>{s.home.apm5 || 0}</span>
+                              <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
+                              <span style={{ color: 'var(--text-primary)' }}>{s.away.apm5 || 0}</span>
+                            </div>
+                          </div>
+                          <div style={{ gridColumn: '1 / -1', background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 3</div>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                              <span style={{ color: 'var(--text-primary)' }}>{homeApm3}</span>
+                              <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
+                              <span style={{ color: 'var(--text-primary)' }}>{awayApm3}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
-                  {s && (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '16px', gap: '4px' }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
-                        🚩 {s.home.corners} x {s.away.corners}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
-                        🔥 {s.home.apmGlobal || 0} x {s.away.apmGlobal || 0}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
+                );
               });
             })()}
           </div>
