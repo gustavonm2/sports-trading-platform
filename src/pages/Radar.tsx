@@ -2247,6 +2247,8 @@ export default function Radar() {
               ) : mobileLiveMatches.map((f: any) => {
                 const s = allStats[f.id];
                 const isExpanded = expandedFixtureId === f.id;
+                const homeScore = getScoreFinalForSide(f.id, true);
+                const awayScore = getScoreFinalForSide(f.id, false);
                 return (
                   <div key={f.id} style={{ display: 'flex', flexDirection: 'column', padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                     <div 
@@ -2261,6 +2263,9 @@ export default function Radar() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '16px', gap: '4px' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', background: 'var(--accent-glow)', border: '1px solid var(--accent-primary)', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>
+                          ⭐ {homeScore.toFixed(1)} | {awayScore.toFixed(1)}
+                        </div>
                         {s && (
                           <>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
