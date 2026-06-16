@@ -2245,6 +2245,7 @@ export default function Radar() {
                   <p>Nenhum jogo rolando no momento</p>
                 </div>
               ) : mobileLiveMatches.map((f: any) => {
+                const s = allStats[f.id];
                 const isExpanded = expandedFixtureId === f.id;
                 return (
                   <div key={f.id} style={{ display: 'flex', flexDirection: 'column', padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
