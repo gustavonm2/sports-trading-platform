@@ -2165,12 +2165,12 @@ export default function Radar() {
               const isCorners = opp.strategyName === 'Canto Limite';
 
               return (
-                <div key={opp.id} className="card" style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', border: `1px solid ${isCorners ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`, borderRadius: '16px' }}>
+                <div key={opp.id} className="card" style={{ padding: '16px', background: 'var(--bg-surface)', border: `1px solid ${isCorners ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`, borderRadius: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <span style={{ fontSize: '0.75rem', fontWeight: 800, background: isCorners ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)', color: isCorners ? '#fbbf24' : '#10b981', padding: '4px 8px', borderRadius: '6px' }}>
                       {isCorners ? '🚩 ESCANTEIOS' : '⚽ GOLS'}
                     </span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff' }}>{getDisplayElapsed(f.id, f.elapsed, f.status)}'</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{getDisplayElapsed(f.id, f.elapsed, f.status)}'</span>
                   </div>
 
                   <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
@@ -2179,15 +2179,15 @@ export default function Radar() {
 
                   <button 
                     onClick={() => setExpandedMobileId(isExpanded ? null : opp.id)}
-                    style={{ width: '100%', marginTop: '12px', padding: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontWeight: 600, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}
+                    style={{ width: '100%', marginTop: '12px', padding: '10px', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)', fontWeight: 600, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}
                   >
                     {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                     {isExpanded ? 'Esconder métricas' : 'VER MAIS'}
                   </button>
 
                   {isExpanded && s && (
-                    <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                    <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM Global</div>
                         <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
                            <span style={{ color: 'var(--text-primary)' }}>{s.home.apmGlobal || 0}</span>
@@ -2195,7 +2195,7 @@ export default function Radar() {
                            <span style={{ color: 'var(--text-primary)' }}>{s.away.apmGlobal || 0}</span>
                         </div>
                       </div>
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Escanteios</div>
                         <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
                            <span style={{ color: 'var(--text-primary)' }}>{s.home.corners}</span>
@@ -2203,7 +2203,7 @@ export default function Radar() {
                            <span style={{ color: 'var(--text-primary)' }}>{s.away.corners}</span>
                         </div>
                       </div>
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 10</div>
                         <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
                            <span style={{ color: 'var(--text-primary)' }}>{s.home.apm10 || 0}</span>
@@ -2211,7 +2211,7 @@ export default function Radar() {
                            <span style={{ color: 'var(--text-primary)' }}>{s.away.apm10 || 0}</span>
                         </div>
                       </div>
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 5</div>
                         <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
                            <span style={{ color: 'var(--text-primary)' }}>{s.home.apm5 || 0}</span>
@@ -2219,7 +2219,7 @@ export default function Radar() {
                            <span style={{ color: 'var(--text-primary)' }}>{s.away.apm5 || 0}</span>
                         </div>
                       </div>
-                      <div style={{ gridColumn: '1 / -1', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                      <div style={{ gridColumn: '1 / -1', background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 3</div>
                         <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
                            <span style={{ color: 'var(--text-primary)' }}>{homeApm3}</span>
@@ -2247,20 +2247,20 @@ export default function Radar() {
               ) : mobileLiveMatches.map((f: any) => {
                 const s = allStats[f.id];
                 return (
-                  <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{f.leagueName} • {getDisplayElapsed(f.id, f.elapsed, f.status)}'</div>
-                    <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                       <span style={{ display: 'block', marginBottom: '2px' }}>{f.homeTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}</span></span>
                       <span style={{ display: 'block' }}>{f.awayTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span></span>
                     </div>
                   </div>
                   {s && (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '16px', gap: '4px' }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: '4px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
                         🚩 {s.home.corners} x {s.away.corners}
                       </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: '4px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
                         🔥 {s.home.apmGlobal || 0} x {s.away.apmGlobal || 0}
                       </div>
                     </div>
