@@ -21,7 +21,7 @@ export interface CloudSyncStatus {
 }
 
 type BridgeCallback = (payload: any) => void;
-type ScannerCallback = (matches: any[], scannerEnabled: boolean) => void;
+type ScannerCallback = (matches: any[], scannerEnabled: boolean, manualFixtures: any[], bestCornerData: any) => void;
 
 // ─── Estado interno ───
 
@@ -124,10 +124,17 @@ function processCloudData(data: any): void {
   if (data.scanner_data) {
     const scannerPayload = data.scanner_data;
     const matches = scannerPayload.matches || [];
-    if (matches.length > 0 || scannerPayload.scannerEnabled) {
-      console.log('[CloudSync] 📡 Scanner:', matches.length, 'jogos');
+    if (matches.length > 0 || scannerPayload.scannerEnabled || scannerPayload.manualFixtures || scannerPayload.bestCornerData) {
+      console.log('[CloudSync] 📡 Scanner/MobileData:', matches.length, 'jogos');
       scannerCallbacks.forEach(cb => {
-        try { cb(matches, scannerPayload.scannerEnabled || false); } catch (e) { console.error('[CloudSync] Erro scanner:', e); }
+        try { 
+          cb(
+            matches, 
+            scannerPayload.scannerEnabled || false, 
+            scannerPayload.manualFixtures || [], 
+            scannerPayload.bestCornerData || {}
+          ); 
+        } catch (e) { console.error('[CloudSync] Erro scanner:', e); }
       });
     }
   }
@@ -202,7 +209,7 @@ export function broadcastBridgeData(payload: any): void {
     });
 }
 
-export function broadcastScannerData(matches: any[], scannerEnabled: boolean): void {
+export function broadcastScannerData(matches: any[], scannerEnabled: boolean, manualFixtures: any[] = [], bestCornerData: any = {}): void {
   const now = Date.now();
   if (now - _lastScannerWrite < WRITE_THROTTLE_MS) return;
   _lastScannerWrite = now;
@@ -212,7 +219,7 @@ export function broadcastScannerData(matches: any[], scannerEnabled: boolean): v
     .from('live_sync')
     .upsert({
       id: 'main',
-      scanner_data: { matches, scannerEnabled },
+      scanner_data: { matches, scannerEnabled, manualFixtures, bestCornerData },
       operator_id: OPERATOR_ID,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'id' })
@@ -220,7 +227,7 @@ export function broadcastScannerData(matches: any[], scannerEnabled: boolean): v
       if (error) {
         console.warn('[CloudSync] ⚠️ Erro scanner write:', error.message);
       } else {
-        console.log('[CloudSync] 📤 Scanner gravada');
+        console.log('[CloudSync] 📤 Scanner gravada com manualFixtures e bestCornerData');
       }
     });
 }

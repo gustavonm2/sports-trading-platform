@@ -314,6 +314,11 @@ export default function Radar() {
   const [bet365Bridge, setBet365Bridge] = useState<Bet365BridgePayload | null>(null);
   const [bestCornerBridge, setBestCornerBridge] = useState<BestCornerBridgePayload | null>(null);
   
+  const bestCornerBridgeRef = useRef<BestCornerBridgePayload | null>(null);
+  useEffect(() => {
+    bestCornerBridgeRef.current = bestCornerBridge;
+  }, [bestCornerBridge]);
+  
   // Cloud Sync state
   const bet365DataRef = useRef<Bet365MatchData[]>([]);
 
@@ -409,6 +414,11 @@ export default function Radar() {
       return [];
     }
   });
+
+  const manualFixturesRef = useRef<any[]>([]);
+  useEffect(() => {
+    manualFixturesRef.current = manualFixtures;
+  }, [manualFixtures]);
 
   // 🆕 Rastrear fixtures recém-adicionados (badge "NOVO" por 60s)
   const newFixtureIdsRef = useRef<Set<number>>(new Set());
@@ -1995,7 +2005,12 @@ export default function Radar() {
 
         // 📡 Operador → transmitir para a nuvem
         markAsOperator();
-        broadcastScannerData(payload.matches || [], payload.scannerEnabled || false);
+        broadcastScannerData(
+          payload.matches || [], 
+          payload.scannerEnabled || false, 
+          manualFixturesRef.current, 
+          bestCornerBridgeRef.current
+        );
       }
     };
     window.addEventListener('message', handler);
@@ -2010,10 +2025,16 @@ export default function Radar() {
       console.log('[CloudSync] 📡 Bridge data recebida via cloud:', payload.matchCount, 'jogos');
     });
 
-    const cleanupScanner = onCloudScannerData((matches, scannerEnabled) => {
+    const cleanupScanner = onCloudScannerData((matches, scannerEnabled, cloudManualFixtures, cloudBestCornerData) => {
       setScannerMatches(matches);
       setScannerEnabled(scannerEnabled);
-      console.log('[CloudSync] 📡 Scanner data recebida via cloud:', matches.length, 'jogos');
+      if (cloudManualFixtures && cloudManualFixtures.length > 0) {
+        setManualFixtures(cloudManualFixtures);
+      }
+      if (cloudBestCornerData && Object.keys(cloudBestCornerData).length > 0) {
+        setBestCornerBridge(cloudBestCornerData);
+      }
+      console.log('[CloudSync] 📡 Scanner/MobileData recebida via cloud:', matches.length, 'jogos');
     });
 
     return () => {
@@ -2217,14 +2238,16 @@ export default function Radar() {
         {/* --- ABA TABELA --- */}
         {mobileTab === 'tabela' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {allFixtures.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
-                <p>Nenhum jogo na tabela</p>
-              </div>
-            ) : allFixtures.map((f: any) => {
-              const s = allStats[f.id];
-              return (
-                <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            {(() => {
+              const mobileLiveMatches = allFixtures.filter((f: any) => f.status === '1H' || f.status === '2H' || f.status === 'HT');
+              return mobileLiveMatches.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                  <p>Nenhum jogo rolando no momento</p>
+                </div>
+              ) : mobileLiveMatches.map((f: any) => {
+                const s = allStats[f.id];
+                return (
+                  <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{f.leagueName} • {getDisplayElapsed(f.id, f.elapsed, f.status)}'</div>
                     <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>
@@ -2244,7 +2267,8 @@ export default function Radar() {
                   )}
                 </div>
               );
-            })}
+              });
+            })()}
           </div>
         )}
       </div>
