@@ -36,6 +36,9 @@ export interface TeamStats {
   // 📊 Campos CALCULADOS a partir dos dados reais
   pressureIndex: number;     // Índice de pressão (0-100)
   iim: number;               // IIM: Índice de Intensidade por Minuto (chutes+cantos/min)
+  apmGlobal?: number;        // APM Nativo lido da extensão (Bridge)
+  apm10?: number;            // APM 10 Nativo lido da extensão (Bridge)
+  apm5?: number;             // APM 5 Nativo lido da extensão (Bridge)
 }
 
 export interface TelemetrySnapshot {
@@ -53,6 +56,7 @@ export interface MatchStats {
   elapsed?: number;      // Tempo decorrido (opcional, vindo da bridge se disponível)
   hasBridge?: boolean; // Flag indicating if the match has been enriched with Bet365 bridge data
   snapshots?: TelemetrySnapshot[]; // Telemetry snapshots time-series
+  pastEvents?: { elapsed: number, type: string, side: 'home' | 'away', text: string }[];
 }
 
 export interface PreMatchDossier {

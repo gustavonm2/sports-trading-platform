@@ -1,0 +1,234 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Bet365 Robot — Popup Styles v2 (Dark Theme)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  width: 370px;
+  max-height: 560px;
+  overflow-y: auto;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #0f1117;
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.container {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ─── Header ─────────────────────────────────── */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.header-left { display: flex; align-items: center; gap: 8px; }
+.robot-icon { font-size: 20px; }
+.title {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #10b981, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.version {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 600;
+  background: #1e293b;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* ─── Toggle Bar ─────────────────────────────── */
+.toggle-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #1a1f2e;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+}
+
+.toggle-bar.active {
+  border-color: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.toggle-info { display: flex; align-items: center; gap: 8px; }
+
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #6b7280; flex-shrink: 0;
+}
+
+.status-dot.active {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+  animation: pulse 2s infinite;
+}
+
+.status-text { font-weight: 700; font-size: 12px; }
+
+.btn-toggle {
+  padding: 6px 14px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-toggle:hover {
+  background: #10b981;
+  color: #fff;
+  border-color: #10b981;
+}
+
+.btn-toggle.active {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.btn-toggle.active:hover {
+  background: #ef4444;
+  color: #fff;
+}
+
+/* ─── Stats Grid ─────────────────────────────── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 6px;
+}
+
+.stat-card {
+  background: #1a1f2e;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 8px 4px;
+  text-align: center;
+}
+
+.stat-value { font-size: 16px; font-weight: 900; color: #f8fafc; }
+.stat-label {
+  font-size: 8px; color: #64748b; text-transform: uppercase;
+  font-weight: 700; margin-top: 2px; letter-spacing: 0.05em;
+}
+
+/* ─── Section ────────────────────────────────── */
+.section {
+  background: #1a1f2e;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid #1e293b;
+  color: #94a3b8;
+}
+
+.badge {
+  font-size: 10px; font-weight: 800;
+  padding: 2px 8px; border-radius: 10px;
+  min-width: 20px; text-align: center;
+  color: #fff;
+}
+.badge-green { background: #10b981; }
+.badge-yellow { background: #f59e0b; }
+
+/* ─── Games List ─────────────────────────────── */
+.games-list { max-height: 150px; overflow-y: auto; }
+.games-list::-webkit-scrollbar { width: 4px; }
+.games-list::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+
+.empty-state {
+  padding: 12px; text-align: center;
+  color: #475569; font-size: 11px;
+}
+
+.game-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 12px;
+  font-size: 11px;
+  border-bottom: 1px dashed #1e293b;
+}
+.game-row:last-child { border-bottom: none; }
+
+.game-teams {
+  flex: 1; font-weight: 600; color: #e2e8f0;
+  white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: 210px;
+}
+
+.game-score {
+  font-weight: 900; color: #10b981;
+  min-width: 32px; text-align: center; font-size: 12px;
+}
+
+.game-time {
+  font-weight: 700; color: #f59e0b;
+  min-width: 36px; text-align: right; font-size: 11px;
+}
+
+.queue-row .game-teams { color: #94a3b8; }
+
+/* ─── Logs ───────────────────────────────────── */
+.logs-list {
+  max-height: 120px; overflow-y: auto;
+  font-size: 10px;
+}
+
+.log-row {
+  display: flex; gap: 8px;
+  padding: 3px 12px;
+  border-bottom: 1px dashed rgba(30, 41, 59, 0.5);
+}
+
+.log-time { color: #475569; font-weight: 600; white-space: nowrap; min-width: 55px; }
+.log-msg { color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ─── Actions ────────────────────────────────── */
+.actions { display: flex; gap: 8px; }
+
+.btn {
+  flex: 1; padding: 7px 12px;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  background: #1a1f2e;
+  color: #94a3b8;
+  font-size: 11px; font-weight: 700;
+  cursor: pointer; transition: all 0.2s;
+  text-align: center;
+}
+.btn:hover { background: #252b3b; color: #e2e8f0; border-color: #334155; }
+.btn-clear:hover { border-color: #ef4444; color: #ef4444; }
+.btn-refresh:hover { border-color: #3b82f6; color: #3b82f6; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }

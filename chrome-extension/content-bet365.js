@@ -1245,24 +1245,50 @@
       goalsAway: away.goals ?? null,
     };
 
-    storageData['bet365_bridge_index'] = {
-      matchCount: 1,
-      lastScan: Date.now(),
-      scanNumber: scanCount,
-      matches: [{
-        home: teamNames.home || 'Unknown',
-        away: teamNames.away || 'Unknown',
-        statsCount: stats.length,
-        elapsed: timerData ? timerData.elapsed : null,
-        period: timerData ? timerData.period : null,
-      }]
-    };
+    // O index agora é atualizado APÓS o set, no callback acima
+    // (Removido: antes cada aba sobrescrevia com matchCount:1)
 
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.set(storageData, () => {
         if (chrome.runtime.lastError) {
           console.warn('[Bet365 Bridge] Erro salvando:', chrome.runtime.lastError);
+          return;
         }
+
+        // Atualizar o index com TODOS os jogos no storage (não apenas este)
+        chrome.storage.local.get(null, (allData) => {
+          if (chrome.runtime.lastError) return;
+
+          const allMatches = [];
+          for (const [k, v] of Object.entries(allData)) {
+            if (!k.startsWith('bet365_bridge_') || k === 'bet365_bridge_index' || k === 'bet365_bridge_status') continue;
+            if (v.timestamp && (Date.now() - v.timestamp) > 300_000) continue; // Expirado (5 min)
+            allMatches.push({
+              key: k,
+              home: v.homeTeam || 'Unknown',
+              away: v.awayTeam || 'Unknown',
+              statsCount: Object.keys(v.home || {}).length,
+              elapsed: v.elapsed ?? null,
+              period: v.period ?? null,
+            });
+          }
+
+          chrome.storage.local.set({
+            'bet365_bridge_index': {
+              matchCount: allMatches.length,
+              lastScan: Date.now(),
+              scanNumber: scanCount,
+              matches: allMatches,
+            }
+          });
+
+          // Notificar background com total real
+          chrome.runtime.sendMessage({
+            type: 'BET365_SCAN_UPDATE',
+            matchCount: allMatches.length,
+            scanNumber: scanCount,
+          }).catch(() => {});
+        });
       });
     }
   }
@@ -1279,6 +1305,7 @@
       console.log(`[Bet365 Bridge] ✅ Scan #${scanCount} — ${teamNames.home} vs ${teamNames.away} — ${stats.length} stats${timerData ? ` — ⏱️ ${timerData.elapsed}'` : ''}:`);
       stats.forEach(s => console.log(`  ${s.label}: ${s.home} | ${s.away} (${s.field})`));
 
+      // Notificar background imediatamente (o saveToStorage também notifica com count total)
       if (typeof chrome !== 'undefined' && chrome.runtime) {
         chrome.runtime.sendMessage({
           type: 'BET365_SCAN_UPDATE', matchCount: 1, scanNumber: scanCount

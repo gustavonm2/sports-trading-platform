@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bet365 Robot</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <span class="robot-icon">🤖</span>
+        <span class="title">Bet365 Robot</span>
+      </div>
+      <span class="version">v0.2</span>
+    </div>
+
+    <!-- Robot Toggle -->
+    <div class="toggle-bar" id="toggleBar">
+      <div class="toggle-info">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-text" id="statusText">Desativado</span>
+      </div>
+      <button class="btn-toggle" id="btnToggle">▶ Ativar</button>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value" id="monitoringCount">0</div>
+        <div class="stat-label">Monitorando</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="tabsCount">0</div>
+        <div class="stat-label">Abas</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="queueCount">0</div>
+        <div class="stat-label">Na Fila</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="endedCount">0</div>
+        <div class="stat-label">Encerr.</div>
+      </div>
+    </div>
+
+    <!-- Monitoring Section -->
+    <div class="section" id="monitoringSection">
+      <div class="section-header">
+        <span>📡 Monitorando</span>
+        <span class="badge badge-green" id="monBadge">0</span>
+      </div>
+      <div class="games-list" id="monitoringList">
+        <div class="empty-state">Nenhum jogo aberto</div>
+      </div>
+    </div>
+
+    <!-- Queue Section -->
+    <div class="section" id="queueSection">
+      <div class="section-header">
+        <span>📋 Fila de Abertura</span>
+        <span class="badge badge-yellow" id="queueBadge">0</span>
+      </div>
+      <div class="games-list" id="queueList">
+        <div class="empty-state">Fila vazia</div>
+      </div>
+    </div>
+
+    <!-- Logs Section -->
+    <div class="section">
+      <div class="section-header">
+        <span>📝 Log</span>
+      </div>
+      <div class="logs-list" id="logsList">
+        <div class="empty-state">Sem atividade</div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button class="btn btn-clear" id="btnClear">🗑️ Limpar</button>
+      <button class="btn btn-refresh" id="btnRefresh">🔄 Atualizar</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

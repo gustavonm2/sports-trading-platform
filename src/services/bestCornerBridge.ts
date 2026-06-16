@@ -1,10 +1,10 @@
 /**
- * Bet365 Bridge Service
+ * BestCorner Bridge Service
  * 
- * Serviço que recebe dados da extensão Chrome (Bet365 Bridge)
+ * Serviço que recebe dados da extensão Chrome (BestCorner Bridge)
  * e faz merge inteligente com os dados existentes das APIs.
  * 
- * A extensão envia dados via CustomEvent('bet365-bridge-data')
+ * A extensão envia dados via CustomEvent('bestCorner-bridge-data')
  * Este serviço escuta o evento e expõe funções de merge.
  * 
  * IMPORTANTE: Este serviço COMPLEMENTA as APIs, nunca substitui.
@@ -14,7 +14,7 @@ import type { MatchStats, TeamStats, TelemetrySnapshot } from './apiSports';
 
 // ─── Tipos da Bridge ───
 
-export interface Bet365MatchData {
+export interface BestCornerMatchData {
   storageKey: string;
   homeTeam: string;
   awayTeam: string;
@@ -27,14 +27,15 @@ export interface Bet365MatchData {
   home: Partial<Record<string, number>>;
   away: Partial<Record<string, number>>;
   snapshots?: TelemetrySnapshot[];
+  pastEvents?: { elapsed: number, type: string, side: 'home' | 'away', text: string }[];
 }
 
-export interface Bet365BridgePayload {
+export interface BestCornerBridgePayload {
   connected: boolean;
   matchCount: number;
   lastScan: number | null;
   scanNumber: number;
-  matches: Bet365MatchData[];
+  matches: BestCornerMatchData[];
 }
 
 // Mapa de tradução PT→EN para seleções/times com nomes muito diferentes entre idiomas
@@ -153,9 +154,9 @@ function normalizeTeamName(name: string): string {
  * Calcula similaridade entre dois nomes de times (0-1)
  * Usa uma combinação de inclusão de substring + distância
  */
-function teamSimilarity(apiName: string, bet365Name: string): number {
+function teamSimilarity(apiName: string, bestCornerName: string): number {
   const a = normalizeTeamName(apiName);
-  const b = normalizeTeamName(bet365Name);
+  const b = normalizeTeamName(bestCornerName);
 
   if (a === b) return 1.0;
   if (a.includes(b) || b.includes(a)) return 0.9;
@@ -179,18 +180,18 @@ function teamSimilarity(apiName: string, bet365Name: string): number {
 // ─── Merge Engine ───
 
 /**
- * Encontra o melhor match da Bet365 para um jogo da API
+ * Encontra o melhor match da BestCorner para um jogo da API
  * Retorna null se nenhum match tiver similaridade >= 0.6
  */
-export function findBet365Match(
+export function findBestCornerMatch(
   apiHome: string,
   apiAway: string,
-  bet365Matches: Bet365MatchData[]
-): Bet365MatchData | null {
-  let bestMatch: Bet365MatchData | null = null;
+  bestCornerMatches: BestCornerMatchData[]
+): BestCornerMatchData | null {
+  let bestMatch: BestCornerMatchData | null = null;
   let bestScore = 0;
 
-  for (const match of bet365Matches) {
+  for (const match of bestCornerMatches) {
     const homeScore = teamSimilarity(apiHome, match.homeTeam);
     const awayScore = teamSimilarity(apiAway, match.awayTeam);
     const combinedScore = (homeScore + awayScore) / 2;
@@ -205,12 +206,12 @@ export function findBet365Match(
 }
 
 /**
- * Faz merge dos dados da Bet365 com os stats da API
- * Regra: Bet365 COMPLEMENTA, nunca substitui dados > 0 da API
+ * Faz merge dos dados da BestCorner com os stats da API
+ * Regra: BestCorner COMPLEMENTA, nunca substitui dados > 0 da API
  */
 export function mergeStats(
   apiStats: MatchStats,
-  bet365Data: Bet365MatchData
+  bestCornerData: BestCornerMatchData
 ): MatchStats {
   const merged = { ...apiStats };
   merged.home = { ...apiStats.home };
@@ -220,19 +221,19 @@ export function mergeStats(
   const mergeField = (
     side: 'home' | 'away',
     apiField: keyof TeamStats,
-    bet365Field: string
+    bestCornerField: string
   ) => {
-    const bet365Val = bet365Data[side]?.[bet365Field];
-    if (typeof bet365Val === 'number') {
-      // Prioridade absoluta para a telemetria ao vivo da Bet365 (zero delay)
-      // Se for posse de bola (que varia no tempo), usamos diretamente o valor da Bet365
+    const bestCornerVal = bestCornerData[side]?.[bestCornerField];
+    if (typeof bestCornerVal === 'number') {
+      // Prioridade absoluta para a telemetria ao vivo da BestCorner (zero delay)
+      // Se for posse de bola (que varia no tempo), usamos diretamente o valor da BestCorner
       // Para estatísticas cumulativas, usamos o valor máximo para robustez contra flutuações temporárias
       const apiVal = Number(merged[side][apiField]) || 0;
       const directOverwriteFields = ['possession', 'shotsOnGoal', 'shotsOffGoal', 'totalShots', 'yellowCards', 'redCards', 'dangerousAttacks', 'attacks', 'xg'];
       if (directOverwriteFields.includes(apiField as string)) {
-        (merged[side] as any)[apiField] = bet365Val;
+        (merged[side] as any)[apiField] = bestCornerVal;
       } else {
-        (merged[side] as any)[apiField] = Math.max(apiVal, bet365Val);
+        (merged[side] as any)[apiField] = Math.max(apiVal, bestCornerVal);
       }
     }
   };
@@ -270,29 +271,37 @@ export function mergeStats(
   mergeField('away', 'goalkeeperSaves', 'goalkeeperSaves');
   mergeField('home', 'offsides', 'offsides');
   mergeField('away', 'offsides', 'offsides');
+  
+  // 📈 Extras
+  // xg não faz parte do TeamStats atualmente
 
   // Nativos APM da Extensão (BestCorner tem telemetria nativa pronta)
-  if (bet365Data.home.apmGlobal !== undefined) merged.home.apmGlobal = bet365Data.home.apmGlobal;
-  if (bet365Data.home.apm10 !== undefined) merged.home.apm10 = bet365Data.home.apm10;
-  if (bet365Data.home.apm5 !== undefined) merged.home.apm5 = bet365Data.home.apm5;
-  
-  if (bet365Data.away.apmGlobal !== undefined) merged.away.apmGlobal = bet365Data.away.apmGlobal;
-  if (bet365Data.away.apm10 !== undefined) merged.away.apm10 = bet365Data.away.apm10;
-  if (bet365Data.away.apm5 !== undefined) merged.away.apm5 = bet365Data.away.apm5;
+  if (bestCornerData.home.apmGlobal !== undefined) merged.home.apmGlobal = bestCornerData.home.apmGlobal;
+  if (bestCornerData.home.apm10 !== undefined) merged.home.apm10 = bestCornerData.home.apm10;
+  if (bestCornerData.home.apm5 !== undefined) merged.home.apm5 = bestCornerData.home.apm5;
 
-  merged.snapshots = bet365Data.snapshots || [];
+  if (bestCornerData.away.apmGlobal !== undefined) merged.away.apmGlobal = bestCornerData.away.apmGlobal;
+  if (bestCornerData.away.apm10 !== undefined) merged.away.apm10 = bestCornerData.away.apm10;
+  if (bestCornerData.away.apm5 !== undefined) merged.away.apm5 = bestCornerData.away.apm5;
+
+  // Eventos do passado (aba EVENTS da extensão)
+  if (bestCornerData.pastEvents) {
+    merged.pastEvents = bestCornerData.pastEvents;
+  }
+
+  merged.snapshots = bestCornerData.snapshots || [];
   merged.hasBridge = true;
   return merged;
 }
 
 /**
- * Calcula o IIM Enriquecido quando dados da Bet365 estão disponíveis
+ * Calcula o IIM Enriquecido quando dados da BestCorner estão disponíveis
  * Fórmula diferente: inclui dangerousAttacks com peso alto
  */
 export function calculateEnrichedIIM(
   stats: TeamStats,
   elapsed: number,
-  hasBet365: boolean
+  hasBestCorner: boolean
 ): number {
   if (elapsed <= 0) return 0;
 
@@ -304,7 +313,7 @@ export function calculateEnrichedIIM(
     (stats.blockedShots || 0) * 0.8
   );
 
-  if (hasBet365 && stats.dangerousAttacks > 0) {
+  if (hasBestCorner && stats.dangerousAttacks > 0) {
     // ⚡ 2. APM (Ataques Perigosos por Minuto) como Multiplicador de Intensidade
     const apm = stats.dangerousAttacks / elapsed;
     
@@ -322,27 +331,27 @@ export function calculateEnrichedIIM(
     return Math.round(raw * 100) / 100;
   }
 
-  // IIM PADRÃO: sem Bet365
+  // IIM PADRÃO: sem BestCorner
   const raw = baseStandard / elapsed;
   return Math.round(raw * 100) / 100;
 }
 
 // ─── Event Listener Manager ───
 
-type BridgeCallback = (payload: Bet365BridgePayload) => void;
+type BridgeCallback = (payload: BestCornerBridgePayload) => void;
 
 let currentCallback: BridgeCallback | null = null;
 
 /**
- * Registra um listener para dados da Bet365 Bridge
+ * Registra um listener para dados da BestCorner Bridge
  * Usa window.postMessage (cruza a barreira do content script isolado)
  * Retorna uma função de cleanup
  */
-export function onBet365Data(callback: BridgeCallback): () => void {
+export function onBestCornerData(callback: BridgeCallback): () => void {
   const handler = (event: MessageEvent) => {
     // Filtrar apenas mensagens da bridge
-    if (event.data?.type !== 'BET365_BRIDGE_DATA') return;
-    const payload = event.data.payload as Bet365BridgePayload;
+    if (event.data?.type !== 'BESTCORNER_BRIDGE_DATA') return;
+    const payload = event.data.payload as BestCornerBridgePayload;
     if (payload) {
       callback(payload);
     }

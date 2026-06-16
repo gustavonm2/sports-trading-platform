@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Brain, TrendingUp, BarChart3, CheckCircle, XCircle, Loader, Sparkles,
   Target, Award, AlertTriangle, Filter, Clock, Eye, ChevronDown,
-  BookOpen, RefreshCw, Key, FileText
+  BookOpen, RefreshCw, Key, FileText, Download
 } from 'lucide-react';
 import {
   getTradeEntries, resolveTradeEntry, analyzePatterns, generateGeminiReport,
@@ -250,6 +250,36 @@ export default function Learning() {
   // Handlers
   // ============================================================================
 
+  const handleExportCSV = () => {
+    if (entries.length === 0) return;
+    
+    const allKeys = new Set<string>();
+    entries.forEach(entry => Object.keys(entry).forEach(k => allKeys.add(k)));
+    const headers = Array.from(allKeys);
+    
+    let csvContent = headers.join(",") + "\n";
+    
+    entries.forEach(entry => {
+      const row = headers.map(key => {
+        const val = (entry as any)[key];
+        if (val === null || val === undefined) return '""';
+        const strVal = String(val).replace(/"/g, '""');
+        return `"${strVal}"`;
+      });
+      csvContent += row.join(",") + "\n";
+    });
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `aprendizagem_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  // ============================================================================
+
   /** Abrir modal de resolução */
   const openResolutionModal = (entryId: string, outcome: TradeOutcome) => {
     setResolutionModal({
@@ -346,15 +376,27 @@ export default function Learning() {
             Analise padrões e evolua com inteligência artificial.
           </p>
         </div>
-        {/* Botão de recarregar dados */}
-        <button
-          onClick={() => loadData()}
-          className="btn btn-primary"
-          style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}
-          disabled={isLoading}
-        >
-          <RefreshCw size={18} /> Atualizar
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          {/* Botão de Exportar CSV */}
+          <button
+            onClick={handleExportCSV}
+            className="btn"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
+            disabled={entries.length === 0}
+          >
+            <Download size={18} /> Exportar CSV
+          </button>
+          
+          {/* Botão de recarregar dados */}
+          <button
+            onClick={() => loadData()}
+            className="btn btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}
+            disabled={isLoading}
+          >
+            <RefreshCw size={18} /> Atualizar
+          </button>
+        </div>
       </div>
 
       {/* ================================================================== */}

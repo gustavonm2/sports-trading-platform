@@ -5,7 +5,7 @@ import {
   Activity, Zap, ShieldAlert, Shield,
   RefreshCw, CheckCircle, PlayCircle,
   Volume2, VolumeX, Bell, TrendingUp, Gauge,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, Filter
 } from 'lucide-react';
 import { Settings as SettingsIcon } from 'lucide-react';
 import { apiSports } from '../services/apiSports';
@@ -16,6 +16,8 @@ import { supabase } from '../services/supabase';
 import { getEnabledBookmakers } from '../config/bookmakers';
 import { onBet365Data, findBet365Match, mergeStats, calculateEnrichedIIM, calculateDynamicAPM } from '../services/bet365Bridge';
 import type { Bet365BridgePayload, Bet365MatchData } from '../services/bet365Bridge';
+import { onBestCornerData } from '../services/bestCornerBridge';
+import type { BestCornerBridgePayload } from '../services/bestCornerBridge';
 import { initCloudSync, broadcastBridgeData, broadcastScannerData, onCloudBridgeData, onCloudScannerData, markAsOperator, getCloudSyncStatus } from '../services/cloudSync';
 import type { CloudSyncStatus } from '../services/cloudSync';
 
@@ -104,11 +106,25 @@ interface Opportunity {
   id: string; // unique ID
   fixtureId: number;
   match: Fixture;
-  strategyName: 'Canto Limite' | 'Over 0.5 Gols HT' | 'Virada do Favorito' | 'Funil';
+  strategyName: 'Canto Limite' | 'Over 0.5 Gols HT' | 'Virada do Favorito';
   teamName: string;
   confidence: number;
   details: string;
   suggestion: string;
+  isFunnel?: boolean;
+}
+
+export interface MatchEvent {
+  id: string; // unique ID
+  fixtureId: number;
+  elapsed: number;
+  type: 'goal' | 'corner';
+  side: 'home' | 'away';
+  apmGlobal: number;
+  apm3: number;
+  apm5: number;
+  apm10: number;
+  timestamp: number;
 }
 
 // 🎰 Scanner Match type — dados vindos da extensão Bet365 Scanner
@@ -126,6 +142,64 @@ interface ScannerMatch {
   scannedAt: number;
 }
 
+const TimelineEventList = ({ 
+  events, 
+  homeTeamName, 
+  awayTeamName 
+}: { 
+  events: MatchEvent[], 
+  homeTeamName: string, 
+  awayTeamName: string 
+}) => {
+  if (!events) events = [];
+  return (
+    <div style={{ marginTop: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '12px 16px' }}>
+      <h4 style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <Activity size={14} /> Linha do Tempo de Pressão (ATM)
+      </h4>
+      {events.length === 0 ? (
+        <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600, fontStyle: 'italic', background: 'var(--bg-surface)', borderRadius: '6px', border: '1px dashed var(--border-color)' }}>
+          Nenhum evento registrado nesta sessão para essa partida ainda.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {[...events].sort((a,b) => b.elapsed - a.elapsed).map(ev => {
+          const isHome = ev.side === 'home';
+          const teamName = isHome ? homeTeamName : awayTeamName;
+          const color = isHome ? '#10b981' : '#f59e0b';
+          const icon = ev.type === 'goal' ? '⚽' : '🚩';
+          const label = ev.type === 'goal' ? 'Gol' : 'Escanteio';
+          
+          return (
+            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: '6px', borderLeft: `3px solid ${color}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)', width: '28px' }}>{ev.elapsed}'</span>
+                <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>{icon}</span>
+                <span style={{ fontSize: '0.8rem', fontWeight: 800, color }}>{teamName} <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>({label})</span></span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                  Global: {ev.apmGlobal.toFixed(2)}
+                </span>
+                <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm10 >= 1.0 ? 'rgba(59,130,246,0.1)' : 'var(--bg-surface)', color: ev.apm10 >= 1.0 ? '#3b82f6' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                  ATM 10: {ev.apm10.toFixed(2)}
+                </span>
+                <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm5 >= 1.0 ? 'rgba(139,92,246,0.1)' : 'var(--bg-surface)', color: ev.apm5 >= 1.0 ? '#8b5cf6' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                  ATM 5: {ev.apm5.toFixed(2)}
+                </span>
+                <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm3 >= 1.0 ? 'rgba(239,68,68,0.1)' : 'var(--bg-surface)', color: ev.apm3 >= 1.0 ? '#ef4444' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                  ATM 3: {ev.apm3.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      )}
+    </div>
+  );
+};
+
 export default function Radar() {
   const [searchParams] = useSearchParams();
   const activeMode = searchParams.get('mode') || 'apm_pure';
@@ -142,7 +216,7 @@ export default function Radar() {
 
   const [showMatchesTable, setShowMatchesTable] = useState(false);
   const [scannerDropdownOpen, setScannerDropdownOpen] = useState(false);
-  const [fixtureSourceFilter, setFixtureSourceFilter] = useState<'all' | 'api' | 'bet365' | 'favorites'>('all');
+  const [fixtureSourceFilter, setFixtureSourceFilter] = useState<'all' | 'api' | 'bet365' | 'bestcorner' | 'favorites'>('all');
   const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>({ connected: false, isOperator: false, lastCloudData: null, activeDevices: 1 });
   const [alertFilter, setAlertFilter] = useState<'all' | 'entrada' | 'potencial'>('all');
   
@@ -176,6 +250,14 @@ export default function Radar() {
     localStorage.setItem('corner_trigger_threshold', String(cornerTriggerThreshold));
   }, [cornerTriggerThreshold]);
 
+  const [funnelScoreThreshold, setFunnelScoreThreshold] = useState<number>(() => {
+    const saved = localStorage.getItem('funnel_score_threshold');
+    return saved ? parseFloat(saved) : 6.0;
+  });
+  useEffect(() => {
+    localStorage.setItem('funnel_score_threshold', String(funnelScoreThreshold));
+  }, [funnelScoreThreshold]);
+
   // 🔔 Janelas de Notificação (carregadas do Layout/Supabase via localStorage)
   const getNotificationWindows = useCallback(() => {
     try {
@@ -191,7 +273,7 @@ export default function Radar() {
     const normalizedPeriod = period === '1H' ? '1H' : '2H';
     const matching = windows.find((w: any) => w.market === market && w.period === normalizedPeriod);
     
-    if (!matching) return true; // sem janela definida = permite
+    if (!matching) return false; // Se a pessoa não configurou uma janela para esse tempo/mercado, bloqueia (pois as windows globais existem)
     if (!matching.enabled) return false; // janela desativada = bloqueia
     
     return elapsed >= matching.min_minute && elapsed <= matching.max_minute;
@@ -229,9 +311,10 @@ export default function Radar() {
     const saved = localStorage.getItem('trade_default_stake');
     return saved ? Number(saved) : 200;
   });
-
-  // Bet365 Bridge state
   const [bet365Bridge, setBet365Bridge] = useState<Bet365BridgePayload | null>(null);
+  const [bestCornerBridge, setBestCornerBridge] = useState<BestCornerBridgePayload | null>(null);
+  
+  // Cloud Sync state
   const bet365DataRef = useRef<Bet365MatchData[]>([]);
 
 
@@ -329,6 +412,8 @@ export default function Radar() {
 
   // 🆕 Rastrear fixtures recém-adicionados (badge "NOVO" por 60s)
   const newFixtureIdsRef = useRef<Set<number>>(new Set());
+  const [mobileTab, setMobileTab] = useState<'tabela' | 'entradas'>('entradas');
+  const [expandedMobileId, setExpandedMobileId] = useState<string | null>(null);
   const [newFixtureIds, setNewFixtureIds] = useState<Set<number>>(new Set());
   const knownFixtureIdsRef = useRef<Set<number>>(new Set());
 
@@ -379,8 +464,8 @@ export default function Radar() {
 
   // Concatena fixtures da API com as criadas manualmente
   const allFixtures = useMemo(() => {
-    return [...fixtures, ...manualFixtures];
-  }, [fixtures, manualFixtures]);
+    return [...manualFixtures];
+  }, [manualFixtures]);
 
   // 🔄 Sincronizar dados da Bridge para atualizar os nomes dos times manuais, tempo decorrido e placar
   useEffect(() => {
@@ -388,7 +473,13 @@ export default function Radar() {
 
     let updated = false;
     const nextManual = manualFixtures.map(f => {
-      const match = bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl));
+      let match = (f as any).matchUrl
+        ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl))
+        : null;
+      if (!match) {
+        match = findBet365Match(f.homeTeam.name, f.awayTeam.name, bet365Bridge.matches);
+      }
+      
       if (match) {
         const goalsHome = typeof match.home?.goals === 'number' ? match.home.goals : f.goalsHome || 0;
         const goalsAway = typeof match.away?.goals === 'number' ? match.away.goals : f.goalsAway || 0;
@@ -513,7 +604,16 @@ export default function Radar() {
             if (!stillLive) return false;
           }
 
-          // REGRA 4: Status de jogo encerrado
+          // REGRA 4.5: BestCorner ativo + jogo sumiu do In-Play
+          if ((f as any).source === 'bestcorner' && bestCornerBridge && bestCornerBridge.connected && bestCornerBridge.matches && bestCornerBridge.matches.length > 0) {
+            const stillLive = bestCornerBridge.matches.some(m => 
+              m.homeTeam.toLowerCase() === f.homeTeam.name.toLowerCase() && 
+              m.awayTeam.toLowerCase() === f.awayTeam.name.toLowerCase()
+            );
+            if (!stillLive) return false;
+          }
+
+          // REGRA 5: Status de jogo encerrado
           const status = (f.status || '').toUpperCase();
           if (['FT', 'AET', 'PEN', 'CANC', 'PST', 'ABD', 'AWD', 'WO'].includes(status)) return false;
           if (f.elapsed >= 95) return false;
@@ -543,7 +643,7 @@ export default function Radar() {
     // E periodicamente a cada 30s
     const interval = setInterval(doCleanup, 30000);
     return () => clearInterval(interval);
-  }, [scannerMatches]);
+  }, [scannerMatches, bestCornerBridge]);
 
   // ⏱️ Interpolação de Tempo Local — Bridge-priority + Ref-based anchor
   // PRIORIDADE 1: Bridge elapsed (zero delay, lido da Bet365 em tempo real)
@@ -564,33 +664,36 @@ export default function Radar() {
     const lastKnown = anchor ? anchor.baseElapsed : 0;
     
     // 🥇 PRIORIDADE 1: Bridge elapsed (zero delay)
+    let bridgeMatch = null;
     if (bet365Bridge?.connected && bet365Bridge.matches.length > 0) {
       const allFx = [...(fixtures || []), ...(manualFixtures || [])];
       const fixture = allFx.find(f => f.id === fixtureId);
       if (fixture) {
-        const bridgeMatch = (fixture as any).matchUrl
+        bridgeMatch = (fixture as any).matchUrl
           ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
           : findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bet365Bridge.matches);
-        
-        if (bridgeMatch?.elapsed != null && bridgeMatch.elapsed > 0) {
-          const bridgeAge = (Date.now() - bridgeMatch.timestamp) / 60000;
-          const bridgeInterpolated = bridgeMatch.elapsed + Math.floor(bridgeAge);
-          
-          // 🛡️ FILTRO MONOTÔNICO: impedir que elapsed volte atrás
-          // Tolerância de 2 min para atraso normal da API, exceto intervalo (45→46)
-          const isHalftimeTransition = lastKnown >= 43 && lastKnown <= 48 && bridgeMatch.elapsed >= 45;
-          if (bridgeMatch.elapsed >= lastKnown - 2 || isHalftimeTransition || lastKnown === 0) {
-            // Valor válido — atualizar âncora
-            elapsedAnchorRef.current[fixtureId] = { 
-              baseElapsed: bridgeMatch.elapsed, 
-              baseTimestamp: bridgeMatch.timestamp 
-            };
-            return Math.min(maxElapsed, bridgeInterpolated);
-          } else {
-            // ⚠️ Bridge zerou/retrocedeu — IGNORAR e continuar interpolando da última âncora boa
-            console.warn(`[Elapsed Filter] 🛡️ Bridge zerou para ${bridgeMatch.elapsed}' (último: ${lastKnown}'). Ignorando.`);
-          }
-        }
+      }
+    }
+    
+    if (!bridgeMatch && bestCornerBridge?.connected && bestCornerBridge.matches.length > 0) {
+      const allFx = [...(fixtures || []), ...(manualFixtures || [])];
+      const fixture = allFx.find(f => f.id === fixtureId);
+      if (fixture) {
+        bridgeMatch = (fixture as any).matchUrl
+          ? bestCornerBridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
+          : findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bestCornerBridge.matches);
+      }
+    }
+
+    if (bridgeMatch?.elapsed != null && bridgeMatch.elapsed > 0) {
+      const bridgeAge = (Date.now() - bridgeMatch.timestamp) / 60000;
+      const bridgeInterpolated = bridgeMatch.elapsed + Math.floor(bridgeAge);
+      
+      // 🛡️ FILTRO MONOTÔNICO: impedir que elapsed volte atrás
+      const isHalftimeTransition = lastKnown >= 43 && lastKnown <= 48 && bridgeMatch.elapsed >= 45;
+      if (bridgeMatch.elapsed >= lastKnown - 2 || isHalftimeTransition || lastKnown === 0) {
+        elapsedAnchorRef.current[fixtureId] = { baseElapsed: bridgeMatch.elapsed, baseTimestamp: bridgeMatch.timestamp };
+        return Math.min(maxElapsed, bridgeInterpolated);
       }
     }
     
@@ -615,21 +718,38 @@ export default function Radar() {
   
   // 🏆 Score com prioridade Bridge (zero delay) > API
   const getDisplayScore = useCallback((fixtureId: number, rawHome: number, rawAway: number): { home: number; away: number } => {
+    let bridgeMatch = null;
     if (bet365Bridge?.connected && bet365Bridge.matches.length > 0) {
       const allFx = [...(fixtures || []), ...(manualFixtures || [])];
       const fixture = allFx.find(f => f.id === fixtureId);
       if (fixture) {
-        const bridgeMatch = (fixture as any).matchUrl
+        bridgeMatch = (fixture as any).matchUrl
           ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
-          : findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bet365Bridge.matches);
-        
-        if (bridgeMatch) {
-          const bHome = bridgeMatch.goalsHome ?? bridgeMatch.home?.goals;
-          const bAway = bridgeMatch.goalsAway ?? bridgeMatch.away?.goals;
-          if (typeof bHome === 'number' && typeof bAway === 'number') {
-            return { home: bHome, away: bAway };
-          }
+          : null;
+        if (!bridgeMatch) {
+          bridgeMatch = findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bet365Bridge.matches);
         }
+      }
+    }
+    
+    if (!bridgeMatch && bestCornerBridge?.connected && bestCornerBridge.matches.length > 0) {
+      const allFx = [...(fixtures || []), ...(manualFixtures || [])];
+      const fixture = allFx.find(f => f.id === fixtureId);
+      if (fixture) {
+        bridgeMatch = (fixture as any).matchUrl
+          ? bestCornerBridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
+          : null;
+        if (!bridgeMatch) {
+          bridgeMatch = findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bestCornerBridge.matches);
+        }
+      }
+    }
+
+    if (bridgeMatch) {
+      const bHome = bridgeMatch.goalsHome ?? bridgeMatch.home?.goals;
+      const bAway = bridgeMatch.goalsAway ?? bridgeMatch.away?.goals;
+      if (typeof bHome === 'number' && typeof bAway === 'number') {
+        return { home: bHome, away: bAway };
       }
     }
     return { home: rawHome, away: rawAway };
@@ -644,37 +764,37 @@ export default function Radar() {
   }, []);
 
 
-  // ─── useMemo de allStats: Combina rawApiStats (API) com a Bridge da Bet365 ───
+  // ─── useMemo de allStats: Combina rawApiStats (API) com a Bridge da Bet365 e BestCorner ───
   const allStats = useMemo(() => {
     const updated = { ...rawApiStats };
     
-    // Se a bridge estiver conectada e tiver matches, fazemos o merge inteligente
-    if (bet365Bridge && bet365Bridge.connected && bet365Bridge.matches.length > 0) {
-      for (const fixture of allFixtures) {
-        // Encontrar o jogo correspondente na bridge: prioridade para URL exata, senão fuzzy
-        const bet365Match = (fixture as any).matchUrl
-          ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
-          : findBet365Match(
-              fixture.homeTeam.name,
-              fixture.awayTeam.name,
-              bet365Bridge.matches
-            );
+      const applyBridgeData = (bridgeMatches: any[]) => {
+        for (const fixture of allFixtures) {
+          let bridgeMatch = (fixture as any).matchUrl
+            ? bridgeMatches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
+            : null;
+          
+          if (!bridgeMatch) {
+            bridgeMatch = findBet365Match(
+                fixture.homeTeam.name,
+                fixture.awayTeam.name,
+                bridgeMatches
+              );
+          }
 
-        if (!bet365Match) continue;
+          if (!bridgeMatch) continue;
 
         const existingStats = updated[fixture.id];
 
         if (existingStats) {
-          // Fixture JÁ TEM stats da API → merge complementar
-          const merged = mergeStats(existingStats, bet365Match);
+          const merged = mergeStats(existingStats, bridgeMatch);
           const elapsed = getDisplayElapsed(fixture.id, fixture.elapsed || 1, fixture.status || '') || 1;
-          const hasBet365 = (bet365Match.home?.dangerousAttacks || 0) > 0 || 
-                            (bet365Match.away?.dangerousAttacks || 0) > 0;
-          merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBet365);
-          merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBet365);
+          const hasBridgeData = (bridgeMatch.home?.dangerousAttacks || 0) > 0 || 
+                                (bridgeMatch.away?.dangerousAttacks || 0) > 0;
+          merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBridgeData);
+          merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBridgeData);
           updated[fixture.id] = merged;
         } else {
-          // Fixture SEM stats da API (ex: Jogo Manual!) → criar stats a partir da bridge
           const emptyTeam = (): import('../services/apiSports').TeamStats => ({
             shotsOnGoal: 0, shotsOffGoal: 0, totalShots: 0, blockedShots: 0,
             shotsInsideBox: 0, corners: 0, fouls: 0, possession: 0,
@@ -687,39 +807,64 @@ export default function Radar() {
             away: emptyTeam(),
             hasTelemetry: false
           };
-          const merged = mergeStats(bridgeStats, bet365Match);
+          const merged = mergeStats(bridgeStats, bridgeMatch);
           const elapsed = getDisplayElapsed(fixture.id, fixture.elapsed || 1, fixture.status || '') || 1;
-          const hasBet365 = (bet365Match.home?.dangerousAttacks || 0) > 0 || 
-                            (bet365Match.away?.dangerousAttacks || 0) > 0;
-          merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBet365);
-          merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBet365);
-          // Marcar que tem dados da bridge mesmo sem telemetria API
+          const hasBridgeData = (bridgeMatch.home?.dangerousAttacks || 0) > 0 || 
+                                (bridgeMatch.away?.dangerousAttacks || 0) > 0;
+          merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBridgeData);
+          merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBridgeData);
           merged.hasTelemetry = false;
           merged.hasBridge = true;
           updated[fixture.id] = merged;
         }
       }
+    };
+
+    // Apply BestCorner Bridge data first (so Bet365 can overwrite if both exist, or vice-versa depending on preference. Let's make BestCorner overwrite Bet365 if we call it last, or Bet365 overwrite BestCorner if Bet365 is called last. We'll call BestCorner last since it has those advanced APM stats)
+    if (bet365Bridge && bet365Bridge.connected && bet365Bridge.matches.length > 0) {
+      applyBridgeData(bet365Bridge.matches);
+    }
+    if (bestCornerBridge && bestCornerBridge.connected && bestCornerBridge.matches.length > 0) {
+      applyBridgeData(bestCornerBridge.matches);
     }
     
     return updated;
-  }, [rawApiStats, bet365Bridge, allFixtures]);
+  }, [rawApiStats, bet365Bridge, bestCornerBridge, allFixtures]);
 
   // 💾 Platform-Side Telemetry Snapshot Store (Anti-Background Throttling)
   const [platformSnapshots, setPlatformSnapshots] = useState<Record<number, { elapsed: number; homeDA: number; awayDA: number; timestamp: number }[]>>(() => {
     try {
-      const saved = sessionStorage.getItem('platform_telemetry_snapshots');
+      const saved = localStorage.getItem('platform_telemetry_snapshots');
       return saved ? JSON.parse(saved) : {};
     } catch (e) {
       return {};
     }
   });
 
-  // Salvar platformSnapshots no sessionStorage sempre que atualizados
+  // Salvar platformSnapshots no localStorage sempre que atualizados
   useEffect(() => {
     try {
-      sessionStorage.setItem('platform_telemetry_snapshots', JSON.stringify(platformSnapshots));
+      localStorage.setItem('platform_telemetry_snapshots', JSON.stringify(platformSnapshots));
     } catch (e) {}
   }, [platformSnapshots]);
+
+  // ⚽ Event Tracker (Timeline)
+  const [platformEvents, setPlatformEvents] = useState<Record<number, MatchEvent[]>>(() => {
+    try {
+      const saved = localStorage.getItem('platform_match_events');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('platform_match_events', JSON.stringify(platformEvents));
+    } catch (e) {}
+  }, [platformEvents]);
+
+  const prevStatsRef = useRef<Record<number, { goalsHome: number; goalsAway: number; cornersHome: number; cornersAway: number }>>({});
 
   // 🧮 Reusable Operations Modes & ScoreFinal Helper Functions
   const getAttacksInWindow = useCallback((fixtureId: number, minutes: number, isHome: boolean): number => {
@@ -742,7 +887,8 @@ export default function Radar() {
       unifiedSnapshots,
       elapsed,
       stats.home.dangerousAttacks || 0,
-      stats.away.dangerousAttacks || 0
+      stats.away.dangerousAttacks || 0,
+      stats
     );
 
     const sideApm = isHome ? apmData.home : apmData.away;
@@ -921,6 +1067,103 @@ export default function Radar() {
     });
   }, [allStats, allFixtures]);
 
+  // ⚽ Event Tracker (Varre a cada atualização de allStats)
+  useEffect(() => {
+    if (Object.keys(allStats).length === 0) return;
+
+    setPlatformEvents(prevEvents => {
+      let eventsChanged = false;
+      const nextEvents = { ...prevEvents };
+
+      for (const fixture of allFixtures) {
+        const stats = allStats[fixture.id];
+        if (!stats) continue;
+
+        const prevStats = prevStatsRef.current[fixture.id];
+        const elapsed = fixture.elapsed || 0;
+        if (elapsed <= 0) continue;
+
+        if (prevStats) {
+          const newEvents: MatchEvent[] = [];
+
+          const createEvent = (type: 'goal' | 'corner', side: 'home' | 'away'): MatchEvent => {
+            const unifiedSnapshots = [
+              ...(stats.snapshots || []),
+              ...(platformSnapshots[fixture.id] || [])
+            ].reduce((acc: TelemetrySnapshot[], curr: any) => {
+              if (!acc.some((s: TelemetrySnapshot) => s.elapsed === curr.elapsed)) acc.push(curr);
+              return acc;
+            }, [] as TelemetrySnapshot[]).sort((a: TelemetrySnapshot, b: TelemetrySnapshot) => a.elapsed - b.elapsed);
+            
+            const homeDA = Number(stats.home.dangerousAttacks) || 0;
+            const awayDA = Number(stats.away.dangerousAttacks) || 0;
+            const apmData = calculateDynamicAPM(unifiedSnapshots, elapsed, homeDA, awayDA, stats);
+            const sideApm = side === 'home' ? apmData.home : apmData.away;
+
+            return {
+              id: `${fixture.id}-${elapsed}-${type}-${side}-${Date.now()}`,
+              fixtureId: fixture.id,
+              elapsed,
+              type,
+              side,
+              apmGlobal: sideApm.apmGlobal,
+              apm3: sideApm.apm3,
+              apm5: sideApm.apm5,
+              apm10: sideApm.apm10,
+              timestamp: Date.now()
+            };
+          };
+
+          if ((fixture.goalsHome || 0) > (prevStats.goalsHome || 0)) newEvents.push(createEvent('goal', 'home'));
+          if ((fixture.goalsAway || 0) > (prevStats.goalsAway || 0)) newEvents.push(createEvent('goal', 'away'));
+          if ((stats.home.corners || 0) > (prevStats.cornersHome || 0)) newEvents.push(createEvent('corner', 'home'));
+          if ((stats.away.corners || 0) > (prevStats.cornersAway || 0)) newEvents.push(createEvent('corner', 'away'));
+
+          if (newEvents.length > 0) {
+            nextEvents[fixture.id] = [...(nextEvents[fixture.id] || []), ...newEvents];
+            eventsChanged = true;
+          }
+        }
+
+        // INJEÇÃO DE EVENTOS DO PASSADO (BestCorner Bridge)
+        if (stats.pastEvents && stats.pastEvents.length > 0) {
+          const currentEvents = nextEvents[fixture.id] || [];
+          const injectedEvents: MatchEvent[] = [];
+          
+          for (const pe of stats.pastEvents) {
+            // Permite uma margem de erro de 1 minuto na detecção de duplicatas (pois a live apita 1 min antes ou depois às vezes)
+            const exists = currentEvents.some(ce => Math.abs(ce.elapsed - pe.elapsed) <= 1 && ce.type === pe.type && ce.side === pe.side);
+            if (!exists) {
+              injectedEvents.push({
+                id: `past-${fixture.id}-${pe.elapsed}-${pe.type}-${pe.side}`,
+                fixtureId: fixture.id,
+                elapsed: pe.elapsed,
+                type: pe.type as any,
+                side: pe.side as any,
+                apmGlobal: 0, apm3: 0, apm5: 0, apm10: 0, // Eventos do passado não têm snapshot de ATM
+                timestamp: Date.now() - ((elapsed - pe.elapsed) * 60000)
+              });
+            }
+          }
+
+          if (injectedEvents.length > 0) {
+            nextEvents[fixture.id] = [...currentEvents, ...injectedEvents].sort((a,b) => a.elapsed - b.elapsed);
+            eventsChanged = true;
+          }
+        }
+
+        prevStatsRef.current[fixture.id] = {
+          goalsHome: fixture.goalsHome || 0,
+          goalsAway: fixture.goalsAway || 0,
+          cornersHome: stats.home.corners || 0,
+          cornersAway: stats.away.corners || 0
+        };
+      }
+
+      return eventsChanged ? nextEvents : prevEvents;
+    });
+  }, [allStats, allFixtures, platformSnapshots]);
+
   const handlePeguei = async (opp: Opportunity) => {
     if (gottenOppIds.has(opp.id)) return;
     
@@ -954,7 +1197,8 @@ export default function Radar() {
       const apmData = calculateDynamicAPM(
         unifiedSnapshots, elapsed,
         stats.home.dangerousAttacks || 0,
-        stats.away.dangerousAttacks || 0
+        stats.away.dangerousAttacks || 0,
+        stats
       );
       homeIpr = apmData.home.ipr;
       awayIpr = apmData.away.ipr;
@@ -1300,10 +1544,8 @@ export default function Radar() {
       //               goalkeeperSaves, elapsed, placar
       // ═══════════════════════════════════════════════════════════════
       
-      let iimThreshold = 1.1;           // IIM mínimo para cantos
       
-      let htMinElapsed = 12;            // Over 0.5 HT: minuto mínimo
-      let htMaxElapsed = 32;            // Over 0.5 HT: minuto máximo
+
       let htMinCombinedIIM = 1.4;       // Over 0.5 HT: IIM combinado mínimo
       let htMinShots = 3;               // Over 0.5 HT: chutes ao gol mínimo
       
@@ -1329,7 +1571,8 @@ export default function Radar() {
           unifiedSnapshots,
           elapsed || 0,
           stats.home.dangerousAttacks || 0,
-          stats.away.dangerousAttacks || 0
+          stats.away.dangerousAttacks || 0,
+          stats
         );
         const sideApm = isHome ? apmData.home : apmData.away;
         if (minutes === 10) return sideApm.apm10 * 10;
@@ -1411,14 +1654,12 @@ export default function Radar() {
 
       // ═══════════════════════════════════════════════════════════════
       // 🎯 ESTRATÉGIA 1: CANTO LIMITE (MATEMÁTICO - SCORE FINAL)
-      // Janelas obrigatórias: HT >= 35min ou FT >= 85min
+      // A janela é definida de forma 100% dinâmica pelo painel de configurações!
       // ═══════════════════════════════════════════════════════════════
-      const isCornerWindow = ((elapsed >= 35 && elapsed <= 45 && fixture.status === '1H') || 
-                             (elapsed >= 85 && elapsed <= 95 && fixture.status === '2H'));
       // 🔔 Verificar janela de notificação configurada
       const isCornerAlertAllowed = isAlertAllowed(elapsed, fixture.status || '', 'escanteios');
 
-      if (isCornerWindow && isCornerAlertAllowed) {
+      if (isCornerAlertAllowed) {
         // ─── Histerese + Confirmação por Scans (Mandante) ───
         const homeTriggerKey = `${fixture.id}-canto-home`;
         const homeTriggerState = triggerStateRef.current[homeTriggerKey] || { active: false, scansAbove: 0 };
@@ -1433,6 +1674,12 @@ export default function Radar() {
         
         if (homeTriggerState.scansAbove >= MIN_SCANS_ABOVE || homeTriggerState.active) {
           homeTriggerState.active = true;
+          const diff = homeScoreFinal - awayScoreFinal;
+          const defShots = stats.away.totalShots || 0;
+          const defCorners = stats.away.corners || 0;
+          const isFunnel = homeScoreFinal >= funnelScoreThreshold && 
+                           scoreHome <= scoreAway &&
+                           diff >= 3 && defShots < 5 && defCorners < 3;
           activeOpps.push({
             id: homeTriggerKey,
             fixtureId: fixture.id,
@@ -1441,7 +1688,8 @@ export default function Radar() {
             teamName: fixture.homeTeam.name,
             confidence: homeQualityPct,
             details: `ScoreEMA: ${homeScoreFinal} (bruto: ${homeScoreRaw}) | Qualidade: ${homeQualityPct}% | IIA: ${((getAttacksInWindow(10, true)*0.2) + (getAttacksInWindow(5, true)*0.3) + (getAttacksInWindow(3, true)*0.5)).toFixed(2)} | FA: ${(getAttacksInWindow(5, true) > 0 ? getAttacksInWindow(3, true)/getAttacksInWindow(5, true) : 1.0).toFixed(2)} | Cantos: ${stats.home.corners} | Chutes Gol: ${stats.home.shotsOnGoal}${homePLS !== null ? ` | PLS: ${homePLS}` : ''}`,
-            suggestion: `Entrar em "Canto Limite" acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`
+            suggestion: `Entrar em "Canto Limite" acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`,
+            isFunnel
           });
         }
         triggerStateRef.current[homeTriggerKey] = homeTriggerState;
@@ -1459,6 +1707,12 @@ export default function Radar() {
         
         if (awayTriggerState.scansAbove >= MIN_SCANS_ABOVE || awayTriggerState.active) {
           awayTriggerState.active = true;
+          const diff = awayScoreFinal - homeScoreFinal;
+          const defShots = stats.home.totalShots || 0;
+          const defCorners = stats.home.corners || 0;
+          const isFunnel = awayScoreFinal >= funnelScoreThreshold && 
+                           scoreAway <= scoreHome &&
+                           diff >= 3 && defShots < 5 && defCorners < 3;
           activeOpps.push({
             id: awayTriggerKey,
             fixtureId: fixture.id,
@@ -1467,7 +1721,8 @@ export default function Radar() {
             teamName: fixture.awayTeam.name,
             confidence: awayQualityPct,
             details: `ScoreEMA: ${awayScoreFinal} (bruto: ${awayScoreRaw}) | Qualidade: ${awayQualityPct}% | IIA: ${((getAttacksInWindow(10, false)*0.2) + (getAttacksInWindow(5, false)*0.3) + (getAttacksInWindow(3, false)*0.5)).toFixed(2)} | FA: ${(getAttacksInWindow(5, false) > 0 ? getAttacksInWindow(3, false)/getAttacksInWindow(5, false) : 1.0).toFixed(2)} | Cantos: ${stats.away.corners} | Chutes Gol: ${stats.away.shotsOnGoal}${awayPLS !== null ? ` | PLS: ${awayPLS}` : ''}`,
-            suggestion: `Entrar em "Canto Limite" acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`
+            suggestion: `Entrar em "Canto Limite" acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`,
+            isFunnel
           });
         }
         triggerStateRef.current[awayTriggerKey] = awayTriggerState;
@@ -1477,9 +1732,11 @@ export default function Radar() {
       // ⚽ ESTRATÉGIA 2: OVER 0.5 GOLS HT
       // Critérios: IIM combinado + Chutes ao Gol + Placar 0x0 (todos reais)
       // ═══════════════════════════════════════════════════════════════
-      const isTimeOverHT = elapsed >= htMinElapsed && elapsed <= htMaxElapsed && scoreHome === 0 && scoreAway === 0;
       const isGoalsAlertAllowed = isAlertAllowed(elapsed, fixture.status || '', 'gols');
-      if (isTimeOverHT && isGoalsAlertAllowed) {
+      // Apenas confere se é o primeiro tempo e placar 0x0 (o tempo da janela é gerenciado pelo painel)
+      const isCorrectHalf = fixture.status === '1H' && scoreHome === 0 && scoreAway === 0;
+      
+      if (isCorrectHalf && isGoalsAlertAllowed) {
         const combinedIIM = Number((stats.home.iim + stats.away.iim).toFixed(2));
         const combinedShots = stats.home.shotsOnGoal + stats.away.shotsOnGoal;
         const combinedTotalShots = stats.home.totalShots + stats.away.totalShots;
@@ -1508,7 +1765,8 @@ export default function Radar() {
             teamName: 'Ambas',
             confidence,
             details: `IIM combinado: ${combinedIIM} | Chutes Gol: ${combinedShots} | Total Chutes: ${combinedTotalShots} | Dentro Área: ${combinedInsideBox}${dossierBonusDetails}`,
-            suggestion: `Fazer entrada no mercado de "Acima de 0.5 Gols HT" (Over 0.5 HT) com odd mínima de 1.70.`
+            suggestion: `Fazer entrada no mercado de "Acima de 0.5 Gols HT" (Over 0.5 HT) com odd mínima de 1.70.`,
+            isFunnel: false
           });
         }
       }
@@ -1540,6 +1798,12 @@ export default function Radar() {
 
           confidence = Math.min(100, confidence);
           
+          const diff = homeScoreFinal - awayScoreFinal;
+          const defShots = stats.away.totalShots || 0;
+          const defCorners = stats.away.corners || 0;
+          const isFunnel = homeScoreFinal >= funnelScoreThreshold && 
+                           scoreHome <= scoreAway &&
+                           diff >= 3 && defShots < 5 && defCorners < 3;
           activeOpps.push({
             id: `${fixture.id}-virada-home`,
             fixtureId: fixture.id,
@@ -1548,7 +1812,8 @@ export default function Radar() {
             teamName: fixture.homeTeam.name,
             confidence,
             details: `IIM: ${stats.home.iim} | Posse: ${stats.home.possession}% | Chutes Gol: ${stats.home.shotsOnGoal} | Dentro Área: ${stats.home.shotsInsideBox}${dossierBonusDetails}`,
-            suggestion: `Entrar a favor de "${fixture.homeTeam.name}" ou buscar "Over Gols no Jogo".`
+            suggestion: `Entrar a favor de "${fixture.homeTeam.name}" ou buscar "Over Gols no Jogo".`,
+            isFunnel
           });
         }
 
@@ -1570,6 +1835,12 @@ export default function Radar() {
 
           confidence = Math.min(100, confidence);
           
+          const diff = awayScoreFinal - homeScoreFinal;
+          const defShots = stats.home.totalShots || 0;
+          const defCorners = stats.home.corners || 0;
+          const isFunnel = awayScoreFinal >= funnelScoreThreshold && 
+                           scoreAway <= scoreHome &&
+                           diff >= 3 && defShots < 5 && defCorners < 3;
           activeOpps.push({
             id: `${fixture.id}-virada-away`,
             fixtureId: fixture.id,
@@ -1578,69 +1849,13 @@ export default function Radar() {
             teamName: fixture.awayTeam.name,
             confidence,
             details: `IIM: ${stats.away.iim} | Posse: ${stats.away.possession}% | Chutes Gol: ${stats.away.shotsOnGoal} | Dentro Área: ${stats.away.shotsInsideBox}${dossierBonusDetails}`,
-            suggestion: `Entrar a favor de "${fixture.awayTeam.name}" ou buscar "Over Gols no Jogo".`
+            suggestion: `Entrar a favor de "${fixture.awayTeam.name}" ou buscar "Over Gols no Jogo".`,
+            isFunnel
           });
         }
       }
 
-      // ═══════════════════════════════════════════════════════════════
-      // 🔻 ESTRATÉGIA 4: FUNIL (Pressão nos minutos finais)
-      // Critérios: Janela final + IIM do dominante + empatando/perdendo por 1
-      // ═══════════════════════════════════════════════════════════════
-      if (activeMode === 'funnel') {
-        const isFunilWindow = (elapsed >= 38 && elapsed <= 45 && fixture.status === '1H') ||
-                              (elapsed >= 85 && elapsed <= 90 && fixture.status === '2H');
-        const isFunilMarket = fixture.status === '1H' ? 'gols' as const : 'escanteios' as const;
-        const isFunilAlertAllowed = isAlertAllowed(elapsed, fixture.status || '', isFunilMarket);
-        
-        if (isFunilWindow && isFunilAlertAllowed) {
-          // Identifica time dominante (maior IIM)
-          const homeDominant = stats.home.iim > stats.away.iim;
-          const dominantIIM = homeDominant ? stats.home.iim : stats.away.iim;
-          const dominantName = homeDominant ? fixture.homeTeam.name : fixture.awayTeam.name;
-          const dominantGoals = homeDominant ? scoreHome : scoreAway;
-          const opponentGoals = homeDominant ? scoreAway : scoreHome;
-          const dominantStats = homeDominant ? stats.home : stats.away;
-          
-          // Condição do placar: empatando OU perdendo por 1
-          const isDrawing = dominantGoals === opponentGoals;
-          const isLosingByOne = (opponentGoals - dominantGoals) === 1;
-          const isWinning = dominantGoals > opponentGoals;
-          
-          // NÃO gerar alerta se dominante está ganhando
-          if (!isWinning && dominantIIM >= iimThreshold && (isDrawing || isLosingByOne)) {
-            const situacao = isDrawing ? 'Empatando' : 'Perdendo por 1';
-            let confidence = 65
-              + Math.floor((dominantIIM - iimThreshold) * 100)
-              + (dominantStats.shotsOnGoal * 3)
-              + (dominantStats.shotsInsideBox * 2)
-              + (dominantStats.corners * 2);
-            
-            let dossierBonusDetails = '';
-            const dossier = allDossiers[fixture.id];
-            if (dossier) {
-              const dominantMotivation = homeDominant ? dossier.motivationHome : dossier.motivationAway;
-              if (dominantMotivation >= 55) {
-                confidence += 8;
-                dossierBonusDetails += ` | Win%: ${dominantMotivation}% (+8%)`;
-              }
-            }
-            
-            confidence = Math.min(100, confidence);
-            
-            activeOpps.push({
-              id: `${fixture.id}-funil-${homeDominant ? 'home' : 'away'}`,
-              fixtureId: fixture.id,
-              match: fixture,
-              strategyName: 'Funil',
-              teamName: dominantName,
-              confidence,
-              details: `🔻 FUNIL ${fixture.status === '1H' ? '1°T' : '2°T'} | ${situacao} | IIM: ${dominantIIM} | Chutes Gol: ${dominantStats.shotsOnGoal} | Cantos: ${dominantStats.corners} | Dentro Área: ${dominantStats.shotsInsideBox}${dossierBonusDetails}`,
-              suggestion: `Pressão alta nos minutos finais! ${dominantName} ${situacao.toLowerCase()} com intensidade elevada. Buscar Over Gols ou Canto próximo.`
-            });
-          }
-        }
-      }
+
     });
 
     // Filter out dismissed fixtures BEFORE setting state and playing sounds
@@ -1708,6 +1923,68 @@ export default function Radar() {
     return cleanup;
   }, []);
 
+  // ─── BestCorner Bridge Listener ───
+  useEffect(() => {
+    const cleanup = onBestCornerData((payload) => {
+      setBestCornerBridge(payload);
+      
+      // 🚀 Auto-inject jogos do BestCorner direto pro sistema
+      if (payload.connected && payload.matches.length > 0) {
+        setManualFixtures(prev => {
+          let newFixtures = [...prev];
+          let changed = false;
+
+          payload.matches.forEach(match => {
+            // Gera um ID único e determinístico baseado nos times
+            let hash = 0;
+            const matchKey = match.storageKey || `${match.homeTeam}_${match.awayTeam}`;
+            for (let i = 0; i < matchKey.length; i++) {
+              hash = (hash << 5) - hash + matchKey.charCodeAt(i);
+              hash |= 0;
+            }
+            const id = -Math.abs(hash) - 500000; // Offset para não colidir com o scanner
+
+            // Se o jogo não existe, injetamos
+            // Lógica anti-duplicação: verificar se já existe jogo com os mesmos times
+            const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const mHome = cleanStr(match.homeTeam);
+            const mAway = cleanStr(match.awayTeam);
+            
+            const alreadyExists = prev.some(f => {
+              if (f.id === id) return true;
+              const fHome = cleanStr(f.homeTeam?.name);
+              const fAway = cleanStr(f.awayTeam?.name);
+              return (fHome.includes(mHome) || mHome.includes(fHome)) && 
+                     (fAway.includes(mAway) || mAway.includes(fAway));
+            });
+
+            if (!alreadyExists) {
+              newFixtures.push({
+                id,
+                status: match.period || (match.elapsed && match.elapsed > 45 ? '2H' : '1H'),
+                elapsed: match.elapsed || 0,
+                homeTeam: { name: match.homeTeam },
+                awayTeam: { name: match.awayTeam },
+                goalsHome: match.goalsHome || 0,
+                goalsAway: match.goalsAway || 0,
+                leagueName: (match as any).leagueName || 'BestCorner Stats',
+                matchUrl: match.matchUrl || '',
+                source: 'bestcorner' as any,
+                addedAt: Date.now()
+              } as any);
+              changed = true;
+              console.log(`[BestCorner Scanner] ➕ Jogo injetado automaticamente: ${match.homeTeam} vs ${match.awayTeam}`);
+            }
+          });
+
+          return changed ? newFixtures : prev;
+        });
+      }
+    });
+
+    return cleanup;
+  }, []);
+
   // ─── Bet365 Scanner Listener (local + cloud broadcast) ───
   useEffect(() => {
     const handler = (e: MessageEvent) => {
@@ -1758,6 +2035,18 @@ export default function Radar() {
     // Verificar se já foi adicionado
     if (scannerFixtureIdsRef.current.has(match.matchKey)) return;
     if (manualFixtures.some(f => f.id === id)) return;
+    
+    // Anti-duplicação: verifica se já existe sob outra fonte (ex: bestcorner)
+    const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const mHome = cleanStr(match.homeTeam);
+    const mAway = cleanStr(match.awayTeam);
+    if (manualFixtures.some(f => {
+      const fHome = cleanStr(f.homeTeam?.name);
+      const fAway = cleanStr(f.awayTeam?.name);
+      return (fHome.includes(mHome) || mHome.includes(fHome)) && 
+             (fAway.includes(mAway) || mAway.includes(fAway));
+    })) return;
+
     scannerFixtureIdsRef.current.add(match.matchKey);
 
     const newFixture = {
@@ -1779,12 +2068,15 @@ export default function Radar() {
     console.log(`[Scanner] ➕ Fixture criada: ${match.homeTeam} vs ${match.awayTeam}. Abra na Bet365 para conectar a Bridge.`);
   }, [manualFixtures]);
 
-  // Separar fixtures por fonte: API vs Scanner
+  // Separar fixtures por fonte: API vs Scanner vs BestCorner
   const scannerFixtures = useMemo(() => {
     return manualFixtures.filter((f: any) => f.source === 'scanner');
   }, [manualFixtures]);
+  const bestCornerFixtures = useMemo(() => {
+    return manualFixtures.filter((f: any) => f.source === 'bestcorner');
+  }, [manualFixtures]);
   const nonScannerManualFixtures = useMemo(() => {
-    return manualFixtures.filter((f: any) => f.source !== 'scanner');
+    return manualFixtures.filter((f: any) => f.source !== 'scanner' && f.source !== 'bestcorner');
   }, [manualFixtures]);
 
   // Handle Recusar — dismiss notification for this fixture
@@ -1801,10 +2093,163 @@ export default function Radar() {
         return opp.strategyName === 'Canto Limite';
       }
       if (marketFilter === 'goals') {
-        return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito' || opp.strategyName === 'Funil';
+        return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito';
       }
       return true;
     }), [opportunities, marketFilter, dismissedVersion]);
+  // 📱 --- MOBILE APP VIEW ---
+  if (isMobile) {
+    return (
+      <div style={{ padding: '16px', paddingBottom: '80px', color: '#fff', minHeight: '100vh', background: 'var(--bg-dark)' }}>
+        {/* Header Toggle */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: 'rgba(0,0,0,0.2)', padding: '6px', borderRadius: '14px' }}>
+          <button 
+            onClick={() => setMobileTab('tabela')}
+            style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: mobileTab === 'tabela' ? 'var(--primary-color)' : 'transparent', color: mobileTab === 'tabela' ? '#fff' : 'var(--text-muted)', fontWeight: 700, transition: 'all 0.2s ease' }}
+          >
+            📊 Tabela ({allFixtures.length})
+          </button>
+          <button 
+            onClick={() => setMobileTab('entradas')}
+            style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: mobileTab === 'entradas' ? 'var(--status-green)' : 'transparent', color: mobileTab === 'entradas' ? '#1a202c' : 'var(--text-muted)', fontWeight: 700, position: 'relative', transition: 'all 0.2s ease' }}
+          >
+            🔥 Notificações
+            {filteredOpps.length > 0 && (
+              <span style={{ position: 'absolute', top: -5, right: -5, background: 'var(--status-red)', color: '#fff', borderRadius: '50%', width: 22, height: 22, fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 5px rgba(0,0,0,0.3)' }}>{filteredOpps.length}</span>
+            )}
+          </button>
+        </div>
+
+        {/* --- ABA ENTRADAS --- */}
+        {mobileTab === 'entradas' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {filteredOpps.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                <Activity size={32} style={{ margin: '0 auto 10px', opacity: 0.3 }} />
+                <p>Nenhuma entrada no momento</p>
+              </div>
+            ) : filteredOpps.map(opp => {
+              const f = opp.match;
+              const s = allStats[f.id];
+              const isExpanded = expandedMobileId === opp.id;
+              
+              let homeApm3 = 0, awayApm3 = 0;
+              if (s) {
+                const unifiedSnapshots = [...(s.snapshots || []), ...(platformSnapshots[f.id] || [])].sort((a,b) => a.elapsed - b.elapsed);
+                const apmData = calculateDynamicAPM(unifiedSnapshots, getDisplayElapsed(f.id, f.elapsed, f.status), s.home.dangerousAttacks, s.away.dangerousAttacks, s);
+                homeApm3 = apmData.home.apm3;
+                awayApm3 = apmData.away.apm3;
+              }
+              
+              const isCorners = opp.strategyName === 'Canto Limite';
+
+              return (
+                <div key={opp.id} className="card" style={{ padding: '16px', background: 'rgba(255,255,255,0.03)', border: `1px solid ${isCorners ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`, borderRadius: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, background: isCorners ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)', color: isCorners ? '#fbbf24' : '#10b981', padding: '4px 8px', borderRadius: '6px' }}>
+                      {isCorners ? '🚩 ESCANTEIOS' : '⚽ GOLS'}
+                    </span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff' }}>{getDisplayElapsed(f.id, f.elapsed, f.status)}'</span>
+                  </div>
+
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
+                    {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {f.awayTeam.name}
+                  </h3>
+
+                  <button 
+                    onClick={() => setExpandedMobileId(isExpanded ? null : opp.id)}
+                    style={{ width: '100%', marginTop: '12px', padding: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontWeight: 600, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}
+                  >
+                    {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    {isExpanded ? 'Esconder métricas' : 'VER MAIS'}
+                  </button>
+
+                  {isExpanded && s && (
+                    <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM Global</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                           <span style={{ color: 'var(--text-primary)' }}>{s.home.apmGlobal || 0}</span>
+                           <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
+                           <span style={{ color: 'var(--text-primary)' }}>{s.away.apmGlobal || 0}</span>
+                        </div>
+                      </div>
+                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Escanteios</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                           <span style={{ color: 'var(--text-primary)' }}>{s.home.corners}</span>
+                           <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
+                           <span style={{ color: 'var(--text-primary)' }}>{s.away.corners}</span>
+                        </div>
+                      </div>
+                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 10</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                           <span style={{ color: 'var(--text-primary)' }}>{s.home.apm10 || 0}</span>
+                           <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
+                           <span style={{ color: 'var(--text-primary)' }}>{s.away.apm10 || 0}</span>
+                        </div>
+                      </div>
+                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 5</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                           <span style={{ color: 'var(--text-primary)' }}>{s.home.apm5 || 0}</span>
+                           <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
+                           <span style={{ color: 'var(--text-primary)' }}>{s.away.apm5 || 0}</span>
+                        </div>
+                      </div>
+                      <div style={{ gridColumn: '1 / -1', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 3</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
+                           <span style={{ color: 'var(--text-primary)' }}>{homeApm3}</span>
+                           <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
+                           <span style={{ color: 'var(--text-primary)' }}>{awayApm3}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* --- ABA TABELA --- */}
+        {mobileTab === 'tabela' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {allFixtures.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
+                <p>Nenhum jogo na tabela</p>
+              </div>
+            ) : allFixtures.map((f: any) => {
+              const s = allStats[f.id];
+              return (
+                <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{f.leagueName} • {getDisplayElapsed(f.id, f.elapsed, f.status)}'</div>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>
+                      <span style={{ display: 'block', marginBottom: '2px' }}>{f.homeTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}</span></span>
+                      <span style={{ display: 'block' }}>{f.awayTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span></span>
+                    </div>
+                  </div>
+                  {s && (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '16px', gap: '4px' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: '4px' }}>
+                        🚩 {s.home.corners} x {s.away.corners}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: '4px' }}>
+                        🔥 {s.home.apmGlobal || 0} x {s.away.apmGlobal || 0}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -1952,6 +2397,33 @@ export default function Radar() {
                 </div>
                 <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '6px', textAlign: 'center' as const }}>
                   Score ≥ <strong style={{ color: '#ef4444' }}>{cornerTriggerThreshold.toFixed(1)}</strong> → Dispara notificação de entrada | Potencial ≥ <strong>{(cornerTriggerThreshold - 1.0).toFixed(1)}</strong> → Fundo amarelo
+                </div>
+              </div>
+
+              {/* 🔻 Threshold de Funil */}
+              <div style={{
+                padding: '16px 24px', borderTop: '1px solid var(--border-color)',
+                background: 'rgba(168, 85, 247, 0.04)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 900, color: 'var(--text-primary)' }}>🔻 Gatilho de Funil</span>
+                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginLeft: '8px' }}>Score mínimo para marcador Funil</span>
+                  </div>
+                  <span style={{
+                    fontWeight: 900, fontSize: '1.1rem', color: '#a855f7',
+                    background: 'rgba(168, 85, 247, 0.1)', padding: '4px 12px', borderRadius: '8px',
+                  }}>{funnelScoreThreshold.toFixed(1)}</span>
+                </div>
+                <input
+                  type="range" min={4.0} max={10.0} step={0.5} value={funnelScoreThreshold}
+                  onChange={e => setFunnelScoreThreshold(Number(e.target.value))}
+                  style={{ width: '100%', height: '8px', borderRadius: '4px', cursor: 'pointer', accentColor: '#a855f7' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  <span>4.0 (Muito Arriscado)</span>
+                  <span>6.0 (Padrão)</span>
+                  <span>10.0 (Ultra Conservador)</span>
                 </div>
               </div>
 
@@ -2147,8 +2619,8 @@ export default function Radar() {
             fontSize: '0.9rem',
             padding: '6px 12px',
             borderRadius: 6,
-            background: activeMode === 'arriscado' ? 'rgba(239, 68, 68, 0.1)' : activeMode === 'conservador' ? 'rgba(16, 185, 129, 0.1)' : 'var(--accent-glow)',
-            color: activeMode === 'arriscado' ? '#ef4444' : activeMode === 'conservador' ? '#10b981' : 'var(--accent-primary)',
+            background: activeMode === 'arriscado' ? 'rgba(239, 68, 68, 0.1)' : activeMode === 'conservador' ? 'rgba(16, 185, 129, 0.1)' : activeMode === 'funnel' ? 'rgba(168, 85, 247, 0.1)' : 'var(--accent-glow)',
+            color: activeMode === 'arriscado' ? '#ef4444' : activeMode === 'conservador' ? '#10b981' : activeMode === 'funnel' ? '#a855f7' : 'var(--accent-primary)',
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6
@@ -2156,9 +2628,11 @@ export default function Radar() {
             {activeMode === 'arriscado' && <TrendingUp size={14} />}
             {activeMode === 'classico' && <CheckCircle size={14} />}
             {activeMode === 'conservador' && <Shield size={14} />}
+            {activeMode === 'funnel' && <Filter size={14} />}
             {activeMode === 'arriscado' && 'Arriscado'}
             {activeMode === 'classico' && 'Clássico'}
             {activeMode === 'conservador' && 'Conservador'}
+            {activeMode === 'funnel' && 'Funil'}
           </span>
         </div>
 
@@ -2536,8 +3010,9 @@ export default function Radar() {
               <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', marginRight: 4 }}>FONTE:</span>
               {([
                 { key: 'all' as const, label: 'TODOS', icon: '📊', color: 'var(--accent-primary)' },
-                { key: 'api' as const, label: 'API', icon: '📡', color: '#3b82f6' },
+                
                 { key: 'bet365' as const, label: 'BET365', icon: '🎰', color: '#a855f7' },
+                { key: 'bestcorner' as const, label: 'BCS', icon: '🎯', color: '#10b981' },
                 { key: 'favorites' as const, label: 'FAVORITOS', icon: '⭐', color: '#f59e0b' },
               ]).map(f => (
                 <button
@@ -2567,7 +3042,15 @@ export default function Radar() {
                     marginLeft: 2,
                     fontWeight: 700,
                   }}>
-                    {f.key === 'all' ? allFixtures.length : f.key === 'api' ? (fixtures.length + nonScannerManualFixtures.length) : scannerFixtures.length}
+                    {f.key === 'all' 
+                      ? allFixtures.length 
+                      : f.key === 'bet365' 
+                        ? scannerFixtures.length 
+                        : f.key === 'bestcorner' 
+                          ? manualFixtures.filter((f: any) => f.source === 'bestcorner').length 
+                          : f.key === 'favorites'
+                            ? allFixtures.filter((fx: any) => favoriteFixtureIds.has(fx.id)).length
+                            : 0}
                   </span>
                 </button>
               ))}
@@ -2724,27 +3207,15 @@ export default function Radar() {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* ═══ SEÇÃO 1: Partidas da API ═══ */}
-                  {fixtureSourceFilter !== 'bet365' && fixtures.length > 0 && (
-                    <tr>
-                      <td colSpan={11} style={{
-                        padding: '10px 8px 6px',
-                        borderBottom: '2px solid rgba(59, 130, 246, 0.3)',
-                        background: 'rgba(59, 130, 246, 0.04)'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: '0.85rem' }}>📡</span>
-                          <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Partidas API</span>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 700, background: 'rgba(59, 130, 246, 0.12)', color: '#3b82f6', padding: '2px 6px', borderRadius: 4 }}>
-                            {fixtures.length + nonScannerManualFixtures.length}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                  {fixtureSourceFilter !== 'bet365' && [...fixtures, ...nonScannerManualFixtures]
+                  {false && [...fixtures, ...nonScannerManualFixtures]
                     .filter(f => fixtureSourceFilter !== 'favorites' || favoriteFixtureIds.has(f.id))
                     .filter(f => passesSmartFilter(f))
+                    .filter(f => {
+                      const stats = allStats[f.id];
+                      if (!stats) return false;
+                      // Filtra jogos sem NENHUMA telemetria (sem API detalhada E sem Bridge)
+                      return stats.hasTelemetry || stats.hasBridge;
+                    })
                     .map(f => {
                     const stats = allStats[f.id];
                     const dossier = allDossiers[f.id];
@@ -2910,25 +3381,44 @@ export default function Radar() {
                               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
                             ) : (!stats.hasTelemetry && !stats.hasBridge) ? (
                               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
-                            ) : (stats.home.dangerousAttacks > 0 || stats.away.dangerousAttacks > 0) ? (() => {
-                              const fullElapsed = Math.max(f.elapsed, 1);
-                              const homeAPM = Math.round((stats.home.dangerousAttacks / fullElapsed) * 100) / 100;
-                              const awayAPM = Math.round((stats.away.dangerousAttacks / fullElapsed) * 100) / 100;
+                            ) : (() => {
+                              const homeDA = Number(stats.home.dangerousAttacks) || 0;
+                              const awayDA = Number(stats.away.dangerousAttacks) || 0;
+                              if (homeDA === 0 && awayDA === 0) {
+                                return <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>s/ bridge</span>;
+                              }
+
+                              const unifiedSnapshots = [
+                                ...(stats.snapshots || []),
+                                ...(platformSnapshots[f.id] || [])
+                              ].reduce((acc: TelemetrySnapshot[], curr: any) => {
+                                if (!acc.some((s: TelemetrySnapshot) => s.elapsed === curr.elapsed)) acc.push(curr);
+                                return acc;
+                              }, [] as TelemetrySnapshot[]).sort((a: TelemetrySnapshot, b: TelemetrySnapshot) => a.elapsed - b.elapsed);
+                              
+                              const apmData = calculateDynamicAPM(
+                                unifiedSnapshots,
+                                getDisplayElapsed(f.id, f.elapsed || 0, f.status || ''),
+                                homeDA,
+                                awayDA,
+                                stats
+                              );
+
+                              const homeAPM = apmData.home.apmGlobal;
+                              const awayAPM = apmData.away.apmGlobal;
                               return (
                                 <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>
                                   <span style={{ color: homeAPM >= 1.0 ? '#ef4444' : homeAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>
-                                    {homeAPM}
+                                    {homeAPM.toFixed(2)}
                                   </span>
                                   <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
                                   <span style={{ color: awayAPM >= 1.0 ? '#ef4444' : awayAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>
-                                    {awayAPM}
+                                    {awayAPM.toFixed(2)}
                                   </span>
                                   <div style={{ fontSize: '0.6rem', color: '#10b981', fontWeight: 800, marginTop: 2 }}>🔗 BRIDGE</div>
                                 </div>
                               );
-                            })() : (
-                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>s/ bridge</span>
-                            )}
+                            })()}
                           </td>
 
                           {/* Escanteios */}
@@ -3128,7 +3618,8 @@ export default function Radar() {
                                   unifiedSnapshots,
                                   getDisplayElapsed(f.id, f.elapsed || 0, f.status || ''),
                                   homeDA,
-                                  awayDA
+                                  awayDA,
+                                  stats
                                 );
 
                                 const homePoss = Number(stats.home.possession) || 50;
@@ -3363,15 +3854,15 @@ export default function Radar() {
                                             }}>
                                               {/* Label Centrado */}
                                               <div style={{ 
-                                                fontSize: '0.7rem', 
-                                                fontWeight: 800,
+                                                fontSize: '0.65rem', 
+                                                fontWeight: 800, 
                                                 textTransform: 'uppercase', 
                                                 color: 'var(--text-secondary)', 
                                                 marginBottom: '10px',
                                                 textAlign: 'center',
                                                 letterSpacing: '0.05em'
                                               }}>
-                                                Finalizações / Chutes ao Gol
+                                                No Alvo / Ao Lado
                                               </div>
                                               
                                               {/* Painel Central com Números e Barras */}
@@ -3390,9 +3881,9 @@ export default function Radar() {
                                                   minWidth: '50px',
                                                   textAlign: 'right'
                                                 }}>
-                                                  {homeTotalShots}
-                                                  <span style={{ color: 'var(--text-secondary)', opacity: 0.5, fontWeight: 400, margin: '0 2px' }}>/</span>
                                                   {homeShotsOn}
+                                                  <span style={{ color: 'var(--text-secondary)', opacity: 0.5, fontWeight: 400, margin: '0 2px' }}>/</span>
+                                                  {homeShotsOff}
                                                 </div>
 
                                                 {/* Duas Barras de Progresso */}
@@ -3405,11 +3896,11 @@ export default function Radar() {
                                                   justifyContent: 'center',
                                                   minWidth: '100px'
                                                 }}>
-                                                  {/* Barra 1: Finalizações Totais */}
+                                                  {/* Barra 1: Chutes No Alvo */}
                                                   <div style={{ display: 'flex', width: '100%', height: '4px', alignItems: 'center' }}>
                                                     <div style={{ width: '50%', display: 'flex', justifyContent: 'flex-end' }}>
                                                       <div style={{ 
-                                                        width: `${(homeTotalShots / totalShotsMax) * 100}%`, 
+                                                        width: `${(homeShotsOn / totalShotsMax) * 100}%`, 
                                                         height: '4px', 
                                                         backgroundColor: '#3a75e2', 
                                                         borderTopLeftRadius: '2px', 
@@ -3419,7 +3910,7 @@ export default function Radar() {
                                                     <div style={{ width: '2px', height: '4px', backgroundColor: 'transparent' }} />
                                                     <div style={{ width: '50%', display: 'flex', justifyContent: 'flex-start' }}>
                                                       <div style={{ 
-                                                        width: `${(awayTotalShots / totalShotsMax) * 100}%`, 
+                                                        width: `${(awayShotsOn / totalShotsMax) * 100}%`, 
                                                         height: '4px', 
                                                         backgroundColor: '#00b02f', 
                                                         borderTopRightRadius: '2px', 
@@ -3428,13 +3919,13 @@ export default function Radar() {
                                                     </div>
                                                   </div>
 
-                                                  {/* Barra 2: Chutes ao Gol (No Alvo) */}
+                                                  {/* Barra 2: Chutes Ao Lado */}
                                                   <div style={{ display: 'flex', width: '100%', height: '3px', alignItems: 'center' }}>
                                                     <div style={{ width: '50%', display: 'flex', justifyContent: 'flex-end' }}>
                                                       <div style={{ 
-                                                        width: `${(homeShotsOn / totalShotsMax) * 100}%`, 
+                                                        width: `${(homeShotsOff / totalShotsMax) * 100}%`, 
                                                         height: '3px', 
-                                                        backgroundColor: '#3a75e2', 
+                                                        backgroundColor: '#eab308', 
                                                         borderTopLeftRadius: '1.5px', 
                                                         borderBottomLeftRadius: '1.5px',
                                                         opacity: 0.85
@@ -3443,9 +3934,9 @@ export default function Radar() {
                                                     <div style={{ width: '2px', height: '3px', backgroundColor: 'transparent' }} />
                                                     <div style={{ width: '50%', display: 'flex', justifyContent: 'flex-start' }}>
                                                       <div style={{ 
-                                                        width: `${(awayShotsOn / totalShotsMax) * 100}%`, 
+                                                        width: `${(awayShotsOff / totalShotsMax) * 100}%`, 
                                                         height: '3px', 
-                                                        backgroundColor: '#00b02f', 
+                                                        backgroundColor: '#eab308', 
                                                         borderTopRightRadius: '1.5px', 
                                                         borderBottomRightRadius: '1.5px',
                                                         opacity: 0.85
@@ -3462,13 +3953,13 @@ export default function Radar() {
                                                   minWidth: '50px',
                                                   textAlign: 'left'
                                                 }}>
-                                                  {awayTotalShots}
-                                                  <span style={{ color: 'var(--text-secondary)', opacity: 0.5, fontWeight: 400, margin: '0 2px' }}>/</span>
                                                   {awayShotsOn}
+                                                  <span style={{ color: 'var(--text-secondary)', opacity: 0.5, fontWeight: 400, margin: '0 2px' }}>/</span>
+                                                  {awayShotsOff}
                                                 </div>
                                               </div>
                                               <div style={{ display: 'none' }}>
-                                                {homeShotsBlocked} {awayShotsBlocked} {homeShotsInside} {awayShotsInside}
+                                                {homeShotsBlocked} {awayShotsBlocked} {homeShotsInside} {awayShotsInside} {homeTotalShots} {awayTotalShots}
                                               </div>
                                             </div>
                                           );
@@ -3488,6 +3979,24 @@ export default function Radar() {
                                           <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-primary)' }}>Escanteios (Cantos)</span>
                                           <span style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--status-green)' }}>{awayCorners}</span>
                                         </div>
+
+                                        {/* XG (Chance de Gol) Highlight */}
+                                        {(stats.home.xg !== undefined || stats.away.xg !== undefined) && (
+                                          <div style={{ 
+                                            background: 'var(--bg-surface)', 
+                                            padding: '8px 12px', 
+                                            borderRadius: '8px', 
+                                            border: '1px solid var(--border-color)', 
+                                            display: 'flex', 
+                                            justifyContent: 'space-between', 
+                                            alignItems: 'center',
+                                            marginTop: '8px'
+                                          }}>
+                                            <span style={{ fontSize: '1.0rem', fontWeight: 800, color: 'var(--accent-primary)' }}>{stats.home.xg || 0}</span>
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)' }}>XG (Chances de Gol)</span>
+                                            <span style={{ fontSize: '1.0rem', fontWeight: 800, color: 'var(--accent-primary)' }}>{stats.away.xg || 0}</span>
+                                          </div>
+                                        )}
                                       </div>
 
                                       {/* 3. DEFESA & DISCIPLINA */}
@@ -3979,6 +4488,7 @@ export default function Radar() {
                                           const is3Active = halfElapsed >= 3;
 
                                           return (
+                                            <>
                                             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 280px', gap: '16px', alignItems: 'start' }}>
                                               {/* LEFT: SVG Chart */}
                                               <div style={{ background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '16px 12px 12px' }}>
@@ -4062,6 +4572,22 @@ export default function Radar() {
                                                       <path d={awayArea} fill={`url(#awayGrad-${f.id})`} />
                                                       <path d={homePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                                                       <path d={awayPath} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                      
+                                                      {/* Visual Timeline Events on SVG */}
+                                                      {(platformEvents[f.id] || []).map(ev => {
+                                                        const isHomeEvent = ev.side === 'home';
+                                                        const y = isHomeEvent ? padT + 8 : padT + plotH - 8;
+                                                        const color = isHomeEvent ? '#10b981' : '#f59e0b';
+                                                        const icon = ev.type === 'goal' ? '⚽' : '🚩';
+                                                        return (
+                                                          <g key={ev.id}>
+                                                            <line x1={toX(ev.elapsed)} y1={padT} x2={toX(ev.elapsed)} y2={padT + plotH} stroke={color} strokeWidth="1" strokeDasharray="2,2" opacity="0.6" />
+                                                            <circle cx={toX(ev.elapsed)} cy={y} r="7" fill="var(--bg-surface)" stroke={color} strokeWidth="1.5" />
+                                                            <text x={toX(ev.elapsed)} y={y + 3} textAnchor="middle" fontSize="9">{icon}</text>
+                                                          </g>
+                                                        );
+                                                      })}
+
                                                       <circle cx={toX(elapsed)} cy={toY(homeDA)} r="4" fill="#10b981" stroke="#fff" strokeWidth="1.5" />
                                                       <circle cx={toX(elapsed)} cy={toY(awayDA)} r="4" fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
                                                       <text x={toX(elapsed) + 8} y={toY(homeDA) + 3} fill="#10b981" fontSize="10" fontWeight="800">{homeDA}</text>
@@ -4237,6 +4763,12 @@ export default function Radar() {
                                                 </div>
                                               </div>
                                             </div>
+                                            <TimelineEventList 
+                                              events={platformEvents[f.id]} 
+                                              homeTeamName={f.homeTeam.name} 
+                                              awayTeamName={f.awayTeam.name} 
+                                            />
+                                            </>
                                           );
                                         })()}
                                       </div>
@@ -4252,34 +4784,39 @@ export default function Radar() {
                     );
                   })}
 
-                  {/* ═══ SEÇÃO 2: Partidas do Scanner Bet365 ═══ */}
-                  {fixtureSourceFilter !== 'api' && scannerFixtures.length > 0 && (
-                    <tr>
-                      <td colSpan={11} style={{
-                        padding: '14px 8px 6px',
-                        borderBottom: '2px solid var(--border-color)',
-                        background: 'var(--bg-surface)',
-                        borderTop: '3px solid var(--border-color)'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: '0.85rem' }}>🎰</span>
-                            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Partidas Scanner — Bet365</span>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 700, background: 'var(--accent-glow)', color: 'var(--accent-primary)', padding: '2px 6px', borderRadius: 4 }}>
-                              {scannerFixtures.length}
-                            </span>
-                          </div>
-                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                            Abra os jogos na Bet365 para ativar telemetria
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                  {fixtureSourceFilter !== 'api' && scannerFixtures
-                    .filter(f => fixtureSourceFilter !== 'favorites' || favoriteFixtureIds.has(f.id))
-                    .filter(f => passesSmartFilter(f))
-                    .map(f => {
+                  {/* ═══ SEÇÃO 2 & 3: Partidas dos Scanners ═══ */}
+                  {[
+                    { type: 'bet365', label: 'Bet365', icon: '🎰', list: scannerFixtures, filterSkip: 'api', helpText: 'Abra os jogos na Bet365 para ativar telemetria' },
+                    { type: 'bestcorner', label: 'BestCorner', icon: '🎯', list: bestCornerFixtures, filterSkip: 'api', helpText: 'Dados fornecidos pelo BestCorner Bridge' }
+                  ].map(scannerGroup => (
+                    <Fragment key={`scanner-group-${scannerGroup.type}`}>
+                      {(fixtureSourceFilter === 'all' || fixtureSourceFilter === 'favorites' || fixtureSourceFilter === scannerGroup.type) && scannerGroup.list.length > 0 && (
+                        <tr>
+                          <td colSpan={11} style={{
+                            padding: '14px 8px 6px',
+                            borderBottom: '2px solid var(--border-color)',
+                            background: 'var(--bg-surface)',
+                            borderTop: '3px solid var(--border-color)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: '0.85rem' }}>{scannerGroup.icon}</span>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Partidas Scanner — {scannerGroup.label}</span>
+                                <span style={{ fontSize: '0.7rem', fontWeight: 700, background: 'var(--accent-glow)', color: 'var(--accent-primary)', padding: '2px 6px', borderRadius: 4 }}>
+                                  {scannerGroup.list.length}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                {scannerGroup.helpText}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      {(fixtureSourceFilter === 'all' || fixtureSourceFilter === 'favorites' || fixtureSourceFilter === scannerGroup.type) && scannerGroup.list
+                        .filter(f => fixtureSourceFilter !== 'favorites' || favoriteFixtureIds.has(f.id))
+                        .filter(f => passesSmartFilter(f))
+                        .map(f => {
                     const stats = allStats[f.id];
                     const dossier = allDossiers[f.id];
                     const hasOpp = opportunities.some(opp => opp.fixtureId === f.id);
@@ -4363,13 +4900,37 @@ export default function Radar() {
                           </td>
                           {/* APM */}
                           <td style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem' }}>
-                            {!stats ? '—' : (!stats.hasTelemetry && !stats.hasBridge) ? '—' : (
-                              <div style={{ fontWeight: 700 }}>
-                                <span>{stats.home.apm}</span>
-                                <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
-                                <span>{stats.away.apm}</span>
-                              </div>
-                            )}
+                            {!stats ? '—' : (!stats.hasTelemetry && !stats.hasBridge) ? '—' : (() => {
+                              const homeDA = Number(stats.home.dangerousAttacks) || 0;
+                              const awayDA = Number(stats.away.dangerousAttacks) || 0;
+                              if (homeDA === 0 && awayDA === 0) return '—';
+
+                              const unifiedSnapshots = [
+                                ...(stats.snapshots || []),
+                                ...(platformSnapshots[f.id] || [])
+                              ].reduce((acc: TelemetrySnapshot[], curr: any) => {
+                                if (!acc.some((s: TelemetrySnapshot) => s.elapsed === curr.elapsed)) acc.push(curr);
+                                return acc;
+                              }, [] as TelemetrySnapshot[]).sort((a: TelemetrySnapshot, b: TelemetrySnapshot) => a.elapsed - b.elapsed);
+                              
+                              const apmData = calculateDynamicAPM(
+                                unifiedSnapshots,
+                                getDisplayElapsed(f.id, f.elapsed || 0, f.status || ''),
+                                homeDA,
+                                awayDA,
+                                stats
+                              );
+
+                              const homeAPM = apmData.home.apmGlobal;
+                              const awayAPM = apmData.away.apmGlobal;
+                              return (
+                                <div style={{ fontWeight: 700 }}>
+                                  <span style={{ color: homeAPM >= 1.0 ? '#ef4444' : homeAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>{homeAPM.toFixed(2)}</span>
+                                  <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>|</span>
+                                  <span style={{ color: awayAPM >= 1.0 ? '#ef4444' : awayAPM >= 0.6 ? 'var(--status-yellow)' : 'var(--text-primary)' }}>{awayAPM.toFixed(2)}</span>
+                                </div>
+                              );
+                            })()}
                           </td>
                           {/* Escanteios */}
                           <td style={{ padding: '10px 8px', textAlign: 'center', fontSize: '0.8rem' }}>
@@ -4477,7 +5038,8 @@ export default function Radar() {
                                   unifiedSnapshots,
                                   getDisplayElapsed(f.id, f.elapsed || 0, f.status || ''),
                                   homeDA,
-                                  awayDA
+                                  awayDA,
+                                  stats
                                 );
 
                                 const homePoss = Number(stats.home.possession) || 50;
@@ -4712,15 +5274,15 @@ export default function Radar() {
                                             }}>
                                               {/* Label Centrado */}
                                               <div style={{ 
-                                                fontSize: '0.7rem', 
-                                                fontWeight: 800,
+                                                fontSize: '0.65rem', 
+                                                fontWeight: 800, 
                                                 textTransform: 'uppercase', 
                                                 color: 'var(--text-secondary)', 
                                                 marginBottom: '10px',
                                                 textAlign: 'center',
                                                 letterSpacing: '0.05em'
                                               }}>
-                                                Finalizações / Chutes ao Gol
+                                                No Alvo / Ao Lado
                                               </div>
                                               
                                               {/* Painel Central com Números e Barras */}
@@ -4739,9 +5301,9 @@ export default function Radar() {
                                                   minWidth: '50px',
                                                   textAlign: 'right'
                                                 }}>
-                                                  {homeTotalShots}
-                                                  <span style={{ color: 'var(--text-secondary)', opacity: 0.5, fontWeight: 400, margin: '0 2px' }}>/</span>
                                                   {homeShotsOn}
+                                                  <span style={{ color: 'var(--text-secondary)', opacity: 0.5, fontWeight: 400, margin: '0 2px' }}>/</span>
+                                                  {homeShotsOff}
                                                 </div>
 
                                                 {/* Duas Barras de Progresso */}
@@ -4754,11 +5316,11 @@ export default function Radar() {
                                                   justifyContent: 'center',
                                                   minWidth: '100px'
                                                 }}>
-                                                  {/* Barra 1: Finalizações Totais */}
+                                                  {/* Barra 1: Chutes No Alvo */}
                                                   <div style={{ display: 'flex', width: '100%', height: '4px', alignItems: 'center' }}>
                                                     <div style={{ width: '50%', display: 'flex', justifyContent: 'flex-end' }}>
                                                       <div style={{ 
-                                                        width: `${(homeTotalShots / totalShotsMax) * 100}%`, 
+                                                        width: `${(homeShotsOn / totalShotsMax) * 100}%`, 
                                                         height: '4px', 
                                                         backgroundColor: '#3a75e2', 
                                                         borderTopLeftRadius: '2px', 
@@ -4768,7 +5330,7 @@ export default function Radar() {
                                                     <div style={{ width: '2px', height: '4px', backgroundColor: 'transparent' }} />
                                                     <div style={{ width: '50%', display: 'flex', justifyContent: 'flex-start' }}>
                                                       <div style={{ 
-                                                        width: `${(awayTotalShots / totalShotsMax) * 100}%`, 
+                                                        width: `${(awayShotsOn / totalShotsMax) * 100}%`, 
                                                         height: '4px', 
                                                         backgroundColor: '#00b02f', 
                                                         borderTopRightRadius: '2px', 
@@ -4777,13 +5339,13 @@ export default function Radar() {
                                                     </div>
                                                   </div>
 
-                                                  {/* Barra 2: Chutes ao Gol (No Alvo) */}
+                                                  {/* Barra 2: Chutes Ao Lado */}
                                                   <div style={{ display: 'flex', width: '100%', height: '3px', alignItems: 'center' }}>
                                                     <div style={{ width: '50%', display: 'flex', justifyContent: 'flex-end' }}>
                                                       <div style={{ 
-                                                        width: `${(homeShotsOn / totalShotsMax) * 100}%`, 
+                                                        width: `${(homeShotsOff / totalShotsMax) * 100}%`, 
                                                         height: '3px', 
-                                                        backgroundColor: '#3a75e2', 
+                                                        backgroundColor: '#eab308', 
                                                         borderTopLeftRadius: '1.5px', 
                                                         borderBottomLeftRadius: '1.5px',
                                                         opacity: 0.85
@@ -4792,9 +5354,9 @@ export default function Radar() {
                                                     <div style={{ width: '2px', height: '3px', backgroundColor: 'transparent' }} />
                                                     <div style={{ width: '50%', display: 'flex', justifyContent: 'flex-start' }}>
                                                       <div style={{ 
-                                                        width: `${(awayShotsOn / totalShotsMax) * 100}%`, 
+                                                        width: `${(awayShotsOff / totalShotsMax) * 100}%`, 
                                                         height: '3px', 
-                                                        backgroundColor: '#00b02f', 
+                                                        backgroundColor: '#eab308', 
                                                         borderTopRightRadius: '1.5px', 
                                                         borderBottomRightRadius: '1.5px',
                                                         opacity: 0.85
@@ -4811,13 +5373,13 @@ export default function Radar() {
                                                   minWidth: '50px',
                                                   textAlign: 'left'
                                                 }}>
-                                                  {awayTotalShots}
-                                                  <span style={{ color: 'var(--text-secondary)', opacity: 0.5, fontWeight: 400, margin: '0 2px' }}>/</span>
                                                   {awayShotsOn}
+                                                  <span style={{ color: 'var(--text-secondary)', opacity: 0.5, fontWeight: 400, margin: '0 2px' }}>/</span>
+                                                  {awayShotsOff}
                                                 </div>
                                               </div>
                                               <div style={{ display: 'none' }}>
-                                                {homeShotsBlocked} {awayShotsBlocked} {homeShotsInside} {awayShotsInside}
+                                                {homeShotsBlocked} {awayShotsBlocked} {homeShotsInside} {awayShotsInside} {homeTotalShots} {awayTotalShots}
                                               </div>
                                             </div>
                                           );
@@ -4837,6 +5399,24 @@ export default function Radar() {
                                           <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-primary)' }}>Escanteios (Cantos)</span>
                                           <span style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--status-green)' }}>{awayCorners}</span>
                                         </div>
+
+                                        {/* XG (Chance de Gol) Highlight */}
+                                        {(stats.home.xg !== undefined || stats.away.xg !== undefined) && (
+                                          <div style={{ 
+                                            background: 'var(--bg-surface)', 
+                                            padding: '8px 12px', 
+                                            borderRadius: '8px', 
+                                            border: '1px solid var(--border-color)', 
+                                            display: 'flex', 
+                                            justifyContent: 'space-between', 
+                                            alignItems: 'center',
+                                            marginTop: '8px'
+                                          }}>
+                                            <span style={{ fontSize: '1.0rem', fontWeight: 800, color: 'var(--accent-primary)' }}>{stats.home.xg || 0}</span>
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)' }}>XG (Chances de Gol)</span>
+                                            <span style={{ fontSize: '1.0rem', fontWeight: 800, color: 'var(--accent-primary)' }}>{stats.away.xg || 0}</span>
+                                          </div>
+                                        )}
                                       </div>
 
                                       {/* 3. DEFESA & DISCIPLINA */}
@@ -5327,6 +5907,7 @@ export default function Radar() {
                                           const toYapm = (v: number) => padT + plotH - (v / maxApm) * plotH;
 
                                           return (
+                                            <>
                                             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 280px', gap: '16px', alignItems: 'start' }}>
                                               {/* LEFT: SVG Chart */}
                                               <div style={{ background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '16px 12px 12px' }}>
@@ -5410,6 +5991,22 @@ export default function Radar() {
                                                       <path d={awayArea} fill={`url(#awayGrad-${f.id})`} />
                                                       <path d={homePath} fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
                                                       <path d={awayPath} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                                      
+                                                      {/* Visual Timeline Events on SVG */}
+                                                      {(platformEvents[f.id] || []).map(ev => {
+                                                        const isHomeEvent = ev.side === 'home';
+                                                        const y = isHomeEvent ? padT + 8 : padT + plotH - 8;
+                                                        const color = isHomeEvent ? '#10b981' : '#f59e0b';
+                                                        const icon = ev.type === 'goal' ? '⚽' : '🚩';
+                                                        return (
+                                                          <g key={ev.id}>
+                                                            <line x1={toX(ev.elapsed)} y1={padT} x2={toX(ev.elapsed)} y2={padT + plotH} stroke={color} strokeWidth="1" strokeDasharray="2,2" opacity="0.6" />
+                                                            <circle cx={toX(ev.elapsed)} cy={y} r="7" fill="var(--bg-surface)" stroke={color} strokeWidth="1.5" />
+                                                            <text x={toX(ev.elapsed)} y={y + 3} textAnchor="middle" fontSize="9">{icon}</text>
+                                                          </g>
+                                                        );
+                                                      })}
+
                                                       <circle cx={toX(elapsed)} cy={toY(homeDA)} r="4" fill="#10b981" stroke="#fff" strokeWidth="1.5" />
                                                       <circle cx={toX(elapsed)} cy={toY(awayDA)} r="4" fill="#f59e0b" stroke="#fff" strokeWidth="1.5" />
                                                       <text x={toX(elapsed) + 8} y={toY(homeDA) + 3} fill="#10b981" fontSize="10" fontWeight="800">{homeDA}</text>
@@ -5515,7 +6112,7 @@ export default function Radar() {
                                                         {w.home}
                                                       </span>
                                                       <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                                                        {w.active && !w.reliable && w.gate ? '≈ Global' : 'AP/min'}
+                                                        {w.active && !w.reliable && w.gate ? '≈ Estimado' : 'AP/min'}
                                                       </span>
                                                       <span style={{ fontSize: '0.95rem', fontWeight: 900, color: w.active && w.reliable && w.away >= 1.0 ? '#ef4444' : w.active ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                                                         {w.away}
@@ -5585,6 +6182,12 @@ export default function Radar() {
                                                 </div>
                                               </div>
                                             </div>
+                                            <TimelineEventList 
+                                              events={platformEvents[f.id]} 
+                                              homeTeamName={f.homeTeam.name} 
+                                              awayTeamName={f.awayTeam.name} 
+                                            />
+                                            </>
                                           );
                                         })()}
                                       </div>
@@ -5599,6 +6202,8 @@ export default function Radar() {
                       </Fragment>
                     );
                   })}
+                  </Fragment>
+                  ))}
                 </tbody>
               </table>
               </div>
@@ -5612,12 +6217,26 @@ export default function Radar() {
         
         {/* Coluna Esquerda: Oportunidades Ativas do Bot */}
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <Bell size={20} color="var(--status-red)" className="pulse-indicator" />
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Oportunidades de Entrada</h2>
-            <span className="badge badge-red" style={{ marginLeft: 6 }}>
-              {filteredOpps.length}
-            </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Bell size={20} color="var(--status-red)" className="pulse-indicator" />
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Oportunidades de Entrada</h2>
+              <span className="badge badge-red" style={{ marginLeft: 6 }}>
+                {filteredOpps.length}
+              </span>
+            </div>
+            
+            {/* Quick Funnel Slider */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(168, 85, 247, 0.05)', padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#a855f7', textTransform: 'uppercase' }}>🔻 Funil: {funnelScoreThreshold.toFixed(1)}</span>
+              <input 
+                type="range" min={4.0} max={10.0} step={0.5} 
+                value={funnelScoreThreshold} 
+                onChange={e => setFunnelScoreThreshold(Number(e.target.value))}
+                style={{ width: '60px', height: '4px', accentColor: '#a855f7', cursor: 'pointer' }}
+                title="Configurar Score Mínimo do Funil"
+              />
+            </div>
           </div>
 
           {loading ? (
@@ -5920,7 +6539,6 @@ export default function Radar() {
               let stratColor = 'var(--accent-primary)';
               if (opp.strategyName === 'Canto Limite') stratColor = 'var(--status-green)';
               else if (opp.strategyName === 'Over 0.5 Gols HT') stratColor = 'var(--status-yellow)';
-              else if (opp.strategyName === 'Funil') stratColor = '#a855f7';
               else stratColor = 'var(--status-red)';
 
               return (
@@ -5943,6 +6561,11 @@ export default function Radar() {
                       <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 700, background: `${stratColor}18`, color: stratColor, padding: '3px 6px' }}>
                         {opp.strategyName}
                       </span>
+                      {opp.isFunnel && (
+                        <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', padding: '3px 6px' }}>
+                          🔻 FUNIL
+                        </span>
+                      )}
                     </div>
                     <span className="badge" style={{
                       fontSize: '0.8rem', fontWeight: 800, padding: '3px 8px',
