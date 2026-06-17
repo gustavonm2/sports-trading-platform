@@ -151,10 +151,15 @@ const TimelineEventList = ({
   homeTeamName: string, 
   awayTeamName: string 
 }) => {
+  const [hoveredEventId, setHoveredEventId] = useState<string | null>(null);
+
   if (!events) events = [];
+  
+  const maxElapsed = Math.max(90, ...(events.map(e => e.elapsed)));
+
   return (
-    <div style={{ marginTop: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '12px 16px' }}>
-      <h4 style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+    <div style={{ marginTop: '16px', background: 'var(--bg-elevated)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '16px' }}>
+      <h4 style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '6px' }}>
         <Activity size={14} /> Linha do Tempo de Pressão (ATM)
       </h4>
       {events.length === 0 ? (
@@ -162,39 +167,107 @@ const TimelineEventList = ({
           Nenhum evento registrado nesta sessão para essa partida ainda.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {[...events].sort((a,b) => b.elapsed - a.elapsed).map(ev => {
-          const isHome = ev.side === 'home';
-          const teamName = isHome ? homeTeamName : awayTeamName;
-          const color = isHome ? '#10b981' : '#f59e0b';
-          const icon = ev.type === 'goal' ? '⚽' : '🚩';
-          const label = ev.type === 'goal' ? 'Gol' : 'Escanteio';
+        <div style={{ position: 'relative', width: '100%', height: '40px', padding: '0 10px' }}>
+          {/* Linha base da timeline */}
+          <div style={{ position: 'absolute', top: '50%', left: '0', right: '0', height: '4px', background: 'var(--border-color)', borderRadius: '2px', transform: 'translateY(-50%)' }}></div>
           
-          return (
-            <div key={ev.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-surface)', padding: '8px 12px', borderRadius: '6px', borderLeft: `3px solid ${color}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)', width: '28px' }}>{ev.elapsed}'</span>
-                <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>{icon}</span>
-                <span style={{ fontSize: '0.8rem', fontWeight: 800, color }}>{teamName} <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>({label})</span></span>
+          {/* Marcações de tempo (0 e 90) */}
+          <div style={{ position: 'absolute', top: '24px', left: '0', fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 700 }}>0'</div>
+          <div style={{ position: 'absolute', top: '24px', right: '0', fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 700 }}>{maxElapsed}'</div>
+
+          {/* Eventos na linha */}
+          {[...events].sort((a,b) => a.elapsed - b.elapsed).map(ev => {
+            const isHome = ev.side === 'home';
+            const teamName = isHome ? homeTeamName : awayTeamName;
+            const color = isHome ? '#10b981' : '#f59e0b';
+            const icon = ev.type === 'goal' ? '⚽' : '🚩';
+            const label = ev.type === 'goal' ? 'Gol' : 'Escanteio';
+            const leftPercent = (ev.elapsed / maxElapsed) * 100;
+            
+            return (
+              <div 
+                key={ev.id}
+                style={{ 
+                  position: 'absolute', 
+                  left: `${leftPercent}%`, 
+                  top: '50%', 
+                  transform: 'translate(-50%, -50%)', 
+                  cursor: 'pointer', 
+                  zIndex: hoveredEventId === ev.id ? 10 : 1 
+                }}
+                onMouseEnter={() => setHoveredEventId(ev.id)}
+                onMouseLeave={() => setHoveredEventId(null)}
+              >
+                {/* Marcador do evento */}
+                <div style={{ 
+                  width: '20px', 
+                  height: '20px', 
+                  borderRadius: '50%', 
+                  background: 'var(--bg-elevated)', 
+                  border: `2px solid ${color}`, 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                  transition: 'transform 0.2s ease',
+                  transform: hoveredEventId === ev.id ? 'scale(1.2)' : 'scale(1)'
+                }}>
+                  <span style={{ fontSize: '10px' }}>{icon}</span>
+                </div>
+                
+                {/* Tooltip com os dados */}
+                {hoveredEventId === ev.id && (
+                  <div style={{ 
+                    position: 'absolute', 
+                    bottom: '28px', 
+                    left: '50%', 
+                    transform: 'translateX(-50%)', 
+                    background: 'var(--bg-surface)', 
+                    padding: '12px', 
+                    borderRadius: '8px', 
+                    border: '1px solid var(--border-color)', 
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.2)', 
+                    width: 'max-content', 
+                    zIndex: 100 
+                  }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 800, marginBottom: '8px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ color }}>{teamName}</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>• {ev.elapsed}' ({label})</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                        Global: {ev.apmGlobal.toFixed(2)}
+                      </span>
+                      <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm10 >= 1.0 ? 'rgba(59,130,246,0.1)' : 'var(--bg-elevated)', color: ev.apm10 >= 1.0 ? '#3b82f6' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                        ATM 10: {ev.apm10.toFixed(2)}
+                      </span>
+                      <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm5 >= 1.0 ? 'rgba(139,92,246,0.1)' : 'var(--bg-elevated)', color: ev.apm5 >= 1.0 ? '#8b5cf6' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                        ATM 5: {ev.apm5.toFixed(2)}
+                      </span>
+                      <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm3 >= 1.0 ? 'rgba(239,68,68,0.1)' : 'var(--bg-elevated)', color: ev.apm3 >= 1.0 ? '#ef4444' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                        ATM 3: {ev.apm3.toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Seta do Tooltip */}
+                    <div style={{ 
+                      position: 'absolute', 
+                      bottom: '-5px', 
+                      left: '50%', 
+                      transform: 'translateX(-50%) rotate(45deg)', 
+                      width: '10px', 
+                      height: '10px', 
+                      background: 'var(--bg-surface)', 
+                      borderRight: '1px solid var(--border-color)', 
+                      borderBottom: '1px solid var(--border-color)' 
+                    }}></div>
+                  </div>
+                )}
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
-                  Global: {ev.apmGlobal.toFixed(2)}
-                </span>
-                <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm10 >= 1.0 ? 'rgba(59,130,246,0.1)' : 'var(--bg-surface)', color: ev.apm10 >= 1.0 ? '#3b82f6' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
-                  ATM 10: {ev.apm10.toFixed(2)}
-                </span>
-                <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm5 >= 1.0 ? 'rgba(139,92,246,0.1)' : 'var(--bg-surface)', color: ev.apm5 >= 1.0 ? '#8b5cf6' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
-                  ATM 5: {ev.apm5.toFixed(2)}
-                </span>
-                <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: ev.apm3 >= 1.0 ? 'rgba(239,68,68,0.1)' : 'var(--bg-surface)', color: ev.apm3 >= 1.0 ? '#ef4444' : 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
-                  ATM 3: {ev.apm3.toFixed(2)}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -1998,16 +2071,16 @@ export default function Radar() {
               // Update existing fixture elapsed time, goals, status so telemetry can progress
               const ef = newFixtures[existingFixtureIndex];
               const newElapsed = Math.max(ef.elapsed || 0, match.elapsed || 0);
-              const newGoalsHome = match.goalsHome !== undefined ? match.goalsHome : ef.goalsHome;
-              const newGoalsAway = match.goalsAway !== undefined ? match.goalsAway : ef.goalsAway;
+              const newGoalsHome = match.goalsHome !== undefined ? match.goalsHome : (ef.goalsHome || 0);
+              const newGoalsAway = match.goalsAway !== undefined ? match.goalsAway : (ef.goalsAway || 0);
               const newStatus = match.period || ef.status;
               
               if (ef.elapsed !== newElapsed || ef.goalsHome !== newGoalsHome || ef.goalsAway !== newGoalsAway || ef.status !== newStatus) {
                 newFixtures[existingFixtureIndex] = {
                   ...ef,
                   elapsed: newElapsed,
-                  goalsHome: newGoalsHome,
-                  goalsAway: newGoalsAway,
+                  goalsHome: newGoalsHome as number,
+                  goalsAway: newGoalsAway as number,
                   status: newStatus
                 };
                 changed = true;
