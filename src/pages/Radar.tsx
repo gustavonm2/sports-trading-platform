@@ -808,6 +808,7 @@ export default function Radar() {
                                 (bridgeMatch.away?.dangerousAttacks || 0) > 0;
           merged.home.iim = calculateEnrichedIIM(merged.home, elapsed, hasBridgeData);
           merged.away.iim = calculateEnrichedIIM(merged.away, elapsed, hasBridgeData);
+          merged.hasBridge = true;
           updated[fixture.id] = merged;
         } else {
           const emptyTeam = (): import('../services/apiSports').TeamStats => ({
