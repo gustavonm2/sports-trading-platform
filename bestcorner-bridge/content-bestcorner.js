@@ -10,6 +10,90 @@
   const SCAN_INTERVAL_MS = 5_000;
   const STORAGE_KEY_PREFIX = 'bestcorner_bridge_';
 
+  // --- INTEGRAÇÃO SUPABASE CENTRAL (REST API) ---
+  const SUPABASE_URL = 'https://kpldcqujhpcihpdlzpeh.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwbGRjcXVqaHBjaWhwZGx6cGVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNTIyMTAsImV4cCI6MjA5NTcyODIxMH0.zfpSeKGm-RF0bvbj-H-yVm4it9qZNzBOX7KjrjieGfs';
+  const MASTER_USER_ID = 'master_' + Math.random().toString(36).substring(7); // Cada aba aberta terá um ID único de mestre
+  const SOURCE = 'bestcorner';
+  const isMasterCapturing = {}; // matchId -> boolean
+
+  async function attemptTakeover(matchId) {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/active_captures?fixture_id=eq.${matchId}&select=*`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+      });
+      const data = await res.json();
+      
+      if (data && data.length > 0) {
+        const capture = data[0];
+        if (capture.status === 'active' && capture.master_user_id !== MASTER_USER_ID) {
+          const lastUpdate = new Date(capture.updated_at).getTime();
+          // Se o mestre original enviou update há menos de 3 min, não interfere
+          if (Date.now() - lastUpdate < 3 * 60 * 1000) {
+            isMasterCapturing[matchId] = false;
+            return false; 
+          }
+        }
+      }
+
+      // Assumir
+      await fetch(`${SUPABASE_URL}/rest/v1/active_captures`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates'
+        },
+        body: JSON.stringify({
+          fixture_id: matchId,
+          master_user_id: MASTER_USER_ID,
+          source: SOURCE,
+          status: 'active',
+          updated_at: new Date().toISOString()
+        })
+      });
+
+      isMasterCapturing[matchId] = true;
+      return true;
+    } catch (e) {
+      console.error("[Bridge] Erro ao verificar Mestre:", e);
+      return false;
+    }
+  }
+
+  async function sendTelemetrySnapshot(match) {
+    if (!isMasterCapturing[match.matchId]) return;
+
+    const payload = {
+      fixture_id: String(match.matchId),
+      elapsed: match.elapsed,
+      home_da: match.home.dangerousAttacks,
+      away_da: match.away.dangerousAttacks,
+      home_possession: match.home.possession,
+      away_possession: match.away.possession,
+      home_score: match.goalsHome,
+      away_score: match.goalsAway,
+      home_corners: match.home.corners,
+      away_corners: match.away.corners,
+      home_shots_on_goal: match.home.shotsOnGoal,
+      away_shots_on_goal: match.away.shotsOnGoal,
+      source: SOURCE
+    };
+
+    fetch(`${SUPABASE_URL}/rest/v1/telemetry_snapshots`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify(payload)
+    }).catch(e => console.error("[Bridge] Erro ao salvar snapshot:", e));
+  }
+  // ----------------------------------------------
+
   function extractNumber(text) {
     if (!text) return 0;
     const match = text.match(/[\d\.]+/);
@@ -389,7 +473,38 @@
           const cleanAway = m.awayTeam.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
           const uniqueKey = `${STORAGE_KEY_PREFIX}${cleanHome}_${cleanAway}`;
           payload[uniqueKey] = m;
+
+          // --- SUPABASE SYNC ---
+          if (isMasterCapturing[m.matchId] === undefined) {
+            attemptTakeover(m.matchId).then(() => {
+              sendTelemetrySnapshot(m);
+            });
+          } else {
+            sendTelemetrySnapshot(m);
+          }
+          // ---------------------
         });
+
+        // --- SUPABASE: DETECTAR FIM DE JOGO (Jogo sumiu da tela) ---
+        const currentlyActiveMatchIds = bridgeMatches.map(m => m.matchId);
+        Object.keys(isMasterCapturing).forEach(id => {
+          if (isMasterCapturing[id] && !currentlyActiveMatchIds.includes(id)) {
+            fetch(`${SUPABASE_URL}/rest/v1/active_captures?fixture_id=eq.${id}`, {
+              method: 'PATCH',
+              headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ status: 'finished', updated_at: new Date().toISOString() })
+            }).then(() => {
+              delete isMasterCapturing[id];
+              console.log(`[Bridge] Partida ${id} sumiu e foi marcada como finalizada no Supabase.`);
+            });
+          }
+        });
+        // -----------------------------------------------------------
+
         // Clear old storage before setting new to avoid ghost matches?
         // Let's just set. The bridge handles timestamps.
         chrome.storage.local.set(payload);
