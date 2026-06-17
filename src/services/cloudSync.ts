@@ -21,7 +21,7 @@ export interface CloudSyncStatus {
 }
 
 type BridgeCallback = (payload: any) => void;
-type ScannerCallback = (matches: any[], scannerEnabled: boolean, manualFixtures: any[], bestCornerData: any) => void;
+type ScannerCallback = (matches: any[], scannerEnabled: boolean, manualFixtures: any[], bestCornerData: any, platformSnapshots: any) => void;
 
 // ─── Estado interno ───
 
@@ -132,7 +132,8 @@ function processCloudData(data: any): void {
             matches, 
             scannerPayload.scannerEnabled || false, 
             scannerPayload.manualFixtures || [], 
-            scannerPayload.bestCornerData || {}
+            scannerPayload.bestCornerData || {},
+            scannerPayload.platformSnapshots || {}
           ); 
         } catch (e) { console.error('[CloudSync] Erro scanner:', e); }
       });
@@ -209,7 +210,7 @@ export function broadcastBridgeData(payload: any): void {
     });
 }
 
-export function broadcastScannerData(matches: any[], scannerEnabled: boolean, manualFixtures: any[] = [], bestCornerData: any = {}): void {
+export function broadcastScannerData(matches: any[], scannerEnabled: boolean, manualFixtures: any[] = [], bestCornerData: any = {}, platformSnapshots: any = {}): void {
   const now = Date.now();
   if (now - _lastScannerWrite < WRITE_THROTTLE_MS) return;
   _lastScannerWrite = now;
@@ -219,7 +220,7 @@ export function broadcastScannerData(matches: any[], scannerEnabled: boolean, ma
     .from('live_sync')
     .upsert({
       id: 'main',
-      scanner_data: { matches, scannerEnabled, manualFixtures, bestCornerData },
+      scanner_data: { matches, scannerEnabled, manualFixtures, bestCornerData, platformSnapshots },
       operator_id: OPERATOR_ID,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'id' })

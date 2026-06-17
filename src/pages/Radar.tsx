@@ -846,10 +846,14 @@ export default function Radar() {
     try {
       const saved = localStorage.getItem('platform_telemetry_snapshots');
       return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      return {};
-    }
+    } catch { return {}; }
   });
+
+  const platformSnapshotsRef = useRef<Record<number, { elapsed: number; homeDA: number; awayDA: number; timestamp: number }[]>>(platformSnapshots);
+  
+  useEffect(() => {
+    platformSnapshotsRef.current = platformSnapshots;
+  }, [platformSnapshots]);
 
   // Salvar platformSnapshots no localStorage sempre que atualizados
   useEffect(() => {
@@ -2009,7 +2013,8 @@ export default function Radar() {
           payload.matches || [], 
           payload.scannerEnabled || false, 
           manualFixturesRef.current, 
-          bestCornerBridgeRef.current
+          bestCornerBridgeRef.current,
+          platformSnapshotsRef.current
         );
       }
     };
@@ -2025,7 +2030,7 @@ export default function Radar() {
       console.log('[CloudSync] 📡 Bridge data recebida via cloud:', payload.matchCount, 'jogos');
     });
 
-    const cleanupScanner = onCloudScannerData((matches, scannerEnabled, cloudManualFixtures, cloudBestCornerData) => {
+    const cleanupScanner = onCloudScannerData((matches, scannerEnabled, cloudManualFixtures, cloudBestCornerData, cloudPlatformSnapshots) => {
       setScannerMatches(matches);
       setScannerEnabled(scannerEnabled);
       if (cloudManualFixtures && cloudManualFixtures.length > 0) {
@@ -2033,6 +2038,9 @@ export default function Radar() {
       }
       if (cloudBestCornerData && Object.keys(cloudBestCornerData).length > 0) {
         setBestCornerBridge(cloudBestCornerData);
+      }
+      if (cloudPlatformSnapshots && Object.keys(cloudPlatformSnapshots).length > 0) {
+        setPlatformSnapshots(cloudPlatformSnapshots);
       }
       console.log('[CloudSync] 📡 Scanner/MobileData recebida via cloud:', matches.length, 'jogos');
     });
