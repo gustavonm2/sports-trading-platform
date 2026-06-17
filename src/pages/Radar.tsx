@@ -2290,6 +2290,13 @@ export default function Radar() {
                 const isExpanded = expandedFixtureId === f.id;
                 const homeScore = getScoreFinalForSide(f.id, true);
                 const awayScore = getScoreFinalForSide(f.id, false);
+                
+                let apmData: any = null;
+                if (s) {
+                  const unifiedSnapshots = [...(s.snapshots || []), ...(platformSnapshots[f.id] || [])].sort((a,b) => a.elapsed - b.elapsed);
+                  apmData = calculateDynamicAPM(unifiedSnapshots, getDisplayElapsed(f.id, f.elapsed, f.status), s.home.dangerousAttacks, s.away.dangerousAttacks, s);
+                }
+
                 return (
                   <div key={f.id} style={{ display: 'flex', flexDirection: 'column', padding: '12px 16px', background: 'var(--bg-surface)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                     <div 
@@ -2307,13 +2314,13 @@ export default function Radar() {
                         <div style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', background: 'var(--accent-glow)', border: '1px solid var(--accent-primary)', padding: '2px 6px', borderRadius: '4px', fontWeight: 800 }}>
                           ⭐ {homeScore.toFixed(1)} | {awayScore.toFixed(1)}
                         </div>
-                        {s && (
+                        {s && apmData && (
                           <>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
                               🚩 {s.home.corners} x {s.away.corners}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: '4px' }}>
-                              ATM Global: {s.home.apmGlobal || 0} x {s.away.apmGlobal || 0}
+                              ATM Global: {apmData.home.apmGlobal || 0} x {apmData.away.apmGlobal || 0}
                             </div>
                           </>
                         )}
@@ -2322,9 +2329,7 @@ export default function Radar() {
                         </div>
                       </div>
                     </div>
-                    {isExpanded && s && (() => {
-                      const unifiedSnapshots = [...(s.snapshots || []), ...(platformSnapshots[f.id] || [])].sort((a,b) => a.elapsed - b.elapsed);
-                      const apmData = calculateDynamicAPM(unifiedSnapshots, getDisplayElapsed(f.id, f.elapsed, f.status), s.home.dangerousAttacks, s.away.dangerousAttacks, s);
+                    {isExpanded && s && apmData && (() => {
                       const homeApm3 = apmData.home.apm3;
                       const awayApm3 = apmData.away.apm3;
                       return (
@@ -2332,17 +2337,17 @@ export default function Radar() {
                           <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 10</div>
                             <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
-                              <span style={{ color: 'var(--text-primary)' }}>{s.home.apm10 || 0}</span>
+                              <span style={{ color: 'var(--text-primary)' }}>{apmData.home.apm10 || 0}</span>
                               <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
-                              <span style={{ color: 'var(--text-primary)' }}>{s.away.apm10 || 0}</span>
+                              <span style={{ color: 'var(--text-primary)' }}>{apmData.away.apm10 || 0}</span>
                             </div>
                           </div>
                           <div style={{ background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>ATM 5</div>
                             <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>
-                              <span style={{ color: 'var(--text-primary)' }}>{s.home.apm5 || 0}</span>
+                              <span style={{ color: 'var(--text-primary)' }}>{apmData.home.apm5 || 0}</span>
                               <span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>x</span>
-                              <span style={{ color: 'var(--text-primary)' }}>{s.away.apm5 || 0}</span>
+                              <span style={{ color: 'var(--text-primary)' }}>{apmData.away.apm5 || 0}</span>
                             </div>
                           </div>
                           <div style={{ gridColumn: '1 / -1', background: 'var(--bg-elevated)', padding: '12px', borderRadius: '10px', textAlign: 'center' }}>
