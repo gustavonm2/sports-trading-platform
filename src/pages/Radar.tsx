@@ -5257,6 +5257,25 @@ export default function Radar() {
                                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'inline-block', animation: 'pulse 2s infinite' }}></span>
                                   ⚠️ SINAL PERDIDO
                                 </span>
+                              ) : (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (
+                                <a
+                                  href={(f as any).matchUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{ 
+                                    fontSize: '0.65rem', padding: '4px 10px', borderRadius: 6, 
+                                    background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', color: '#fff', fontWeight: 900,
+                                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    textDecoration: 'none', letterSpacing: '0.03em',
+                                    boxShadow: '0 0 8px rgba(26, 141, 26, 0.35)',
+                                    cursor: 'pointer', transition: 'all 0.2s ease'
+                                  }}
+                                  title="Abrir partida diretamente na Bet365"
+                                >
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', display: 'inline-block', boxShadow: '0 0 4px #4ade80' }}></span>
+                                  ⚽ Abrir Bet365
+                                </a>
                               ) : (
                                 <span style={{ 
                                   fontSize: '0.68rem', padding: '4px 10px', borderRadius: 6, 
