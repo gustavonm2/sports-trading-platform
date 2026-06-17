@@ -2356,6 +2356,31 @@ export default function Radar() {
                     {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {f.awayTeam.name}
                   </h3>
 
+                  {/* Botão Abrir Bet365 - Mobile */}
+                  {(() => {
+                    const mobileUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
+                      : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
+                        ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '')
+                        : '';
+                    return mobileUrl && mobileUrl.includes('bet365') ? (
+                      <a
+                        href={mobileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                          width: '100%', marginTop: '8px', padding: '10px',
+                          background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', color: '#fff',
+                          fontWeight: 900, fontSize: '0.8rem', borderRadius: '8px',
+                          textDecoration: 'none', letterSpacing: '0.03em',
+                          boxShadow: '0 2px 8px rgba(26, 141, 26, 0.35)'
+                        }}
+                      >
+                        ⚽ Abrir na Bet365
+                      </a>
+                    ) : null;
+                  })()}
+
                   <button 
                     onClick={() => setExpandedMobileId(isExpanded ? null : opp.id)}
                     style={{ width: '100%', marginTop: '12px', padding: '10px', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)', fontWeight: 600, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }}
@@ -2467,6 +2492,31 @@ export default function Radar() {
                         </div>
                       </div>
                     </div>
+                    {/* Botão Abrir Bet365 - Mobile Tabela */}
+                    {(() => {
+                      const tabUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
+                        : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
+                          ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '')
+                          : '';
+                      return tabUrl && tabUrl.includes('bet365') ? (
+                        <a
+                          href={tabUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                            width: '100%', marginTop: '8px', padding: '10px',
+                            background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', color: '#fff',
+                            fontWeight: 900, fontSize: '0.8rem', borderRadius: '8px',
+                            textDecoration: 'none', letterSpacing: '0.03em',
+                            boxShadow: '0 2px 8px rgba(26, 141, 26, 0.35)'
+                          }}
+                        >
+                          ⚽ Abrir na Bet365
+                        </a>
+                      ) : null;
+                    })()}
                     {isExpanded && s && apmData && (() => {
                       const homeApm3 = apmData.home.apm3;
                       const awayApm3 = apmData.away.apm3;
