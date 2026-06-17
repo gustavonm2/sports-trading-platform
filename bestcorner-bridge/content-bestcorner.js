@@ -463,13 +463,20 @@
             console.warn(`[BestCorner Bridge] Jogo ${homeTeamName}: Faltou âncora No Alvo/Ao Lado.`);
         }
 
+        // Extrair link da Bet365 do href da tag <a> que envolve o placar
+        let bet365Url = '';
+        const linkTag = scoreEl.closest('a');
+        if (linkTag && linkTag.href && linkTag.href.includes('bet365')) {
+          bet365Url = linkTag.href;
+        }
+
         const matchId = `match_${homeTeamName.replace(/\s+/g,'')}_${awayTeamName.replace(/\s+/g,'')}`;
 
         const matchData = {
           matchId: matchId,
           homeTeam: homeTeamName,
           awayTeam: awayTeamName,
-          matchUrl: '', // DO NOT use window.location.href, as it's the same for all matches on the scanner page
+          matchUrl: bet365Url,
           leagueName: leagueName,
           elapsed: elapsed,
           period: elapsed > 45 ? '2H' : '1H',

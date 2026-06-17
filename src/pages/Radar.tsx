@@ -2137,13 +2137,15 @@ export default function Radar() {
               const newGoalsAway = match.goalsAway !== undefined ? match.goalsAway : (ef.goalsAway || 0);
               const newStatus = match.period || ef.status;
               
-              if (ef.elapsed !== newElapsed || ef.goalsHome !== newGoalsHome || ef.goalsAway !== newGoalsAway || ef.status !== newStatus) {
+              const newMatchUrl = match.matchUrl || (ef as any).matchUrl || '';
+              if (ef.elapsed !== newElapsed || ef.goalsHome !== newGoalsHome || ef.goalsAway !== newGoalsAway || ef.status !== newStatus || ((ef as any).matchUrl || '') !== newMatchUrl) {
                 newFixtures[existingFixtureIndex] = {
                   ...ef,
                   elapsed: newElapsed,
                   goalsHome: newGoalsHome as number,
                   goalsAway: newGoalsAway as number,
-                  status: newStatus
+                  status: newStatus,
+                  matchUrl: newMatchUrl
                 };
                 changed = true;
               }
@@ -3548,7 +3550,7 @@ export default function Radar() {
                                       boxShadow: '0 0 8px rgba(239, 68, 68, 0.4)',
                                     }}>👑 DOMÍNIO {homeScore > awayScore ? 'CASA' : 'FORA'}</span>
                                   )}
-                                  {(f as any).matchUrl && (
+                                  {(f as any).matchUrl && (f as any).matchUrl.includes('bet365') && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                       <a 
                                         href={(f as any).matchUrl} 
@@ -3556,20 +3558,23 @@ export default function Radar() {
                                         rel="noopener noreferrer" 
                                         onClick={(e) => e.stopPropagation()}
                                         style={{ 
-                                          fontSize: '0.65rem', 
-                                          fontWeight: 800, 
-                                          color: '#3b82f6', 
-                                          background: 'rgba(59, 130, 246, 0.1)', 
-                                          padding: '2px 6px', 
+                                          fontSize: '0.6rem', 
+                                          fontWeight: 900, 
+                                          color: '#fff', 
+                                          background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', 
+                                          padding: '3px 8px', 
                                           borderRadius: '4px',
                                           textDecoration: 'none',
                                           display: 'inline-flex',
                                           alignItems: 'center',
-                                          gap: '2px'
+                                          gap: '3px',
+                                          letterSpacing: '0.03em',
+                                          boxShadow: '0 0 6px rgba(26, 141, 26, 0.4)',
+                                          transition: 'all 0.2s ease'
                                         }}
-                                        title="Abrir partida na Bet365 para ativar telemetria"
+                                        title="Abrir partida diretamente na Bet365"
                                       >
-                                        🔗 Conectar
+                                        ⚽ Abrir Bet365
                                       </a>
                                       <button
                                         onClick={(e) => {
