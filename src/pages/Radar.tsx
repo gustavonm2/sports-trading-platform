@@ -5107,6 +5107,18 @@ export default function Radar() {
                       const lastSnap = snaps[snaps.length - 1];
                       return (Date.now() - lastSnap.timestamp) > 3 * 60 * 1000;
                     })();
+
+                    // Resolver URL da Bet365 direto do bridge (fonte mais confiável)
+                    const bet365Url = (() => {
+                      // Primeiro: checar se o fixture já tem
+                      if ((f as any).matchUrl && (f as any).matchUrl.includes('bet365')) return (f as any).matchUrl;
+                      // Segundo: buscar no bestCornerBridge
+                      if (bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0) {
+                        const bm = findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches);
+                        if (bm && bm.matchUrl && bm.matchUrl.includes('bet365')) return bm.matchUrl;
+                      }
+                      return '';
+                    })();
                     
                     return (
                       <Fragment key={`group-scanner-${f.id}`}>
@@ -5257,9 +5269,9 @@ export default function Radar() {
                                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'inline-block', animation: 'pulse 2s infinite' }}></span>
                                   ⚠️ SINAL PERDIDO
                                 </span>
-                              ) : (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (
+                              ) : bet365Url ? (
                                 <a
-                                  href={(f as any).matchUrl}
+                                  href={bet365Url}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
