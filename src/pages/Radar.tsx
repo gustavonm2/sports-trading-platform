@@ -402,7 +402,12 @@ export default function Radar() {
 
   // 🎰 Bet365 Scanner state
   const [scannerMatches, setScannerMatches] = useState<ScannerMatch[]>([]);
+  const scannerMatchesRef = useRef<ScannerMatch[]>([]);
+  useEffect(() => { scannerMatchesRef.current = scannerMatches; }, [scannerMatches]);
+
   const [scannerEnabled, setScannerEnabled] = useState(false);
+  const scannerEnabledRef = useRef(false);
+  useEffect(() => { scannerEnabledRef.current = scannerEnabled; }, [scannerEnabled]);
   const scannerFixtureIdsRef = useRef<Set<string>>(new Set()); // track already-added scanner matches
 
   // 📥 Central de Jogos Manuais (Contorno de limite da API)
@@ -2012,6 +2017,16 @@ export default function Radar() {
           return changed ? newFixtures : prev;
         });
       }
+
+      // 📡 Operador → transmitir para a nuvem
+      markAsOperator();
+      broadcastScannerData(
+        scannerMatchesRef.current,
+        scannerEnabledRef.current,
+        manualFixturesRef.current,
+        payload,
+        platformSnapshotsRef.current
+      );
     });
 
     return cleanup;
