@@ -288,7 +288,7 @@ export default function Radar() {
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const [showMatchesTable, setShowMatchesTable] = useState(false);
-  const [scannerDropdownOpen, setScannerDropdownOpen] = useState(false);
+  // const [scannerDropdownOpen, setScannerDropdownOpen] = useState(false);
   const [fixtureSourceFilter, setFixtureSourceFilter] = useState<'all' | 'api' | 'bet365' | 'bestcorner' | 'favorites'>('all');
   const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>({ connected: false, isOperator: false, lastCloudData: null, activeDevices: 1 });
   const [alertFilter, setAlertFilter] = useState<'all' | 'entrada' | 'potencial'>('all');
@@ -354,7 +354,7 @@ export default function Radar() {
   
   // General status
   const [apiErrorReason, setApiErrorReason] = useState<'limit_reached' | 'invalid_key' | 'network_error' | null>(null);
-  const [activeDataSource, setActiveDataSource] = useState<'sportsmonks' | 'sofascore' | 'apisports_real' | 'apisports_simulated'>('apisports_real');
+  const [_activeDataSource, setActiveDataSource] = useState<'sportsmonks' | 'sofascore' | 'apisports_real' | 'apisports_simulated'>('apisports_real');
   const [isLockdown, setIsLockdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [countdown, setCountdown] = useState(25); // 25s scanner refresh
@@ -2222,51 +2222,7 @@ export default function Radar() {
     };
   }, []);
 
-  // 🎰 Função para adicionar jogo do Scanner como fixture manual (com nomes reais!)
-  const addScannerFixture = useCallback((match: ScannerMatch) => {
-    // Gerar ID determinístico a partir do matchKey
-    let hash = 0;
-    for (let i = 0; i < match.matchKey.length; i++) {
-      hash = (hash << 5) - hash + match.matchKey.charCodeAt(i);
-      hash |= 0;
-    }
-    const id = -Math.abs(hash);
 
-    // Verificar se já foi adicionado
-    if (scannerFixtureIdsRef.current.has(match.matchKey)) return;
-    if (manualFixtures.some(f => f.id === id)) return;
-    
-    // Anti-duplicação: verifica se já existe sob outra fonte (ex: bestcorner)
-    const cleanStr = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const mHome = cleanStr(match.homeTeam);
-    const mAway = cleanStr(match.awayTeam);
-    if (manualFixtures.some(f => {
-      const fHome = cleanStr(f.homeTeam?.name);
-      const fAway = cleanStr(f.awayTeam?.name);
-      return (fHome.includes(mHome) || mHome.includes(fHome)) && 
-             (fAway.includes(mAway) || mAway.includes(fAway));
-    })) return;
-
-    scannerFixtureIdsRef.current.add(match.matchKey);
-
-    const newFixture = {
-      id,
-      status: match.status || '1H',
-      elapsed: match.elapsed || 0,
-      homeTeam: { name: match.homeTeam },
-      awayTeam: { name: match.awayTeam },
-      goalsHome: match.homeGoals || 0,
-      goalsAway: match.awayGoals || 0,
-      leagueName: match.league || 'Bet365 Scanner',
-      matchUrl: '',
-      source: 'scanner' as const,
-      addedAt: Date.now()
-    } as any;
-
-    setManualFixtures(prev => [...prev, newFixture]);
-
-    console.log(`[Scanner] ➕ Fixture criada: ${match.homeTeam} vs ${match.awayTeam}. Abra na Bet365 para conectar a Bridge.`);
-  }, [manualFixtures]);
 
   // Separar fixtures por fonte: API vs Scanner vs BestCorner
   const scannerFixtures = useMemo(() => {
@@ -2787,41 +2743,6 @@ export default function Radar() {
 
         {/* Row 2: Badges + Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 8, flexWrap: 'wrap' }}>
-          {/* Status Connection Badges */}
-          {activeDataSource === 'sportsmonks' && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', border: '1px solid rgba(124, 58, 237, 0.2)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
-              <CheckCircle size={10} /> SPORTSMONKS
-            </span>
-          )}
-          {activeDataSource === 'sofascore' && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
-              <CheckCircle size={10} /> SOFASCORE LIVE
-            </span>
-          )}
-          {activeDataSource === 'apisports_real' && (
-            apiErrorReason === 'limit_reached' ? (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                <ShieldAlert size={10} /> API-SPORTS LIMITE
-              </span>
-            ) : (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'var(--status-green-glow)', color: 'var(--status-green)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                <CheckCircle size={10} /> API-SPORTS
-              </span>
-            )
-          )}
-          {activeDataSource !== 'apisports_real' && apiErrorReason === 'limit_reached' && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
-              <ShieldAlert size={10} /> API-SPORTS LIMITE
-            </span>
-          )}
-          {bet365Bridge?.connected && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)', fontSize: '0.65rem', padding: '3px 7px', borderRadius: 4, fontWeight: 700, whiteSpace: 'nowrap' }}>
-              🔗 BET365 ({bet365Bridge.matchCount})
-            </span>
-          )}
-
-          {/* Separator */}
-          <span style={{ width: 1, height: 18, background: 'var(--border-color)', margin: '0 4px', flexShrink: 0 }} />
 
           {/* Sound Toggle */}
           <button 
@@ -3025,245 +2946,7 @@ export default function Radar() {
 
 
 
-      {/* 🎰 Painel Scanner — Dropdown Fixo */}
-      <div style={{ marginBottom: 24 }}>
-        <button
-          onClick={() => scannerMatches.length > 0 && setScannerDropdownOpen(!scannerDropdownOpen)}
-          style={{
-            width: '100%',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '12px 20px',
-            borderRadius: scannerDropdownOpen ? '12px 12px 0 0' : 12,
-            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.06) 0%, rgba(139, 92, 246, 0.03) 100%)',
-            border: '1px solid rgba(168, 85, 247, 0.25)',
-            borderBottom: scannerDropdownOpen ? '1px solid rgba(168, 85, 247, 0.12)' : '1px solid rgba(168, 85, 247, 0.25)',
-            cursor: scannerMatches.length > 0 ? 'pointer' : 'default',
-            transition: 'all 0.2s ease',
-            outline: 'none',
-            boxShadow: '0 4px 20px rgba(168, 85, 247, 0.06)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: '1.1rem' }}>🎰</span>
-            <span style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-              Bet365 Scanner
-            </span>
-            {scannerMatches.length === 0 ? (
-              <span style={{ 
-                fontSize: '0.75rem', 
-                color: 'var(--text-muted)', 
-                fontWeight: 500 
-              }}>
-                — Nenhum jogo detectado
-              </span>
-            ) : (
-              <span className="badge" style={{ 
-                background: 'rgba(168, 85, 247, 0.15)', 
-                color: '#a855f7', 
-                fontWeight: 700, 
-                fontSize: '0.75rem',
-                padding: '3px 10px',
-                animation: 'pulse 2s ease-in-out infinite'
-              }}>
-                {scannerMatches.length} {scannerMatches.length === 1 ? 'jogo encontrado' : 'jogos encontrados'}
-              </span>
-            )}
-            {scannerEnabled && (
-              <span style={{ 
-                width: 8, height: 8, borderRadius: '50%', 
-                background: '#10b981', 
-                boxShadow: '0 0 6px #10b981',
-                flexShrink: 0
-              }} />
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {scannerMatches.length > 0 && (
-              <span style={{ 
-                fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 500 
-              }}>
-                {scannerDropdownOpen ? '▲ Fechar' : '▼ Ver jogos'}
-              </span>
-            )}
-            {/* Botão Limpar Travados */}
-            {manualFixtures.filter((f: any) => f.source === 'scanner').length > 0 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const scannerCount = manualFixtures.filter((f: any) => f.source === 'scanner').length;
-                  if (window.confirm(`🗑️ LIMPAR TUDO (${scannerCount} jogos)\n\nIsso remove TODOS os jogos do scanner e seus dados acumulados (stats, alertas, snapshots).\n\nJogos ativos serão re-adicionados do zero pelo scanner.`)) {
-                    // 1. Remover fixtures do scanner
-                    setManualFixtures(prev => prev.filter((f: any) => f.source !== 'scanner'));
-                    
-                    // 3. Limpar localStorage
-                    localStorage.removeItem('bet365_manual_fixtures');
-                    localStorage.removeItem('dismissed_fixture_ids');
-                    
-                    // 4. Limpar sessionStorage (telemetry snapshots)
-                    sessionStorage.removeItem('platform_telemetry_snapshots');
-                    
-                    // 5. Limpar TODOS os refs de tracking
-                    scannerFixtureIdsRef.current.clear();
-                    newFixtureIdsRef.current.clear();
-                    setNewFixtureIds(new Set());
-                    alertedIdsRef.current.clear();
-                    dismissedFixtureIdsRef.current.clear();
-                    setDismissedVersion(v => v + 1);
-                    scoreEmaRef.current = {};
-                    triggerStateRef.current = {};
-                    elapsedAnchorRef.current = {};
-                    
-                    // 6. Limpar snapshots de telemetria em memória
-                    setPlatformSnapshots({});
-                    
-                    // 7. Limpar oportunidades ativas
-                    setOpportunities([]);
-                    
-                    console.log(`[Scanner] 🗑️ LIMPEZA TOTAL: ${scannerCount} jogos + todos os dados associados`);
-                  }
-                }}
-                style={{
-                  background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)',
-                  borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
-                  fontSize: '0.65rem', fontWeight: 700, color: '#ef4444',
-                  display: 'flex', alignItems: 'center', gap: 4,
-                  whiteSpace: 'nowrap',
-                }}
-                title="Remove todos os jogos do scanner (jogos ativos serão re-adicionados)"
-              >
-                🗑️ Limpar
-              </button>
-            )}
-          </div>
-        </button>
 
-        {/* Dropdown com lista de jogos */}
-        {scannerDropdownOpen && scannerMatches.length > 0 && (
-          <div style={{
-            border: '1px solid rgba(168, 85, 247, 0.25)',
-            borderTop: 'none',
-            borderRadius: '0 0 12px 12px',
-            background: 'linear-gradient(180deg, rgba(168, 85, 247, 0.03) 0%, rgba(139, 92, 246, 0.01) 100%)',
-            padding: '12px 16px',
-            maxHeight: 350,
-            overflowY: 'auto',
-          }}>
-            {/* Botão Acompanhar Todos */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  scannerMatches.forEach(m => {
-                    if (!scannerFixtureIdsRef.current.has(m.matchKey)) {
-                      addScannerFixture(m);
-                    }
-                  });
-                }}
-                className="btn"
-                style={{
-                  fontSize: '0.75rem',
-                  padding: '5px 12px',
-                  borderRadius: 6,
-                  background: 'rgba(168, 85, 247, 0.12)',
-                  color: '#a855f7',
-                  border: '1px solid rgba(168, 85, 247, 0.3)',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-              >
-                ▶ Acompanhar Todos
-              </button>
-            </div>
-
-            {/* Lista agrupada por liga */}
-            {(() => {
-              const grouped: Record<string, ScannerMatch[]> = {};
-              scannerMatches.forEach(m => {
-                const league = m.league || 'Outros';
-                if (!grouped[league]) grouped[league] = [];
-                grouped[league].push(m);
-              });
-              
-              return Object.entries(grouped).map(([league, matches]) => (
-                <div key={league} style={{ marginBottom: 10 }}>
-                  <div style={{ 
-                    fontSize: '0.7rem', 
-                    fontWeight: 700, 
-                    color: '#a855f7', 
-                    textTransform: 'uppercase',
-                    marginBottom: 4,
-                    letterSpacing: '0.03em'
-                  }}>
-                    🏆 {league}
-                  </div>
-                  {matches.map(match => {
-                    const isAdded = scannerFixtureIdsRef.current.has(match.matchKey);
-                    return (
-                      <div 
-                        key={match.matchKey}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '6px 10px',
-                          borderRadius: 6,
-                          background: isAdded ? 'rgba(16, 185, 129, 0.06)' : 'rgba(255,255,255,0.02)',
-                          border: `1px solid ${isAdded ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)'}`,
-                          marginBottom: 3,
-                          transition: 'all 0.2s'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-                          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', minWidth: 180 }}>
-                            {match.homeTeam} <span style={{ color: 'var(--text-muted)', margin: '0 3px' }}>vs</span> {match.awayTeam}
-                          </span>
-                          <span style={{ 
-                            fontSize: '0.8rem', fontWeight: 800, 
-                            color: 'var(--text-primary)',
-                            background: 'rgba(255,255,255,0.06)',
-                            padding: '1px 6px', borderRadius: 4,
-                            minWidth: 36, textAlign: 'center'
-                          }}>
-                            {match.homeGoals} - {match.awayGoals}
-                          </span>
-                          <span style={{ 
-                            fontSize: '0.7rem', 
-                            color: match.status === 'HT' ? '#f59e0b' : '#10b981',
-                            fontWeight: 600
-                          }}>
-                            {match.timer || `${match.elapsed}'`} {match.status}
-                          </span>
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); !isAdded && addScannerFixture(match); }}
-                          disabled={isAdded}
-                          style={{
-                            fontSize: '0.7rem',
-                            padding: '3px 10px',
-                            borderRadius: 5,
-                            background: isAdded ? 'rgba(16, 185, 129, 0.1)' : 'rgba(168, 85, 247, 0.1)',
-                            color: isAdded ? '#10b981' : '#a855f7',
-                            border: `1px solid ${isAdded ? 'rgba(16, 185, 129, 0.3)' : 'rgba(168, 85, 247, 0.3)'}`,
-                            fontWeight: 700,
-                            cursor: isAdded ? 'default' : 'pointer',
-                            transition: 'all 0.2s',
-                            minWidth: 90
-                          }}
-                        >
-                          {isAdded ? '✅ Adicionado' : '▶ Acompanhar'}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ));
-            })()}
-          </div>
-        )}
-      </div>
 
       {/* Seletor de Partidas Ativas (Dropdown / Tabela Collapsible) */}
       <div style={{ marginBottom: 24 }}>

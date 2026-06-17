@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar, 
   Shield, TrendingUp, CheckCircle, Clock, Download, Brain,
   Bell, ChevronDown, ChevronUp, Goal, CornerDownRight, Trophy,
-  Menu, X
+  Menu, X, LogOut
 } from 'lucide-react';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { supabase } from '../services/supabase';
@@ -420,14 +420,14 @@ export default function Layout() {
           </span>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <a 
-              href="/bet365-bridge.zip"
-              download="bet365-bridge.zip"
+              href="/bestcorner-bridge.zip"
+              download="bestcorner-bridge.zip"
               className="nav-item"
               style={{ textDecoration: 'none' }}
               onClick={closeSidebar}
             >
               <Download size={18} />
-              Bet365 Bridge
+              BestCorner Bridge
               <span style={{ 
                 marginLeft: 'auto', 
                 fontSize: '0.6rem', 
@@ -439,6 +439,30 @@ export default function Layout() {
                 lineHeight: 1.3
               }}>DOWNLOAD</span>
             </a>
+            
+            <button
+              onClick={() => {
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('user_name');
+                localStorage.removeItem('user_role');
+                window.location.href = '/login';
+              }}
+              className="nav-item"
+              style={{
+                width: '100%',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'left',
+                color: '#ef4444',
+                fontFamily: 'inherit',
+                fontSize: 'inherit',
+                marginTop: 8
+              }}
+            >
+              <LogOut size={18} />
+              Sair
+            </button>
           </nav>
         </div>
 
