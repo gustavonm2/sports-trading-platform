@@ -497,42 +497,45 @@
           const cleanAway = m.awayTeam.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
           const uniqueKey = `${STORAGE_KEY_PREFIX}${cleanHome}_${cleanAway}`;
           payload[uniqueKey] = m;
-
-          // --- SUPABASE SYNC ---
-          if (isMasterCapturing[m.matchId] === undefined) {
-            attemptTakeover(m.matchId).then(() => {
-              sendTelemetrySnapshot(m);
-            });
-          } else {
-            sendTelemetrySnapshot(m);
-          }
-          // ---------------------
         });
 
-        // --- SUPABASE: DETECTAR FIM DE JOGO (Jogo sumiu da tela) ---
-        const currentlyActiveMatchIds = bridgeMatches.map(m => m.matchId);
-        Object.keys(isMasterCapturing).forEach(id => {
-          if (isMasterCapturing[id] && !currentlyActiveMatchIds.includes(id)) {
-            fetch(`${SUPABASE_URL}/rest/v1/active_captures?fixture_id=eq.${id}`, {
-              method: 'PATCH',
-              headers: {
-                'apikey': SUPABASE_KEY,
-                'Authorization': `Bearer ${SUPABASE_KEY}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ status: 'finished', updated_at: new Date().toISOString() })
-            }).then(() => {
-              delete isMasterCapturing[id];
-              console.log(`[Bridge] Partida ${id} sumiu e foi marcada como finalizada no Supabase.`);
-            });
-          }
-        });
-        // -----------------------------------------------------------
-
-        // Clear old storage before setting new to avoid ghost matches?
-        // Let's just set. The bridge handles timestamps.
+        // PRIORIDADE 1: Sempre salvar no chrome.storage.local (alimenta a telemetria local)
         chrome.storage.local.set(payload);
         console.log(`[BestCorner Bridge] Encontrados ${bridgeMatches.length} jogos.`);
+
+        // PRIORIDADE 2: Supabase sync (só se for mestre, nunca bloqueia o fluxo principal)
+        try {
+          bridgeMatches.forEach(m => {
+            if (isMasterCapturing[m.matchId] === undefined) {
+              attemptTakeover(m.matchId).then(() => {
+                sendTelemetrySnapshot(m);
+              }).catch(() => {});
+            } else {
+              sendTelemetrySnapshot(m);
+            }
+          });
+
+          // Detectar fim de jogo (jogo sumiu da tela)
+          const currentlyActiveMatchIds = bridgeMatches.map(m => m.matchId);
+          Object.keys(isMasterCapturing).forEach(id => {
+            if (isMasterCapturing[id] && !currentlyActiveMatchIds.includes(id)) {
+              fetch(`${SUPABASE_URL}/rest/v1/active_captures?fixture_id=eq.${id}`, {
+                method: 'PATCH',
+                headers: {
+                  'apikey': SUPABASE_KEY,
+                  'Authorization': `Bearer ${SUPABASE_KEY}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ status: 'finished', updated_at: new Date().toISOString() })
+              }).then(() => {
+                delete isMasterCapturing[id];
+                console.log(`[Bridge] Partida ${id} sumiu e foi marcada como finalizada no Supabase.`);
+              }).catch(() => {});
+            }
+          });
+        } catch (syncErr) {
+          console.warn('[Bridge] Erro no sync Supabase (não afeta telemetria local):', syncErr);
+        }
       }
 
     } catch (err) {
