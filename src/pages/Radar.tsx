@@ -6259,6 +6259,11 @@ export default function Radar() {
                                                   <line x1={padL} y1={padT} x2={padL} y2={padT + plotH} stroke="var(--border-color)" strokeWidth="1" />
                                                   <line x1={padL} y1={padT + plotH} x2={chartW - padR} y2={padT + plotH} stroke="var(--border-color)" strokeWidth="1" />
                                                 </svg>
+                                                <TimelineEventList 
+                                                  events={platformEvents[f.id]} 
+                                                  homeTeamName={f.homeTeam.name} 
+                                                  awayTeamName={f.awayTeam.name} 
+                                                />
                                               </div>
 
                                               {/* RIGHT: APM Cards + IPR */}
@@ -6376,11 +6381,6 @@ export default function Radar() {
                                                 </div>
                                               </div>
                                             </div>
-                                            <TimelineEventList 
-                                              events={platformEvents[f.id]} 
-                                              homeTeamName={f.homeTeam.name} 
-                                              awayTeamName={f.awayTeam.name} 
-                                            />
                                             </>
                                           );
                                         })()}
