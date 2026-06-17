@@ -1964,7 +1964,7 @@ export default function Radar() {
             const mHome = cleanStr(match.homeTeam);
             const mAway = cleanStr(match.awayTeam);
             
-            const alreadyExists = prev.some(f => {
+            const existingFixtureIndex = prev.findIndex(f => {
               if (f.id === id) return true;
               const fHome = cleanStr(f.homeTeam?.name);
               const fAway = cleanStr(f.awayTeam?.name);
@@ -1972,7 +1972,7 @@ export default function Radar() {
                      (fAway.includes(mAway) || mAway.includes(fAway));
             });
 
-            if (!alreadyExists) {
+            if (existingFixtureIndex === -1) {
               newFixtures.push({
                 id,
                 status: match.period || (match.elapsed && match.elapsed > 45 ? '2H' : '1H'),
@@ -1988,6 +1988,24 @@ export default function Radar() {
               } as any);
               changed = true;
               console.log(`[BestCorner Scanner] ➕ Jogo injetado automaticamente: ${match.homeTeam} vs ${match.awayTeam}`);
+            } else {
+              // Update existing fixture elapsed time, goals, status so telemetry can progress
+              const ef = newFixtures[existingFixtureIndex];
+              const newElapsed = Math.max(ef.elapsed || 0, match.elapsed || 0);
+              const newGoalsHome = match.goalsHome !== undefined ? match.goalsHome : ef.goalsHome;
+              const newGoalsAway = match.goalsAway !== undefined ? match.goalsAway : ef.goalsAway;
+              const newStatus = match.period || ef.status;
+              
+              if (ef.elapsed !== newElapsed || ef.goalsHome !== newGoalsHome || ef.goalsAway !== newGoalsAway || ef.status !== newStatus) {
+                newFixtures[existingFixtureIndex] = {
+                  ...ef,
+                  elapsed: newElapsed,
+                  goalsHome: newGoalsHome,
+                  goalsAway: newGoalsAway,
+                  status: newStatus
+                };
+                changed = true;
+              }
             }
           });
 
