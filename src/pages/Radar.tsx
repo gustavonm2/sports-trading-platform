@@ -3478,6 +3478,14 @@ export default function Radar() {
                                       boxShadow: '0 0 8px rgba(16, 185, 129, 0.4)',
                                     }}>🆕 NOVO</span>
                                   )}
+                                  {Math.abs(homeScore - awayScore) >= 2.0 && (
+                                    <span style={{
+                                      fontSize: '0.55rem', fontWeight: 900, color: '#fff',
+                                      background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+                                      padding: '2px 8px', borderRadius: 4, letterSpacing: '0.05em',
+                                      boxShadow: '0 0 8px rgba(239, 68, 68, 0.4)',
+                                    }}>👑 DOMÍNIO {homeScore > awayScore ? 'CASA' : 'FORA'}</span>
+                                  )}
                                   {(f as any).matchUrl && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                       <a 
@@ -5059,8 +5067,16 @@ export default function Radar() {
                                 ⭐
                               </button>
                               <div>
-                                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
-                                  {f.homeTeam?.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>vs</span> {f.awayTeam?.name}
+                                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                  <span>{f.homeTeam?.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>vs</span> {f.awayTeam?.name}</span>
+                                  {Math.abs(homeScore - awayScore) >= 2.0 && (
+                                    <span style={{
+                                      fontSize: '0.55rem', fontWeight: 900, color: '#fff',
+                                      background: 'linear-gradient(135deg, #ef4444, #b91c1c)',
+                                      padding: '2px 8px', borderRadius: 4, letterSpacing: '0.05em',
+                                      boxShadow: '0 0 8px rgba(239, 68, 68, 0.4)',
+                                    }}>👑 DOMÍNIO {homeScore > awayScore ? 'CASA' : 'FORA'}</span>
+                                  )}
                                 </div>
                                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, marginTop: 2, textTransform: 'uppercase' }}>
                                   {(f as any).leagueName || 'Scanner'}
