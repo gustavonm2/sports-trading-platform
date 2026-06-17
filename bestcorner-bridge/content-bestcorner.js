@@ -13,11 +13,28 @@
   // --- INTEGRAÇÃO SUPABASE CENTRAL (REST API) ---
   const SUPABASE_URL = 'https://kpldcqujhpcihpdlzpeh.supabase.co';
   const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwbGRjcXVqaHBjaWhwZGx6cGVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNTIyMTAsImV4cCI6MjA5NTcyODIxMH0.zfpSeKGm-RF0bvbj-H-yVm4it9qZNzBOX7KjrjieGfs';
-  const MASTER_USER_ID = 'master_' + Math.random().toString(36).substring(7); // Cada aba aberta terá um ID único de mestre
+  
+  let MASTER_USER_ID = null;
+  let IS_VALID_MASTER = false;
   const SOURCE = 'bestcorner';
   const isMasterCapturing = {}; // matchId -> boolean
 
+  function checkMasterLogin() {
+    chrome.storage.local.get(['platform_auth_token', 'platform_user_role'], (res) => {
+      if (res.platform_auth_token && res.platform_user_role === 'mestre') {
+        MASTER_USER_ID = res.platform_auth_token;
+        IS_VALID_MASTER = true;
+      } else {
+        MASTER_USER_ID = null;
+        IS_VALID_MASTER = false;
+      }
+    });
+  }
+  checkMasterLogin();
+  setInterval(checkMasterLogin, 5000);
+
   async function attemptTakeover(matchId) {
+    if (!IS_VALID_MASTER) return false;
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/active_captures?fixture_id=eq.${matchId}&select=*`, {
         headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }

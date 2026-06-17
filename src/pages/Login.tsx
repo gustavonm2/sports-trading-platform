@@ -33,6 +33,7 @@ const Login: React.FC = () => {
       // Auto-login after registration
       localStorage.setItem('auth_token', data.id.toString());
       localStorage.setItem('user_name', data.nome);
+      localStorage.setItem('user_role', data.role || 'viewer');
       navigate('/dashboard');
     } else {
       // Login
@@ -50,6 +51,7 @@ const Login: React.FC = () => {
       
       localStorage.setItem('auth_token', data.id.toString());
       localStorage.setItem('user_name', data.nome);
+      localStorage.setItem('user_role', data.role || 'viewer');
       navigate('/dashboard');
     }
   };

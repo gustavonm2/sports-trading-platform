@@ -24,6 +24,20 @@
         return;
       }
 
+      // --- SUPABASE SYNC MASTER ---
+      // Lemos o localStorage da aba do React e salvamos na extensão para o BestCorner usar
+      try {
+        const token = window.localStorage.getItem('auth_token');
+        const role = window.localStorage.getItem('user_role');
+        if (token && role) {
+          chrome.storage.local.set({
+            platform_auth_token: token,
+            platform_user_role: role
+          });
+        }
+      } catch(e) {}
+      // ----------------------------
+
       const now = Date.now();
       const bridgeMatches = [];
 
