@@ -2289,6 +2289,8 @@ export default function Radar() {
     .filter(opp => {
       // Exclude dismissed fixtures
       if (dismissedFixtureIdsRef.current.has(opp.fixtureId)) return false;
+      // Quando estiver na aba FAVORITOS, só mostrar entradas de jogos favoritos
+      if (fixtureSourceFilter === 'favorites' && !favoriteFixtureIds.has(opp.fixtureId)) return false;
       if (marketFilter === 'corners') {
         return opp.strategyName === 'Canto Limite';
       }
@@ -2296,7 +2298,7 @@ export default function Radar() {
         return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito';
       }
       return true;
-    }), [opportunities, marketFilter, dismissedVersion]);
+    }), [opportunities, marketFilter, dismissedVersion, fixtureSourceFilter, favoriteFixtureIds]);
   // 📱 --- MOBILE APP VIEW ---
   if (isMobile) {
     return (
@@ -6852,6 +6854,7 @@ export default function Radar() {
                   const potentialAlerts = allFixtures.filter(f => {
                     const s = allStats[f.id];
                     if (!s) return false;
+                    if (fixtureSourceFilter === 'favorites' && !favoriteFixtureIds.has(f.id)) return false;
                     const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
                     const triggerThreshold = cornerTriggerThreshold;
                     const potentialThreshold = triggerThreshold - 1.0;
@@ -7008,6 +7011,8 @@ export default function Radar() {
               .filter(f => {
                 const s = allStats[f.id];
                 if (!s) return false;
+                // Quando estiver na aba FAVORITOS, só mostrar potencial de jogos favoritos
+                if (fixtureSourceFilter === 'favorites' && !favoriteFixtureIds.has(f.id)) return false;
                 const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
                 const triggerThreshold = cornerTriggerThreshold;
                 const potentialThreshold = triggerThreshold - 1.0;
@@ -7103,6 +7108,7 @@ export default function Radar() {
             {alertFilter === 'potencial' && allFixtures.filter(f => {
               const s = allStats[f.id];
               if (!s || (!s.hasTelemetry && !s.hasBridge)) return false;
+              if (fixtureSourceFilter === 'favorites' && !favoriteFixtureIds.has(f.id)) return false;
               const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
               const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
               const hR = s.home.iim / thRef; const aR = s.away.iim / thRef;
