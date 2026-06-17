@@ -934,6 +934,68 @@ export default function Radar() {
     platformSnapshotsRef.current = platformSnapshots;
   }, [platformSnapshots]);
 
+  // --- INTEGRAÇÃO SUPABASE: TELEMETRIA CENTRALIZADA ---
+  useEffect(() => {
+    // 1. Buscar histórico existente
+    const fetchHistory = async () => {
+      try {
+        const { data, error } = await supabase.from('telemetry_snapshots').select('*');
+        if (error) throw error;
+        if (data) {
+          setPlatformSnapshots(prev => {
+            const next = { ...prev };
+            data.forEach(snap => {
+              const fixId = Number(snap.fixture_id);
+              if (!next[fixId]) next[fixId] = [];
+              if (!next[fixId].some(s => s.elapsed === snap.elapsed)) {
+                next[fixId].push({
+                  elapsed: snap.elapsed,
+                  homeDA: snap.home_da,
+                  awayDA: snap.away_da,
+                  timestamp: new Date(snap.created_at).getTime()
+                });
+              }
+            });
+            Object.keys(next).forEach(key => {
+              next[Number(key)].sort((a, b) => a.elapsed - b.elapsed);
+            });
+            return next;
+          });
+        }
+      } catch (err) {
+        console.warn("Supabase: telemetry_snapshots ainda não existe ou sem acesso", err);
+      }
+    };
+    
+    fetchHistory();
+
+    // 2. Inscrever-se para novos snapshots em tempo real
+    const channel = supabase.channel('telemetry_sync')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'telemetry_snapshots' }, (payload) => {
+        const snap = payload.new;
+        const fixId = Number(snap.fixture_id);
+        setPlatformSnapshots(prev => {
+          const next = { ...prev };
+          if (!next[fixId]) next[fixId] = [];
+          if (!next[fixId].some(s => s.elapsed === snap.elapsed)) {
+            next[fixId] = [...next[fixId], {
+              elapsed: snap.elapsed,
+              homeDA: snap.home_da,
+              awayDA: snap.away_da,
+              timestamp: new Date(snap.created_at).getTime()
+            }].sort((a, b) => a.elapsed - b.elapsed);
+          }
+          return next;
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+  // ----------------------------------------------------
+
   // Salvar platformSnapshots no localStorage sempre que atualizados
   useEffect(() => {
     try {
@@ -5033,6 +5095,14 @@ export default function Radar() {
                       homeScore >= potentialThreshold || awayScore >= potentialThreshold
                     );
                     
+                    const isSignalLost = (() => {
+                      if (f.elapsed < 90) return false;
+                      const snaps = platformSnapshots[f.id];
+                      if (!snaps || snaps.length === 0) return false;
+                      const lastSnap = snaps[snaps.length - 1];
+                      return (Date.now() - lastSnap.timestamp) > 3 * 60 * 1000;
+                    })();
+                    
                     return (
                       <Fragment key={`group-scanner-${f.id}`}>
                         <tr 
@@ -5173,14 +5243,25 @@ export default function Radar() {
                           {/* Status + Botão Abrir Link */}
                           <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                             {stats && (stats.hasTelemetry || stats.hasBridge) ? (
-                              <span style={{ 
-                                fontSize: '0.68rem', padding: '4px 10px', borderRadius: 6, 
-                                background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 800,
-                                display: 'inline-flex', alignItems: 'center', gap: 4
-                              }}>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
-                                CONECTADO
-                              </span>
+                              isSignalLost ? (
+                                <span style={{ 
+                                  fontSize: '0.68rem', padding: '4px 10px', borderRadius: 6, 
+                                  background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', fontWeight: 800,
+                                  display: 'inline-flex', alignItems: 'center', gap: 4
+                                }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', display: 'inline-block', animation: 'pulse 2s infinite' }}></span>
+                                  ⚠️ SINAL PERDIDO
+                                </span>
+                              ) : (
+                                <span style={{ 
+                                  fontSize: '0.68rem', padding: '4px 10px', borderRadius: 6, 
+                                  background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', fontWeight: 800,
+                                  display: 'inline-flex', alignItems: 'center', gap: 4
+                                }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+                                  CONECTADO
+                                </span>
+                              )
                             ) : (
                               <button
                                 onClick={(e) => {
