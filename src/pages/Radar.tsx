@@ -3840,51 +3840,32 @@ export default function Radar() {
                                 <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'var(--status-green-glow)', color: 'var(--status-green)', animation: 'pulse 2s ease-in-out infinite' }}>
                                   ⚡ GATILHO ATIVO
                                 </span>
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
-                                  {getEnabledBookmakers().map(bk => (
-                                    <a
-                                      key={bk.id}
-                                      href={bk.liveUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{
-                                        fontSize: '0.6rem', fontWeight: 800,
-                                        color: bk.color, background: bk.bgColor,
-                                        padding: '2px 6px', borderRadius: 4,
-                                        textDecoration: 'none', border: `1px solid ${bk.color}30`,
-                                        transition: 'all 0.15s ease'
-                                      }}
-                                      title={`Abrir ${bk.name} ao vivo`}
-                                    >
-                                      {bk.logo} {bk.shortName}
-                                    </a>
-                                  ))}
-                                </div>
+                                {(() => {
+                                  const gUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
+                                    : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
+                                      ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '') : '';
+                                  return gUrl && gUrl.includes('bet365') ? (
+                                    <a href={gUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                                      style={{ fontSize: '0.6rem', fontWeight: 900, color: '#fff', background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', padding: '3px 8px', borderRadius: 4, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3, boxShadow: '0 0 6px rgba(26,141,26,0.4)' }}
+                                    >⚽ Abrir Bet365</a>
+                                  ) : null;
+                                })()}
                               </div>
                             ) : hasPotential ? (
                               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
                                 <span className="badge" style={{ fontSize: '0.7rem', fontWeight: 800, padding: '4px 8px', background: 'rgba(245, 158, 11, 0.12)', color: 'var(--status-yellow)' }}>
                                   🔥 POTENCIAL
                                 </span>
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
-                                  {getEnabledBookmakers().slice(0, 3).map(bk => (
-                                    <a
-                                      key={bk.id}
-                                      href={bk.liveUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{
-                                        fontSize: '0.55rem', fontWeight: 700,
-                                        color: bk.color, background: bk.bgColor,
-                                        padding: '1px 5px', borderRadius: 3,
-                                        textDecoration: 'none', opacity: 0.8
-                                      }}
-                                      title={`Preparar no ${bk.name}`}
-                                    >
-                                      {bk.logo} {bk.shortName}
-                                    </a>
-                                  ))}
-                                </div>
+                                {(() => {
+                                  const pUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
+                                    : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
+                                      ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '') : '';
+                                  return pUrl && pUrl.includes('bet365') ? (
+                                    <a href={pUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                                      style={{ fontSize: '0.55rem', fontWeight: 900, color: '#fff', background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', padding: '2px 6px', borderRadius: 3, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3, boxShadow: '0 0 4px rgba(26,141,26,0.3)' }}
+                                    >⚽ Abrir Bet365</a>
+                                  ) : null;
+                                })()}
                               </div>
                             ) : (
                               <span className="badge" style={{ fontSize: '0.7rem', background: 'var(--bg-elevated)', color: 'var(--text-secondary)', padding: '4px 8px', fontWeight: 600 }}>
@@ -6992,12 +6973,16 @@ export default function Radar() {
                   {/* Links + Ação */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {getEnabledBookmakers().map(bk => (
-                        <a key={bk.id} href={bk.liveUrl} target="_blank" rel="noopener noreferrer"
-                          style={{ fontSize: '0.65rem', fontWeight: 800, color: bk.color, background: bk.bgColor, padding: '3px 8px', borderRadius: 5, textDecoration: 'none', border: `1px solid ${bk.color}30` }}
-                          title={`Abrir ${bk.name}`}
-                        >{bk.logo} {bk.shortName}</a>
-                      ))}
+                      {(() => {
+                        const eUrl = (opp.match as any).matchUrl && (opp.match as any).matchUrl.includes('bet365') ? (opp.match as any).matchUrl
+                          : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
+                            ? (findBet365Match(opp.match.homeTeam.name, opp.match.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '') : '';
+                        return eUrl && eUrl.includes('bet365') ? (
+                          <a href={eUrl} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: '0.65rem', fontWeight: 900, color: '#fff', background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', padding: '4px 10px', borderRadius: 5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, boxShadow: '0 0 6px rgba(26,141,26,0.4)' }}
+                          >⚽ Abrir Bet365</a>
+                        ) : null;
+                      })()}
                     </div>
                     <button onClick={() => handleRecusar(opp)} className="btn btn-outline"
                       style={{ padding: '6px 12px', fontSize: '0.7rem', fontWeight: 700,
@@ -7088,14 +7073,18 @@ export default function Radar() {
                       </div>
                     </div>
 
-                    {/* Links rápidos */}
+                    {/* Link direto Bet365 */}
                     <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                      {getEnabledBookmakers().slice(0, 3).map(bk => (
-                        <a key={bk.id} href={bk.liveUrl} target="_blank" rel="noopener noreferrer"
-                          style={{ fontSize: '0.6rem', fontWeight: 700, color: bk.color, background: bk.bgColor, padding: '2px 6px', borderRadius: 4, textDecoration: 'none', opacity: 0.85 }}
-                          title={`Preparar no ${bk.name}`}
-                        >{bk.logo} {bk.shortName}</a>
-                      ))}
+                      {(() => {
+                        const potUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
+                          : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
+                            ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '') : '';
+                        return potUrl && potUrl.includes('bet365') ? (
+                          <a href={potUrl} target="_blank" rel="noopener noreferrer"
+                            style={{ fontSize: '0.6rem', fontWeight: 900, color: '#fff', background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', padding: '3px 8px', borderRadius: 4, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3, boxShadow: '0 0 6px rgba(26,141,26,0.4)' }}
+                          >⚽ Abrir Bet365</a>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
                 );
