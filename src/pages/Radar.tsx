@@ -3,7 +3,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { useSearchParams } from 'react-router-dom';
 import { 
   Activity, Zap, ShieldAlert, Shield,
-  RefreshCw, CheckCircle, PlayCircle,
+  RefreshCw, CheckCircle,
   Volume2, VolumeX, Bell, TrendingUp, Gauge,
   ChevronDown, ChevronUp, Filter
 } from 'lucide-react';
@@ -13,7 +13,7 @@ import { sportsmonks } from '../services/sportsmonks';
 import { sofascore } from '../services/sofascore';
 import type { Fixture, PreMatchDossier, TelemetrySnapshot } from '../services/apiSports';
 import { supabase } from '../services/supabase';
-import { getEnabledBookmakers } from '../config/bookmakers';
+
 import { onBet365Data, findBet365Match, mergeStats, calculateEnrichedIIM, calculateDynamicAPM } from '../services/bet365Bridge';
 import type { Bet365BridgePayload, Bet365MatchData } from '../services/bet365Bridge';
 import { onBestCornerData } from '../services/bestCornerBridge';
@@ -380,7 +380,7 @@ export default function Radar() {
     } catch { /* ignore */ }
     setDismissedVersion(v => v + 1);
   }, []);
-  const [defaultStake, setDefaultStake] = useState<number>(() => {
+  const [defaultStake, _setDefaultStake] = useState<number>(() => {
     const saved = localStorage.getItem('trade_default_stake');
     return saved ? Number(saved) : 200;
   });
@@ -2146,7 +2146,7 @@ export default function Radar() {
                   goalsAway: newGoalsAway as number,
                   status: newStatus,
                   matchUrl: newMatchUrl
-                };
+                } as any;
                 changed = true;
               }
             }
