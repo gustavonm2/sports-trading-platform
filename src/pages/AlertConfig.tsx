@@ -449,7 +449,7 @@ export default function AlertConfig() {
         `  🔻 Funil: ${config.strategyFunil ? '✅' : '❌'}`,
         '',
         `📊 Confiança ≥ ${config.minConfidence}% · Score ≥ ${config.minScore}`,
-        `⏱️ ${config.minMinute}' – ${config.maxMinute}' (${config.period === 'both' ? 'Ambos' : config.period.toUpperCase()})`,
+        `⏱️ Respeitando as janelas de tempo globais do sistema.`,
         '',
         '✅ Conexão OK! Alertas serão enviados aqui.',
       ];
@@ -519,48 +519,6 @@ export default function AlertConfig() {
         </div>
       </div>
 
-      {/* ── 3. Filtro de Tempo ─────────────────────────────────── */}
-      <div style={s.section}>
-        <h2 style={s.sectionTitle}>⏱️ Filtro de Tempo</h2>
-        <div style={s.card}>
-          <div style={s.periodGroup}>
-            {(['1h', '2h', 'both'] as const).map((p) => {
-              const labels = { '1h': '1H', '2h': '2H', both: 'Ambos' };
-              return (
-                <button
-                  key={p}
-                  style={s.periodBtn(config.period === p)}
-                  onClick={() => update({ period: p })}
-                >
-                  {labels[p]}
-                </button>
-              );
-            })}
-          </div>
-
-          <SliderRow
-            label="Minuto mínimo"
-            value={config.minMinute}
-            min={0}
-            max={45}
-            step={1}
-            format={(v) => `${v}'`}
-            accentColor="var(--status-yellow)"
-            onChange={(v) => update({ minMinute: v })}
-          />
-          <SliderRow
-            label="Minuto máximo"
-            value={config.maxMinute}
-            min={45}
-            max={90}
-            step={1}
-            format={(v) => `${v}'`}
-            accentColor="var(--status-yellow)"
-            onChange={(v) => update({ maxMinute: v })}
-            isLast
-          />
-        </div>
-      </div>
 
       {/* ── 4. Filtro de Métricas ─────────────────────────────── */}
       <div style={s.section}>

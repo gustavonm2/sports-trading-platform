@@ -161,13 +161,6 @@ function passesFilters(opp: TelegramAlertOpp): boolean {
   // 4. Youth league filter
   if (cfg.excludeYouth && isYouthLeague(match.leagueName)) return false;
 
-  // 5. Period filter
-  if (cfg.period === '1h' && match.status !== '1H') return false;
-  if (cfg.period === '2h' && match.status !== '2H') return false;
-
-  // 6. Minute range filter
-  if (match.elapsed < cfg.minMinute || match.elapsed > cfg.maxMinute) return false;
-
   // 7. Goal difference filter
   const goalDiff = Math.abs(match.goalsHome - match.goalsAway);
   if (goalDiff > cfg.maxGoalDifference) return false;
