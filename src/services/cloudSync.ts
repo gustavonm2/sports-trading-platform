@@ -21,7 +21,7 @@ export interface CloudSyncStatus {
 }
 
 type BridgeCallback = (payload: any) => void;
-type ScannerCallback = (matches: any[], scannerEnabled: boolean, manualFixtures: any[], bestCornerData: any, platformSnapshots: any) => void;
+type ScannerCallback = (matches: any[], scannerEnabled: boolean, manualFixtures: any[], bestCornerData: any, platformSnapshots: any, sentAlertIds?: string[]) => void;
 
 // ─── Estado interno ───
 
@@ -43,7 +43,8 @@ let _lastScannerData = {
   scannerEnabled: false,
   manualFixtures: [] as any[],
   bestCornerData: {} as any,
-  platformSnapshots: {} as any
+  platformSnapshots: {} as any,
+  sentAlertIds: [] as string[]
 };
 let _hasLoadedInitialData = false;
 
@@ -150,9 +151,12 @@ function processCloudData(data: any): void {
     if (scannerPayload.platformSnapshots !== undefined && scannerPayload.platformSnapshots !== null) {
       _lastScannerData.platformSnapshots = scannerPayload.platformSnapshots;
     }
+    if (scannerPayload.sentAlertIds !== undefined && scannerPayload.sentAlertIds !== null) {
+      _lastScannerData.sentAlertIds = scannerPayload.sentAlertIds;
+    }
 
     const matches = _lastScannerData.matches || [];
-    if (matches.length > 0 || _lastScannerData.scannerEnabled || (_lastScannerData.manualFixtures && _lastScannerData.manualFixtures.length > 0) || (_lastScannerData.bestCornerData && Object.keys(_lastScannerData.bestCornerData).length > 0)) {
+    if (matches.length > 0 || _lastScannerData.scannerEnabled || (_lastScannerData.manualFixtures && _lastScannerData.manualFixtures.length > 0) || (_lastScannerData.bestCornerData && Object.keys(_lastScannerData.bestCornerData).length > 0) || (_lastScannerData.sentAlertIds && _lastScannerData.sentAlertIds.length > 0)) {
       console.log('[CloudSync] 📡 Scanner/MobileData:', matches.length, 'jogos');
       scannerCallbacks.forEach(cb => {
         try { 
@@ -161,7 +165,8 @@ function processCloudData(data: any): void {
             _lastScannerData.scannerEnabled || false, 
             _lastScannerData.manualFixtures || [], 
             _lastScannerData.bestCornerData || {},
-            _lastScannerData.platformSnapshots || {}
+            _lastScannerData.platformSnapshots || {},
+            _lastScannerData.sentAlertIds || []
           ); 
         } catch (e) { console.error('[CloudSync] Erro scanner:', e); }
       });
@@ -246,7 +251,8 @@ export function broadcastScannerData(
   scannerEnabled?: boolean,
   manualFixtures?: any[],
   bestCornerData?: any,
-  platformSnapshots?: any
+  platformSnapshots?: any,
+  sentAlertIds?: string[]
 ): void {
   if (!_hasLoadedInitialData) {
     console.warn('[CloudSync] ⏳ Broadcast ignorado: dados iniciais ainda não foram carregados.');
@@ -269,9 +275,13 @@ export function broadcastScannerData(
   if (platformSnapshots !== undefined && platformSnapshots !== null) {
     _lastScannerData.platformSnapshots = platformSnapshots;
   }
+  if (sentAlertIds !== undefined && sentAlertIds !== null) {
+    _lastScannerData.sentAlertIds = sentAlertIds;
+  }
 
   const now = Date.now();
-  if (now - _lastScannerWrite < WRITE_THROTTLE_MS) return;
+  const shouldThrottle = (sentAlertIds === undefined) && (now - _lastScannerWrite < WRITE_THROTTLE_MS);
+  if (shouldThrottle) return;
   _lastScannerWrite = now;
   _isOperator = true;
 

@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { supabase } from '../services/supabase';
 import './Login.css';
+
+const isNativeApp = Capacitor.isNativePlatform();
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
+  const canRegister = !isNativeApp; // Desabilita criação de conta no app nativo
   
   // Extra fields for registration mock
   const [nome, setNome] = useState('');
@@ -129,18 +133,20 @@ const Login: React.FC = () => {
           </button>
         </form>
 
-        <div className="login-footer">
-          <p>
-            {isRegistering ? 'Já tem uma conta?' : 'Ainda não tem conta?'}
-            <button 
-              className="toggle-mode-btn" 
-              onClick={() => setIsRegistering(!isRegistering)}
-              type="button"
-            >
-              {isRegistering ? 'Faça login' : 'Criar conta'}
-            </button>
-          </p>
-        </div>
+        {canRegister && (
+          <div className="login-footer">
+            <p>
+              {isRegistering ? 'Já tem uma conta?' : 'Ainda não tem conta?'}
+              <button 
+                className="toggle-mode-btn" 
+                onClick={() => setIsRegistering(!isRegistering)}
+                type="button"
+              >
+                {isRegistering ? 'Faça login' : 'Criar conta'}
+              </button>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

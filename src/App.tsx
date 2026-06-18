@@ -8,6 +8,7 @@ import Diary from './pages/Diary';
 import Scheduler from './pages/Scheduler';
 import Learning from './pages/Learning';
 import Copa2026 from './pages/Copa2026';
+import AlertConfig from './pages/AlertConfig';
 import Login from './pages/Login';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -35,6 +36,7 @@ function App() {
           <Route path="diary" element={<Diary />} />
           <Route path="learning" element={<Learning />} />
           <Route path="copa2026" element={<Copa2026 />} />
+          <Route path="alerts" element={<AlertConfig />} />
         </Route>
       </Routes>
     </BrowserRouter>

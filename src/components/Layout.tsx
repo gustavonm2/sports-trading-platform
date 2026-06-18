@@ -310,6 +310,25 @@ export default function Layout() {
           </Link>
 
           <Link 
+            to="/alerts" 
+            className={`nav-item ${isLinkActive('/alerts') ? 'active' : ''}`}
+            onClick={closeSidebar}
+          >
+            <Bell size={20} />
+            Alertas
+            <span style={{ 
+              marginLeft: 'auto', 
+              fontSize: '0.55rem', 
+              fontWeight: 800, 
+              background: 'rgba(0, 136, 204, 0.15)', 
+              color: '#0088cc', 
+              padding: '2px 6px', 
+              borderRadius: 4,
+              lineHeight: 1.3
+            }}>📲</span>
+          </Link>
+
+          <Link 
             to="/copa2026" 
             className={`nav-item ${isLinkActive('/copa2026') ? 'active' : ''}`}
             onClick={closeSidebar}

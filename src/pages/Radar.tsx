@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useSearchParams } from 'react-router-dom';
 import { 
@@ -21,6 +23,7 @@ import type { BestCornerBridgePayload } from '../services/bestCornerBridge';
 import { initCloudSync, broadcastBridgeData, broadcastScannerData, onCloudBridgeData, onCloudScannerData, markAsOperator, getCloudSyncStatus } from '../services/cloudSync';
 import type { CloudSyncStatus } from '../services/cloudSync';
 import { saveTradeEntry } from '../services/learningEngine';
+import { sendTelegramAlert, getTelegramConfig, saveTelegramConfig, testTelegramConnection } from '../services/telegramNotifier';
 
 // Fuzzy team matching helper to link Sportsmonks/Sofascore matches to API-Sports dossiers
 function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefined | null): boolean {
@@ -278,6 +281,13 @@ export default function Radar() {
   const [searchParams] = useSearchParams();
   const activeMode = searchParams.get('mode') || 'apm_pure';
   const isMobile = useIsMobile();
+
+  // 📱 Solicitar permissão de notificação no app nativo (iOS)
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      LocalNotifications.requestPermissions().catch(() => {});
+    }
+  }, []);
   
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [selectedFixture, setSelectedFixture] = useState<Fixture | null>(null);
@@ -302,6 +312,8 @@ export default function Radar() {
     try { const s = localStorage.getItem('favorite_fixtures'); return s ? new Set(JSON.parse(s)) : new Set(); } catch { return new Set(); }
   });
   useEffect(() => { localStorage.setItem('favorite_fixtures', JSON.stringify([...favoriteFixtureIds])); }, [favoriteFixtureIds]);
+  const favoriteFixtureIdsRef = useRef(favoriteFixtureIds);
+  useEffect(() => { favoriteFixtureIdsRef.current = favoriteFixtureIds; }, [favoriteFixtureIds]);
   const toggleFavorite = useCallback((id: number, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setFavoriteFixtureIds(prev => {
@@ -311,8 +323,20 @@ export default function Radar() {
     });
   }, []);
   
+  // 🔔 Notificar somente favoritos
+  const [notifyFavoritesOnly, setNotifyFavoritesOnly] = useState<boolean>(() => {
+    return localStorage.getItem('notify_favorites_only') === 'true';
+  });
+  useEffect(() => { localStorage.setItem('notify_favorites_only', String(notifyFavoritesOnly)); }, [notifyFavoritesOnly]);
+  const notifyFavoritesOnlyRef = useRef(notifyFavoritesOnly);
+  useEffect(() => { notifyFavoritesOnlyRef.current = notifyFavoritesOnly; }, [notifyFavoritesOnly]);
+
   // Premium filters
   const [marketFilter, setMarketFilter] = useState<'all' | 'corners' | 'goals'>('all');
+
+  // 📲 Telegram state
+  const [tgEnabled, setTgEnabled] = useState(() => getTelegramConfig().enabled);
+  const [tgTestStatus, setTgTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
 
   
   // 🎯 Threshold configurável para gatilho de entrada (Score Final mínimo para disparar notificação)
@@ -389,6 +413,11 @@ export default function Radar() {
   }, []);
   const [bet365Bridge, setBet365Bridge] = useState<Bet365BridgePayload | null>(null);
   const [bestCornerBridge, setBestCornerBridge] = useState<BestCornerBridgePayload | null>(null);
+  
+  const bet365BridgeRef = useRef<Bet365BridgePayload | null>(null);
+  useEffect(() => {
+    bet365BridgeRef.current = bet365Bridge;
+  }, [bet365Bridge]);
   
   const bestCornerBridgeRef = useRef<BestCornerBridgePayload | null>(null);
   useEffect(() => {
@@ -1672,17 +1701,85 @@ export default function Radar() {
     }
   };
 
-  // 📱 Push Notification via Service Worker (funciona com tela bloqueada)
+  // 📱 Push Notification — Capacitor nativo (iOS) ou Service Worker (web)
   const sendPushNotification = (opp: Opportunity) => {
+    // Se "notificar só favoritos" estiver ativo, ignorar jogos não favoritados
+    if (notifyFavoritesOnlyRef.current && !favoriteFixtureIdsRef.current.has(opp.fixtureId)) return;
+
+    // 📲 Telegram notification (com filtros avançados)
+    const oppStats = allStats[opp.fixtureId];
+
+    // Resolver URL da Bet365 direto da fixture ou dos bridges
+    const matchUrl = (() => {
+      // 1. Checar na fixture
+      if ((opp.match as any).matchUrl && (opp.match as any).matchUrl.includes('bet365')) {
+        return (opp.match as any).matchUrl;
+      }
+      // 2. Checar no bridge da bet365
+      const b365Bridge = bet365BridgeRef.current;
+      if (b365Bridge?.connected && b365Bridge.matches?.length > 0) {
+        const bm = findBet365Match(opp.match.homeTeam.name, opp.match.awayTeam.name, b365Bridge.matches);
+        if (bm && bm.matchUrl && bm.matchUrl.includes('bet365')) {
+          return bm.matchUrl;
+        }
+      }
+      // 3. Checar no bridge do bestCorner
+      const bcBridge = bestCornerBridgeRef.current;
+      if (bcBridge?.connected && bcBridge.matches?.length > 0) {
+        const bm = findBet365Match(opp.match.homeTeam.name, opp.match.awayTeam.name, bcBridge.matches);
+        if (bm && bm.matchUrl && bm.matchUrl.includes('bet365')) {
+          return bm.matchUrl;
+        }
+      }
+      return undefined;
+    })();
+
+    sendTelegramAlert({
+      ...opp,
+      matchUrl,
+      stats: oppStats ? {
+        homeCorners: oppStats.home?.corners ?? 0,
+        awayCorners: oppStats.away?.corners ?? 0,
+        homePossession: oppStats.home?.possession ?? 50,
+        awayPossession: oppStats.away?.possession ?? 50,
+        homeDangerousAttacks: oppStats.home?.dangerousAttacks ?? 0,
+        awayDangerousAttacks: oppStats.away?.dangerousAttacks ?? 0,
+        homeShotsOnGoal: oppStats.home?.shotsOnGoal ?? 0,
+        awayShotsOnGoal: oppStats.away?.shotsOnGoal ?? 0,
+        homeScoreFinal: getScoreFinalForSide(opp.fixtureId, true),
+        awayScoreFinal: getScoreFinalForSide(opp.fixtureId, false),
+      } : undefined,
+    }).catch(() => {});
+
+    const matchName = `${opp.match.homeTeam.name} ${opp.match.goalsHome}×${opp.match.goalsAway} ${opp.match.awayTeam.name}`;
+    const title = `🎯 ${opp.strategyName}`;
+    const body = `${matchName} · ${opp.teamName} · Confiança: ${opp.confidence}%`;
+
+    // 📱 Capacitor Local Notifications (iOS nativo)
+    if (Capacitor.isNativePlatform()) {
+      LocalNotifications.schedule({
+        notifications: [{
+          title,
+          body,
+          id: Math.floor(Math.random() * 100000),
+          schedule: { at: new Date(Date.now() + 100) },
+          sound: 'default',
+          actionTypeId: '',
+          extra: { url: '/radar' },
+        }],
+      }).catch(() => {});
+      return;
+    }
+
+    // 🌐 Web: Service Worker Notification
     if (!('serviceWorker' in navigator) || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') {
       Notification.requestPermission();
       return;
     }
     navigator.serviceWorker.ready.then(reg => {
-      const matchName = `${opp.match.homeTeam.name} ${opp.match.goalsHome}×${opp.match.goalsAway} ${opp.match.awayTeam.name}`;
-      reg.showNotification(`🎯 ${opp.strategyName}`, {
-        body: `${matchName} · ${opp.teamName} · Confiança: ${opp.confidence}%`,
+      reg.showNotification(title, {
+        body,
         icon: '/favicon.svg',
         badge: '/favicon.svg',
         vibrate: [200, 100, 200, 100, 300],
@@ -2220,6 +2317,10 @@ export default function Radar() {
         }
         // 📱 Push notification para mobile
         sendPushNotification(opp);
+
+        // 📤 Sincronizar o estado de alertas enviados na nuvem (limita a no máximo 200 IDs para economizar dados)
+        const updatedAlerts = Array.from(alertedIdsRef.current).slice(-200);
+        broadcastScannerData(undefined, undefined, undefined, undefined, undefined, updatedAlerts);
       }
     });
 
@@ -2395,7 +2496,7 @@ export default function Radar() {
       console.log('[CloudSync] 📡 Bridge data recebida via cloud:', payload.matchCount, 'jogos');
     });
 
-    const cleanupScanner = onCloudScannerData((matches, scannerEnabled, cloudManualFixtures, cloudBestCornerData, cloudPlatformSnapshots) => {
+    const cleanupScanner = onCloudScannerData((matches, scannerEnabled, cloudManualFixtures, cloudBestCornerData, cloudPlatformSnapshots, cloudSentAlertIds) => {
       setScannerMatches(matches);
       setScannerEnabled(scannerEnabled);
       if (cloudManualFixtures && cloudManualFixtures.length > 0) {
@@ -2406,6 +2507,9 @@ export default function Radar() {
       }
       if (cloudPlatformSnapshots && Object.keys(cloudPlatformSnapshots).length > 0) {
         setPlatformSnapshots(cloudPlatformSnapshots);
+      }
+      if (cloudSentAlertIds) {
+        cloudSentAlertIds.forEach(id => alertedIdsRef.current.add(id));
       }
       console.log('[CloudSync] 📡 Scanner/MobileData recebida via cloud:', matches.length, 'jogos');
     });
@@ -2504,9 +2608,22 @@ export default function Radar() {
                     <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{getDisplayElapsed(f.id, f.elapsed, f.status)}'</span>
                   </div>
 
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
-                    {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {f.awayTeam.name}
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 4 }}>
+                    <button
+                      onClick={(e) => toggleFavorite(f.id, e)}
+                      style={{
+                        background: 'none', border: 'none', padding: '2px', cursor: 'pointer',
+                        fontSize: '1.1rem', lineHeight: 1,
+                        transform: favoriteFixtureIds.has(f.id) ? 'scale(1.2)' : 'scale(1)',
+                        filter: favoriteFixtureIds.has(f.id) ? 'none' : 'grayscale(1) opacity(0.4)',
+                        transition: 'all 0.2s ease',
+                      }}
+                      title={favoriteFixtureIds.has(f.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+                    >⭐</button>
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                      {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {f.awayTeam.name}
+                    </h3>
+                  </div>
 
                   {/* Botão Abrir Bet365 - Mobile */}
                   {(() => {
@@ -2618,11 +2735,23 @@ export default function Radar() {
                       onClick={() => setExpandedFixtureId(isExpanded ? null : f.id)}
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
                     >
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{f.leagueName} • {getDisplayElapsed(f.id, f.elapsed, f.status)}'</div>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                          <span style={{ display: 'block', marginBottom: '2px' }}>{f.homeTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}</span></span>
-                          <span style={{ display: 'block' }}>{f.awayTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span></span>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(f.id, e); }}
+                          style={{
+                            background: 'none', border: 'none', padding: '2px', cursor: 'pointer',
+                            fontSize: '1rem', lineHeight: 1, flexShrink: 0,
+                            transform: favoriteFixtureIds.has(f.id) ? 'scale(1.2)' : 'scale(1)',
+                            filter: favoriteFixtureIds.has(f.id) ? 'none' : 'grayscale(1) opacity(0.35)',
+                            transition: 'all 0.2s ease',
+                          }}
+                        >⭐</button>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>{f.leagueName} • {getDisplayElapsed(f.id, f.elapsed, f.status)}'</div>
+                          <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            <span style={{ display: 'block', marginBottom: '2px' }}>{f.homeTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}</span></span>
+                            <span style={{ display: 'block' }}>{f.awayTeam.name} <span style={{ color: 'var(--text-muted)', float: 'right', fontWeight: 800 }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span></span>
+                          </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '16px', gap: '4px' }}>
@@ -2887,6 +3016,95 @@ export default function Radar() {
                 </div>
               </div>
 
+              {/* 📲 Telegram Config */}
+              <div style={{
+                padding: '16px 24px', borderTop: '1px solid var(--border-color)',
+                background: 'rgba(0, 136, 204, 0.04)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 900, color: 'var(--text-primary)' }}>📲 Notificações Telegram</span>
+                    <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginLeft: '8px' }}>Receba alertas direto no Telegram</span>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      const cfg = getTelegramConfig();
+                      saveTelegramConfig(cfg.botToken, cfg.chatId, !cfg.enabled);
+                      setTgEnabled(!cfg.enabled);
+                    }}
+                    style={{
+                      padding: '4px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                      fontWeight: 800, fontSize: '0.7rem',
+                      background: tgEnabled ? 'var(--status-green)' : 'var(--bg-elevated)',
+                      color: tgEnabled ? '#fff' : 'var(--text-muted)',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    {tgEnabled ? '✅ ATIVO' : '❌ INATIVO'}
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Bot Token</label>
+                    <input
+                      type="text"
+                      placeholder="123456:ABC-DEF1234ghIkl..."
+                      defaultValue={getTelegramConfig().botToken}
+                      onBlur={(e) => {
+                        const cfg = getTelegramConfig();
+                        saveTelegramConfig(e.target.value, cfg.chatId, cfg.enabled);
+                      }}
+                      style={{
+                        width: '100%', padding: '8px 12px', borderRadius: '8px',
+                        border: '1px solid var(--border-color)', background: 'var(--bg-surface)',
+                        color: 'var(--text-primary)', fontSize: '0.8rem', fontFamily: 'monospace',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Chat ID</label>
+                    <input
+                      type="text"
+                      placeholder="123456789"
+                      defaultValue={getTelegramConfig().chatId}
+                      onBlur={(e) => {
+                        const cfg = getTelegramConfig();
+                        saveTelegramConfig(cfg.botToken, e.target.value, cfg.enabled);
+                      }}
+                      style={{
+                        width: '100%', padding: '8px 12px', borderRadius: '8px',
+                        border: '1px solid var(--border-color)', background: 'var(--bg-surface)',
+                        color: 'var(--text-primary)', fontSize: '0.8rem', fontFamily: 'monospace',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setTgTestStatus('testing');
+                      const result = await testTelegramConnection();
+                      setTgTestStatus(result.ok ? 'success' : 'error');
+                      if (!result.ok) alert('❌ ' + (result.error || 'Falha ao conectar'));
+                      setTimeout(() => setTgTestStatus('idle'), 3000);
+                    }}
+                    style={{
+                      padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                      fontWeight: 800, fontSize: '0.75rem',
+                      background: tgTestStatus === 'success' ? 'var(--status-green)' : tgTestStatus === 'error' ? 'var(--status-red)' : 'rgba(0, 136, 204, 0.15)',
+                      color: tgTestStatus === 'success' ? '#fff' : tgTestStatus === 'error' ? '#fff' : '#0088cc',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    {tgTestStatus === 'testing' ? '⏳ Testando...' : tgTestStatus === 'success' ? '✅ Conectado!' : tgTestStatus === 'error' ? '❌ Falhou' : '🚀 Testar Conexão'}
+                  </button>
+                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                    Crie um bot em <strong>@BotFather</strong> no Telegram. Envie <strong>/start</strong> ao bot, depois acesse <em>api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</em> para pegar seu Chat ID.
+                  </div>
+                </div>
+              </div>
+
               {/* Footer */}
               <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
@@ -3017,6 +3235,32 @@ export default function Radar() {
               {Notification.permission === 'granted' ? 'PUSH ON' : Notification.permission === 'denied' ? 'PUSH OFF' : 'ATIVAR PUSH'}
             </button>
           )}
+
+          {/* ⭐ Notificar só Favoritos Toggle */}
+          <button 
+            onClick={() => setNotifyFavoritesOnly(prev => !prev)}
+            style={{ 
+              padding: '3px 8px', 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              gap: 4,
+              border: `1px solid ${notifyFavoritesOnly ? 'rgba(245, 158, 11, 0.4)' : 'var(--border-color)'}`,
+              borderRadius: 4,
+              background: notifyFavoritesOnly ? 'rgba(245, 158, 11, 0.1)' : 'transparent',
+              color: notifyFavoritesOnly ? '#f59e0b' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '0.65rem',
+              outline: 'none',
+              whiteSpace: 'nowrap',
+              fontFamily: 'var(--font-sans)',
+              transition: 'all 0.2s ease',
+            }}
+            title={notifyFavoritesOnly ? 'Notificando apenas jogos favoritos' : 'Notificando todos os jogos'}
+          >
+            {notifyFavoritesOnly ? '⭐' : '🌐'}
+            {notifyFavoritesOnly ? 'SÓ ⭐' : 'TODOS'}
+          </button>
 
           {/* Cloud Sync Status Badge */}
           <span style={{
