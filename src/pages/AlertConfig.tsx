@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { sendTelegramMessage } from '../services/telegramNotifier';
+import { supabase } from '../services/supabase';
 
 // ─── Interface ───────────────────────────────────────────────────────────────
 
@@ -393,11 +394,42 @@ export default function AlertConfig() {
   const [config, setConfig] = useState<TelegramAlertConfig>(loadAlertConfig);
   const [testStatus, setTestStatus] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
 
+  // 🔄 Carregar configurações do Supabase ao montar
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('telegram_alert_config')
+          .select('config')
+          .eq('id', 'default')
+          .single();
+        if (error || !data || !data.config) return;
+        const cloudConfig = data.config as TelegramAlertConfig;
+        setConfig(cloudConfig);
+        saveAlertConfig(cloudConfig); // atualiza cache local
+        console.log('✅ Telegram alert config loaded from Supabase');
+      } catch (e) {
+        console.warn('⚠️ Supabase telegram_alert_config not available, using localStorage fallback');
+      }
+    })();
+  }, []);
+
   const update = useCallback(
     (patch: Partial<TelegramAlertConfig>) => {
       setConfig((prev) => {
         const next = { ...prev, ...patch };
         saveAlertConfig(next);
+
+        // Salvar no Supabase (Upsert assíncrono)
+        supabase
+          .from('telegram_alert_config')
+          .upsert({ id: 'default', config: next })
+          .then(({ error }) => {
+            if (error) {
+              console.warn('[Supabase] Erro ao salvar config de alertas:', error.message);
+            }
+          });
+
         return next;
       });
     },

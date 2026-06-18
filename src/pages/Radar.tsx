@@ -522,6 +522,24 @@ export default function Radar() {
     })();
   }, []);
 
+  // 🔄 Load Telegram alert config from Supabase on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('telegram_alert_config')
+          .select('config')
+          .eq('id', 'default')
+          .single();
+        if (error || !data || !data.config) return;
+        localStorage.setItem('telegram_alert_config', JSON.stringify(data.config));
+        console.log('✅ Telegram alert config synced from Supabase for Scanner');
+      } catch (e) {
+        // ignore fallback
+      }
+    })();
+  }, []);
+
   // Persist weights to localStorage + Supabase (dual write)
   const persistWeights = useCallback(async (marketType: 'gols' | 'escanteios', weights: ScoreWeights) => {
     // 1. Always save to localStorage (immediate)
