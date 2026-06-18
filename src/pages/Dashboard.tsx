@@ -344,13 +344,15 @@ export default function Dashboard() {
 
           <button 
             className="btn btn-outline" 
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            onClick={fetchTrades}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 12px' }}
+            onClick={() => { fetchTrades(); fetchBancas(); }}
+            title="Atualizar dados"
           >
-            <RefreshCw size={16} /> Atualizar
+            <RefreshCw size={16} />
           </button>
           <button 
             className="btn btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             onClick={() => setIsOpenAporteModal(true)}
           >
             <Plus size={16} /> Novo Aporte
