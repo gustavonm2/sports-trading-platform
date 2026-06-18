@@ -20,6 +20,7 @@ import { onBestCornerData } from '../services/bestCornerBridge';
 import type { BestCornerBridgePayload } from '../services/bestCornerBridge';
 import { initCloudSync, broadcastBridgeData, broadcastScannerData, onCloudBridgeData, onCloudScannerData, markAsOperator, getCloudSyncStatus } from '../services/cloudSync';
 import type { CloudSyncStatus } from '../services/cloudSync';
+import { saveTradeEntry } from '../services/learningEngine';
 
 // Fuzzy team matching helper to link Sportsmonks/Sofascore matches to API-Sports dossiers
 function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefined | null): boolean {
@@ -396,6 +397,60 @@ export default function Radar() {
   
   // Cloud Sync state
   const bet365DataRef = useRef<Bet365MatchData[]>([]);
+
+  // Bancas state for Radar
+  const loadLocalBancas = () => {
+    try {
+      const saved = localStorage.getItem('trade_bancas');
+      return saved ? JSON.parse(saved) : [{ id: 'default', name: 'Banca Fictícia', initial: 5000, defaultStake: 200, defaultOdd: 1.80 }];
+    } catch {
+      return [{ id: 'default', name: 'Banca Fictícia', initial: 5000, defaultStake: 200, defaultOdd: 1.80 }];
+    }
+  };
+  const [bancas, setBancas] = useState<any[]>(() => loadLocalBancas());
+  const [activeBancaId, setActiveBancaId] = useState<string>(() => {
+    return localStorage.getItem('active_banca_id') || 'default';
+  });
+
+  const handleSwitchBanca = (bancaId: string) => {
+    setActiveBancaId(bancaId);
+    localStorage.setItem('active_banca_id', bancaId);
+  };
+
+  useEffect(() => {
+    const fetchBancas = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('bancas')
+          .select('*')
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const mapBancaFromDb = (dbBanca: any) => ({
+            id: dbBanca.id,
+            name: dbBanca.name,
+            initial: Number(dbBanca.initial),
+            defaultStake: Number(dbBanca.default_stake),
+            defaultOdd: Number(dbBanca.default_odd)
+          });
+          const fetched = data.map(mapBancaFromDb);
+          setBancas(fetched);
+          localStorage.setItem('trade_bancas', JSON.stringify(fetched));
+          
+          const currentActive = localStorage.getItem('active_banca_id') || 'default';
+          if (currentActive !== 'default' && !fetched.some(b => b.id === currentActive)) {
+            localStorage.setItem('active_banca_id', 'default');
+            setActiveBancaId('default');
+          }
+        }
+      } catch (e) {
+        console.warn("Supabase fetch for 'bancas' failed in Radar:", e);
+      }
+    };
+    fetchBancas();
+  }, []);
 
 
 
@@ -1411,29 +1466,129 @@ export default function Radar() {
       banca_id: activeBancaId
     };
 
+    let generatedTradeId = '';
+    let insertedSuccessfully = false;
+
     try {
-      const { error } = await supabase.from('trades').insert([newTradeData]);
+      const { data, error } = await supabase
+        .from('trades')
+        .insert([newTradeData])
+        .select()
+        .single();
+
       if (error) {
         if (error.code === '42703') {
           console.warn("banca_id column missing on Supabase trades table, retrying without it...");
           const { banca_id: _, ...newTradeWithoutBanca } = newTradeData;
-          const { error: retryError } = await supabase.from('trades').insert([newTradeWithoutBanca]);
+          const { data: retryData, error: retryError } = await supabase
+            .from('trades')
+            .insert([newTradeWithoutBanca])
+            .select()
+            .single();
           if (retryError) throw retryError;
+          generatedTradeId = retryData?.id || '';
+          insertedSuccessfully = true;
         } else {
           throw error;
         }
+      } else {
+        generatedTradeId = data?.id || '';
+        insertedSuccessfully = true;
       }
       console.log("✅ Trade + Snapshot de métricas salvo no Supabase!", metricsSnapshot);
     } catch (e) {
       console.warn("Supabase insert failed. Falling back to local replication.", e);
+      generatedTradeId = crypto.randomUUID();
       const localTrades = localStorage.getItem('trades_db_replica');
       const parsed = localTrades ? JSON.parse(localTrades) : [];
       const newTrade = {
-        id: crypto.randomUUID(),
+        id: generatedTradeId,
         created_at: new Date().toISOString(),
         ...newTradeData
       };
       localStorage.setItem('trades_db_replica', JSON.stringify([newTrade, ...parsed]));
+      insertedSuccessfully = true;
+    }
+
+    // 🧠 Sincronizar com o módulo de Aprendizado (Learning Engine)
+    if (insertedSuccessfully && generatedTradeId) {
+      const parts = matchName.split(/\s+x\s+/i);
+      const homeTeam = parts[0]?.trim() || matchName;
+      const awayTeam = parts[1]?.trim() || 'N/A';
+
+      const learningEntry: any = {
+        fixture_id: opp.fixtureId,
+        league: metricsSnapshot.league,
+        home_team: homeTeam,
+        away_team: awayTeam,
+        elapsed: typeof metricsSnapshot.elapsed === 'number' ? metricsSnapshot.elapsed : elapsed,
+        period: metricsSnapshot.period,
+        goals_home: metricsSnapshot.goals_home,
+        goals_away: metricsSnapshot.goals_away,
+        source: (fixture as any)?.source || 'api-sports',
+        league_tier: (fixture as any)?.leagueTier || 40,
+
+        // Dynamic Telemetry Metrics
+        home_apm_global: Number(stats?.home?.attacks) || 0,
+        away_apm_global: Number(stats?.away?.attacks) || 0,
+        home_apm_10: metricsSnapshot.home_apm_10,
+        away_apm_10: metricsSnapshot.away_apm_10,
+        home_apm_5: metricsSnapshot.home_apm_5,
+        away_apm_5: metricsSnapshot.away_apm_5,
+        home_apm_3: metricsSnapshot.home_apm_3,
+        away_apm_3: metricsSnapshot.away_apm_3,
+        home_ipr: metricsSnapshot.home_ipr,
+        away_ipr: metricsSnapshot.away_ipr,
+        home_acceleration_factor: 0,
+        away_acceleration_factor: 0,
+
+        // Normalized Indicators
+        home_niap: 0, home_ncg: 0, home_nesc: 0, home_nft: 0, home_ncv: 0, home_npos: 0, home_nca: 0,
+        away_niap: 0, away_ncg: 0, away_nesc: 0, away_nft: 0, away_ncv: 0, away_npos: 0, away_nca: 0,
+
+        // Strategy & Compound Scores
+        home_score: metricsSnapshot.home_score,
+        away_score: metricsSnapshot.away_score,
+        home_pls: 0,
+        away_pls: 0,
+        home_qual_pct: 0,
+        away_qual_pct: 0,
+
+        // Raw Stats
+        home_shots_on: metricsSnapshot.home_shots_on,
+        away_shots_on: metricsSnapshot.away_shots_on,
+        home_total_shots: metricsSnapshot.home_total_shots,
+        away_total_shots: metricsSnapshot.away_total_shots,
+        home_corners: metricsSnapshot.home_corners,
+        away_corners: metricsSnapshot.away_corners,
+        home_possession: metricsSnapshot.home_possession,
+        away_possession: metricsSnapshot.away_possession,
+        home_da: metricsSnapshot.home_da,
+        away_da: metricsSnapshot.away_da,
+        home_yellow: metricsSnapshot.home_yellow,
+        away_yellow: metricsSnapshot.away_yellow,
+        home_red: metricsSnapshot.home_red,
+        away_red: metricsSnapshot.away_red,
+
+        // Context
+        market_type: opp.strategyName.toLowerCase().includes('gol') ? 'gols' : 'escanteios',
+        bet_type: opp.strategyName,
+        operating_mode: 'semi-auto',
+        score_weights: activeScoreWeights,
+
+        // Resolução (Pendente na criação)
+        outcome: 'pending' as const,
+        profit_loss: 0,
+        notes: `Diary ID: ${generatedTradeId}`,
+        banca_id: activeBancaId
+      };
+
+      try {
+        await saveTradeEntry(learningEntry);
+        console.log('[Radar→Learning] ✅ Entrada salva no motor de aprendizado');
+      } catch (err) {
+        console.error('[Radar→Learning] ❌ Falha ao salvar no motor de aprendizado:', err);
+      }
     }
   };
 
@@ -2782,6 +2937,31 @@ export default function Radar() {
 
         {/* Row 2: Badges + Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 8, flexWrap: 'wrap' }}>
+
+          {/* Banca Selector Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-surface)', borderRadius: 4, padding: '2px 8px', border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)' }}>Banca:</span>
+            <select
+              value={activeBancaId}
+              onChange={(e) => handleSwitchBanca(e.target.value)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-primary)',
+                fontWeight: 700,
+                fontSize: '0.65rem',
+                cursor: 'pointer',
+                outline: 'none',
+                paddingRight: 4
+              }}
+            >
+              {bancas.map(b => (
+                <option key={b.id} value={b.id} style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* Sound Toggle */}
           <button 
