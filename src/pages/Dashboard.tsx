@@ -14,28 +14,47 @@ interface Trade {
   profit_loss: number;
 }
 
+const mapBancaFromDb = (dbBanca: any) => ({
+  id: dbBanca.id,
+  name: dbBanca.name,
+  initial: Number(dbBanca.initial),
+  defaultStake: Number(dbBanca.default_stake),
+  defaultOdd: Number(dbBanca.default_odd)
+});
+
+const mapBancaToDb = (banca: any) => ({
+  id: banca.id,
+  name: banca.name,
+  initial: banca.initial,
+  default_stake: banca.defaultStake,
+  default_odd: banca.defaultOdd
+});
+
+const loadLocalBancas = () => {
+  const savedBancas = localStorage.getItem('trade_bancas');
+  const savedInitial = localStorage.getItem('trade_initial_bankroll');
+  const defaultInitial = savedInitial ? Number(savedInitial) : 5000;
+  
+  const savedStake = localStorage.getItem('trade_default_stake');
+  const defaultStake = savedStake ? Number(savedStake) : 200;
+
+  if (savedBancas) {
+    try {
+      return JSON.parse(savedBancas);
+    } catch {
+      return [{ id: 'default', name: 'Banca Fictícia', initial: defaultInitial, defaultStake, defaultOdd: 1.80 }];
+    }
+  }
+  const list = [{ id: 'default', name: 'Banca Fictícia', initial: defaultInitial, defaultStake, defaultOdd: 1.80 }];
+  localStorage.setItem('trade_bancas', JSON.stringify(list));
+  return list;
+};
+
 export default function Dashboard() {
   const [trades, setTrades] = useState<Trade[]>([]);
   
-  const [bancas, setBancas] = useState<any[]>(() => {
-    const savedBancas = localStorage.getItem('trade_bancas');
-    const savedInitial = localStorage.getItem('trade_initial_bankroll');
-    const defaultInitial = savedInitial ? Number(savedInitial) : 5000;
-    
-    const savedStake = localStorage.getItem('trade_default_stake');
-    const defaultStake = savedStake ? Number(savedStake) : 200;
-
-    if (savedBancas) {
-      try {
-        return JSON.parse(savedBancas);
-      } catch {
-        return [{ id: 'default', name: 'Banca Fictícia', initial: defaultInitial, defaultStake, defaultOdd: 1.80 }];
-      }
-    }
-    const list = [{ id: 'default', name: 'Banca Fictícia', initial: defaultInitial, defaultStake, defaultOdd: 1.80 }];
-    localStorage.setItem('trade_bancas', JSON.stringify(list));
-    return list;
-  });
+  const [bancas, setBancas] = useState<any[]>(() => loadLocalBancas());
+  const [usingBancaFallback, setUsingBancaFallback] = useState(false);
 
   const [activeBancaId, setActiveBancaId] = useState<string>(() => {
     return localStorage.getItem('active_banca_id') || 'default';
@@ -52,7 +71,49 @@ export default function Dashboard() {
     localStorage.setItem('active_banca_id', bancaId);
   };
 
-  const handleCreateBanca = () => {
+  const fetchBancas = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('bancas')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const localBancas = loadLocalBancas();
+      if (data && data.length > 0) {
+        const fetched = data.map(mapBancaFromDb);
+        const fetchedIds = new Set(fetched.map(b => b.id));
+        
+        // Sync any missing local bancas to database
+        const missing = localBancas.filter((b: any) => !fetchedIds.has(b.id));
+        if (missing.length > 0) {
+          for (const b of missing) {
+            await supabase.from('bancas').insert([mapBancaToDb(b)]);
+            fetched.push(b);
+          }
+        }
+        
+        setBancas(fetched);
+        localStorage.setItem('trade_bancas', JSON.stringify(fetched));
+      } else {
+        // Database table exists but is empty, upload all local bancas
+        for (const b of localBancas) {
+          await supabase.from('bancas').insert([mapBancaToDb(b)]);
+        }
+        setBancas(localBancas);
+      }
+      setUsingBancaFallback(false);
+    } catch (e: any) {
+      console.warn("Supabase fetch/sync for 'bancas' failed, using localStorage:", e);
+      setBancas(loadLocalBancas());
+      if (e.code === '42P01') {
+        setUsingBancaFallback(true);
+      }
+    }
+  };
+
+  const handleCreateBanca = async () => {
     const name = prompt("Digite o nome da nova banca (ex: Banca Real):");
     if (!name || !name.trim()) return;
     const initialStr = prompt("Digite o valor inicial da banca (R$):", "5000");
@@ -73,6 +134,18 @@ export default function Dashboard() {
     
     setActiveBancaId(newBanca.id);
     localStorage.setItem('active_banca_id', newBanca.id);
+
+    // Sync to Supabase
+    if (!usingBancaFallback) {
+      try {
+        const { error } = await supabase
+          .from('bancas')
+          .insert([mapBancaToDb(newBanca)]);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Error saving new banca to Supabase:", err);
+      }
+    }
   };
   
   const [isLoading, setIsLoading] = useState(false);
@@ -114,6 +187,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchTrades();
+    fetchBancas();
   }, []);
 
   const filteredTrades = useMemo(() => {
@@ -141,7 +215,7 @@ export default function Dashboard() {
   const winRate = resolvedTrades.length > 0 ? Math.round((greensCount / resolvedTrades.length) * 100) : 0;
 
   // Handle addition of new funds (Aporte)
-  const handleAporte = (e: React.FormEvent) => {
+  const handleAporte = async (e: React.FormEvent) => {
     e.preventDefault();
     const num = Number(aporteVal) || 0;
     if (num <= 0) return;
@@ -155,6 +229,20 @@ export default function Dashboard() {
       localStorage.setItem('trade_initial_bankroll', newInitial.toString());
     }
     setIsOpenAporteModal(false);
+
+    // Sync to Supabase
+    const targetBanca = updatedBancas.find(b => b.id === activeBancaId);
+    if (targetBanca && !usingBancaFallback) {
+      try {
+        const { error } = await supabase
+          .from('bancas')
+          .update(mapBancaToDb(targetBanca))
+          .eq('id', activeBancaId);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Error updating bankroll initial balance in Supabase:", err);
+      }
+    }
   };
 
   // Chronological points for SVG line chart
@@ -302,8 +390,23 @@ export default function Dashboard() {
   banca_id VARCHAR DEFAULT 'default'
 );
 
--- Caso já possua a tabela 'trades' criada, execute apenas este comando:
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'default';`}
+-- Tabela para salvar as múltiplas bancas na nuvem
+CREATE TABLE IF NOT EXISTS public.bancas (
+  id VARCHAR PRIMARY KEY,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  name VARCHAR NOT NULL,
+  initial NUMERIC NOT NULL DEFAULT 5000,
+  default_stake NUMERIC NOT NULL DEFAULT 200,
+  default_odd NUMERIC NOT NULL DEFAULT 1.80
+);
+
+ALTER TABLE public.bancas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir Leitura e Escrita Pública em bancas" ON public.bancas;
+CREATE POLICY "Permitir Leitura e Escrita Pública em bancas" ON public.bancas FOR ALL USING (true) WITH CHECK (true);
+
+-- Caso já possua as tabelas, execute estes comandos para atualizar as colunas e a tabela de aprendizagem:
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'default';
+ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'default';`}
               </pre>
             </div>
           )}

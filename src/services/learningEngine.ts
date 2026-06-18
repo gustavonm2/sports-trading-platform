@@ -123,6 +123,7 @@ export interface TradeEntry {
   final_corners_away?: number;
   profit_loss?: number;
   notes?: string;
+  banca_id?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -361,10 +362,6 @@ export function captureTradeSnapshot(params: CaptureTradeParams): TradeEntry {
 // Persistência no Supabase
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * saveTradeEntry — Salva uma entrada de trade na tabela `trade_entries`.
- * Retorna o registro inserido com o `id` gerado.
- */
 export async function saveTradeEntry(entry: TradeEntry): Promise<TradeEntry> {
   const { data, error } = await supabase
     .from('trade_entries')
@@ -373,6 +370,20 @@ export async function saveTradeEntry(entry: TradeEntry): Promise<TradeEntry> {
     .single();
 
   if (error) {
+    if (error.code === '42703') {
+      console.warn("banca_id column missing on Supabase trade_entries table, retrying without it...");
+      const { banca_id, ...entryWithoutBanca } = entry as any;
+      const { data: retryData, error: retryError } = await supabase
+        .from('trade_entries')
+        .insert([entryWithoutBanca])
+        .select()
+        .single();
+      if (retryError) {
+        console.error('[LearningEngine] Erro no retry sem banca_id:', retryError);
+        throw new Error(`Falha ao salvar entrada de trade: ${retryError.message}`);
+      }
+      return retryData as TradeEntry;
+    }
     console.error('[LearningEngine] Erro ao salvar trade entry:', error);
     throw new Error(`Falha ao salvar entrada de trade: ${error.message}`);
   }
@@ -393,6 +404,7 @@ export async function saveSimplifiedTradeEntry(params: {
   stake: number;
   status: 'GREEN' | 'RED' | 'PENDING';
   profitLoss: number;
+  bancaId?: string;
 }): Promise<TradeEntry | null> {
   // Parse team names from "Team A x Team B"
   const parts = params.matchName.split(/\s+x\s+/i);
@@ -407,7 +419,7 @@ export async function saveSimplifiedTradeEntry(params: {
   if (params.status === 'GREEN') outcome = 'green';
   else if (params.status === 'RED') outcome = 'red';
 
-  const entry: Partial<TradeEntry> = {
+  const entry: Partial<TradeEntry> & { banca_id?: string } = {
     // Match info
     fixture_id: 0,
     league: 'Manual',
@@ -446,6 +458,7 @@ export async function saveSimplifiedTradeEntry(params: {
     resolved_at: outcome ? new Date().toISOString() : undefined,
     profit_loss: params.profitLoss,
     notes: `Diary ID: ${params.diaryTradeId}`,
+    banca_id: params.bancaId || 'default'
   };
 
   try {
@@ -456,8 +469,19 @@ export async function saveSimplifiedTradeEntry(params: {
       .single();
 
     if (error) {
-      console.error('[LearningEngine] ❌ Erro ao sincronizar com aprendizagem:', error.code, error.message, error.details, error.hint);
-      return null;
+      if (error.code === '42703') {
+        console.warn("banca_id column missing on Supabase trade_entries table, retrying without it...");
+        const { banca_id, ...entryWithoutBanca } = entry;
+        const { data: retryData, error: retryError } = await supabase
+          .from('trade_entries')
+          .insert([entryWithoutBanca])
+          .select()
+          .single();
+        if (retryError) throw retryError;
+        console.log('[LearningEngine] ✅ Entrada salva na aprendizagem (fallback):', retryData?.id);
+        return retryData as TradeEntry;
+      }
+      throw error;
     }
 
     console.log('[LearningEngine] ✅ Entrada salva na aprendizagem:', data?.id);
@@ -694,6 +718,7 @@ function convertDiaryToTradeEntry(t: any): TradeEntry {
     resolved_at: outcome ? t.created_at : undefined,
     profit_loss: t.profit_loss || 0,
     notes: '',
+    banca_id: t.banca_id || 'default',
   };
 }
 
