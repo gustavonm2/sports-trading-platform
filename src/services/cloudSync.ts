@@ -37,6 +37,16 @@ let _lastBridgeWrite = 0;
 let _lastScannerWrite = 0;
 let _lastKnownUpdatedAt = '';
 
+// Cache para evitar sobrescrita de chaves no JSONB do scanner_data
+let _lastScannerData = {
+  matches: [] as any[],
+  scannerEnabled: false,
+  manualFixtures: [] as any[],
+  bestCornerData: {} as any,
+  platformSnapshots: {} as any
+};
+let _hasLoadedInitialData = false;
+
 const WRITE_THROTTLE_MS = 3000;
 const POLL_INTERVAL_MS = 5000; // Poll a cada 5s para receptores
 const OPERATOR_ID = `op_${Math.random().toString(36).slice(2, 8)}_${Date.now()}`;
@@ -123,17 +133,35 @@ function processCloudData(data: any): void {
   // Scanner data
   if (data.scanner_data) {
     const scannerPayload = data.scanner_data;
-    const matches = scannerPayload.matches || [];
-    if (matches.length > 0 || scannerPayload.scannerEnabled || scannerPayload.manualFixtures || scannerPayload.bestCornerData) {
+    
+    // Mesclar dados do banco no cache local
+    if (scannerPayload.matches !== undefined && scannerPayload.matches !== null) {
+      _lastScannerData.matches = scannerPayload.matches;
+    }
+    if (scannerPayload.scannerEnabled !== undefined && scannerPayload.scannerEnabled !== null) {
+      _lastScannerData.scannerEnabled = scannerPayload.scannerEnabled;
+    }
+    if (scannerPayload.manualFixtures !== undefined && scannerPayload.manualFixtures !== null) {
+      _lastScannerData.manualFixtures = scannerPayload.manualFixtures;
+    }
+    if (scannerPayload.bestCornerData !== undefined && scannerPayload.bestCornerData !== null) {
+      _lastScannerData.bestCornerData = scannerPayload.bestCornerData;
+    }
+    if (scannerPayload.platformSnapshots !== undefined && scannerPayload.platformSnapshots !== null) {
+      _lastScannerData.platformSnapshots = scannerPayload.platformSnapshots;
+    }
+
+    const matches = _lastScannerData.matches || [];
+    if (matches.length > 0 || _lastScannerData.scannerEnabled || (_lastScannerData.manualFixtures && _lastScannerData.manualFixtures.length > 0) || (_lastScannerData.bestCornerData && Object.keys(_lastScannerData.bestCornerData).length > 0)) {
       console.log('[CloudSync] 📡 Scanner/MobileData:', matches.length, 'jogos');
       scannerCallbacks.forEach(cb => {
         try { 
           cb(
             matches, 
-            scannerPayload.scannerEnabled || false, 
-            scannerPayload.manualFixtures || [], 
-            scannerPayload.bestCornerData || {},
-            scannerPayload.platformSnapshots || {}
+            _lastScannerData.scannerEnabled || false, 
+            _lastScannerData.manualFixtures || [], 
+            _lastScannerData.bestCornerData || {},
+            _lastScannerData.platformSnapshots || {}
           ); 
         } catch (e) { console.error('[CloudSync] Erro scanner:', e); }
       });
@@ -167,6 +195,8 @@ async function loadDataFromTable(): Promise<void> {
     }
   } catch (e) {
     console.error('[CloudSync] ❌ Erro polling:', e);
+  } finally {
+    _hasLoadedInitialData = true;
   }
 }
 
@@ -180,6 +210,7 @@ export function cleanupCloudSync(): void {
     pollInterval = null;
   }
   _connected = false;
+  _hasLoadedInitialData = false;
   bridgeCallbacks = [];
   scannerCallbacks = [];
   console.log('[CloudSync] 🔌 Desconectado');
@@ -210,7 +241,35 @@ export function broadcastBridgeData(payload: any): void {
     });
 }
 
-export function broadcastScannerData(matches: any[], scannerEnabled: boolean, manualFixtures: any[] = [], bestCornerData: any = {}, platformSnapshots: any = {}): void {
+export function broadcastScannerData(
+  matches?: any[],
+  scannerEnabled?: boolean,
+  manualFixtures?: any[],
+  bestCornerData?: any,
+  platformSnapshots?: any
+): void {
+  if (!_hasLoadedInitialData) {
+    console.warn('[CloudSync] ⏳ Broadcast ignorado: dados iniciais ainda não foram carregados.');
+    return;
+  }
+
+  // Merge parameters into our local cache if they are defined
+  if (matches !== undefined && matches !== null) {
+    _lastScannerData.matches = matches;
+  }
+  if (scannerEnabled !== undefined && scannerEnabled !== null) {
+    _lastScannerData.scannerEnabled = scannerEnabled;
+  }
+  if (manualFixtures !== undefined && manualFixtures !== null) {
+    _lastScannerData.manualFixtures = manualFixtures;
+  }
+  if (bestCornerData !== undefined && bestCornerData !== null) {
+    _lastScannerData.bestCornerData = bestCornerData;
+  }
+  if (platformSnapshots !== undefined && platformSnapshots !== null) {
+    _lastScannerData.platformSnapshots = platformSnapshots;
+  }
+
   const now = Date.now();
   if (now - _lastScannerWrite < WRITE_THROTTLE_MS) return;
   _lastScannerWrite = now;
@@ -220,7 +279,7 @@ export function broadcastScannerData(matches: any[], scannerEnabled: boolean, ma
     .from('live_sync')
     .upsert({
       id: 'main',
-      scanner_data: { matches, scannerEnabled, manualFixtures, bestCornerData, platformSnapshots },
+      scanner_data: _lastScannerData,
       operator_id: OPERATOR_ID,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'id' })
@@ -228,7 +287,7 @@ export function broadcastScannerData(matches: any[], scannerEnabled: boolean, ma
       if (error) {
         console.warn('[CloudSync] ⚠️ Erro scanner write:', error.message);
       } else {
-        console.log('[CloudSync] 📤 Scanner gravada com manualFixtures e bestCornerData');
+        console.log('[CloudSync] 📤 Scanner gravada (mesclada)');
       }
     });
 }

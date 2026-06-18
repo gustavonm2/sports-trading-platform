@@ -2198,8 +2198,8 @@ export default function Radar() {
       // 📡 Operador → transmitir para a nuvem
       markAsOperator();
       broadcastScannerData(
-        scannerMatchesRef.current,
-        scannerEnabledRef.current,
+        undefined,
+        undefined,
         manualFixturesRef.current,
         payload,
         platformSnapshotsRef.current
@@ -2223,7 +2223,7 @@ export default function Radar() {
           payload.matches || [], 
           payload.scannerEnabled || false, 
           manualFixturesRef.current, 
-          bestCornerBridgeRef.current,
+          undefined,
           platformSnapshotsRef.current
         );
       }
