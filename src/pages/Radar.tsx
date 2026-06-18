@@ -360,6 +360,12 @@ export default function Radar() {
   const [countdown, setCountdown] = useState(25); // 25s scanner refresh
   // Gotten opportunities tracking
   const [gottenOppIds, setGottenOppIds] = useState<Set<string>>(new Set());
+  
+  // Confirm opportunity before saving states
+  const [isOpenConfirmModal, setIsOpenConfirmModal] = useState(false);
+  const [confirmingOpp, setConfirmingOpp] = useState<Opportunity | null>(null);
+  const [confirmOdd, setConfirmOdd] = useState('1.80');
+  const [confirmStake, setConfirmStake] = useState('200');
   // Dismissed fixture IDs — hides notifications for these matches
   // Persisted in localStorage to survive navigation/reload
   const dismissedFixtureIdsRef = useRef<Set<number>>(
@@ -380,10 +386,6 @@ export default function Radar() {
     } catch { /* ignore */ }
     setDismissedVersion(v => v + 1);
   }, []);
-  const [defaultStake, _setDefaultStake] = useState<number>(() => {
-    const saved = localStorage.getItem('trade_default_stake');
-    return saved ? Number(saved) : 200;
-  });
   const [bet365Bridge, setBet365Bridge] = useState<Bet365BridgePayload | null>(null);
   const [bestCornerBridge, setBestCornerBridge] = useState<BestCornerBridgePayload | null>(null);
   
@@ -1319,17 +1321,8 @@ export default function Radar() {
     });
   }, [allStats, allFixtures, platformSnapshots]);
 
-  const handlePeguei = async (opp: Opportunity) => {
-    if (gottenOppIds.has(opp.id)) return;
-    
-    const newGotten = new Set(gottenOppIds);
-    newGotten.add(opp.id);
-    setGottenOppIds(newGotten);
-
-    // Auto-dismiss: hide notification for this fixture
-    dismissFixture(opp.fixtureId);
-
-    const stakeVal = Number(localStorage.getItem('trade_default_stake')) || defaultStake;
+  const savePegueiTrade = async (opp: Opportunity, stakeVal: number, oddVal: number) => {
+    const activeBancaId = localStorage.getItem('active_banca_id') || 'default';
     const matchName = `${opp.match.homeTeam.name} x ${opp.match.awayTeam.name}`;
 
     // 📸 SNAPSHOT: Captura todas as métricas do jogo no momento da entrada
@@ -1410,16 +1403,26 @@ export default function Radar() {
     const newTradeData = {
       match_name: matchName,
       market: opp.strategyName,
-      odd: 1.80,
+      odd: oddVal,
       stake: stakeVal,
-      status: 'PENDING',
+      status: 'PENDING' as const,
       profit_loss: 0,
       metrics: metricsSnapshot,
+      banca_id: activeBancaId
     };
 
     try {
       const { error } = await supabase.from('trades').insert([newTradeData]);
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42703') {
+          console.warn("banca_id column missing on Supabase trades table, retrying without it...");
+          const { banca_id: _, ...newTradeWithoutBanca } = newTradeData;
+          const { error: retryError } = await supabase.from('trades').insert([newTradeWithoutBanca]);
+          if (retryError) throw retryError;
+        } else {
+          throw error;
+        }
+      }
       console.log("✅ Trade + Snapshot de métricas salvo no Supabase!", metricsSnapshot);
     } catch (e) {
       console.warn("Supabase insert failed. Falling back to local replication.", e);
@@ -1432,6 +1435,42 @@ export default function Radar() {
       };
       localStorage.setItem('trades_db_replica', JSON.stringify([newTrade, ...parsed]));
     }
+  };
+
+  const handlePeguei = async (opp: Opportunity) => {
+    if (gottenOppIds.has(opp.id)) return;
+    
+    const newGotten = new Set(gottenOppIds);
+    newGotten.add(opp.id);
+    setGottenOppIds(newGotten);
+
+    // Auto-dismiss: hide notification for this fixture
+    dismissFixture(opp.fixtureId);
+
+    // Load active banca defaults
+    const activeBancaId = localStorage.getItem('active_banca_id') || 'default';
+    const savedBancas = localStorage.getItem('trade_bancas');
+    let stakeVal = 200;
+    let oddVal = 1.80;
+    if (savedBancas) {
+      try {
+        const parsedBancas = JSON.parse(savedBancas);
+        const activeBanca = parsedBancas.find((b: any) => b.id === activeBancaId);
+        if (activeBanca) {
+          stakeVal = activeBanca.defaultStake !== undefined ? activeBanca.defaultStake : 200;
+          oddVal = activeBanca.defaultOdd !== undefined ? activeBanca.defaultOdd : 1.80;
+        }
+      } catch { /* ignore */ }
+    } else {
+      const legacyStake = localStorage.getItem('trade_default_stake');
+      if (legacyStake) stakeVal = Number(legacyStake);
+    }
+
+    // Open confirmation/edit modal
+    setConfirmingOpp(opp);
+    setConfirmOdd(oddVal.toString());
+    setConfirmStake(stakeVal.toString());
+    setIsOpenConfirmModal(true);
   };
   // Track already alerted opportunities to avoid double playing the sound
   const alertedIdsRef = useRef<Set<string>>(new Set());
@@ -6540,6 +6579,83 @@ export default function Radar() {
             )}
           </div>
         </div>
+      {/* Confirm Opportunity Modal */}
+      {isOpenConfirmModal && confirmingOpp && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="card glass-panel" style={{ width: 440, padding: 24, borderRadius: 16 }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              ⚡ Confirmar Entrada no Radar
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>
+              Confronto: <strong>{confirmingOpp.match.homeTeam.name} x {confirmingOpp.match.awayTeam.name}</strong> ({confirmingOpp.strategyName})
+            </p>
+            
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              await savePegueiTrade(confirmingOpp, Number(confirmStake) || 200, Number(confirmOdd) || 1.80);
+              setIsOpenConfirmModal(false);
+              setConfirmingOpp(null);
+            }} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: 6, fontWeight: 600 }}>ODD DE ENTRADA</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1.01"
+                    value={confirmOdd}
+                    onChange={(e) => setConfirmOdd(e.target.value)}
+                    style={{
+                      width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                    }}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: 6, fontWeight: 600 }}>VALOR DA STAKE (R$)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={confirmStake}
+                    onChange={(e) => setConfirmStake(e.target.value)}
+                    style={{
+                      width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                    }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, marginTop: 12, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => { setIsOpenConfirmModal(false); setConfirmingOpp(null); }}
+                  className="btn"
+                  style={{ background: 'transparent', color: 'var(--text-secondary)', border: 'none', cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ fontWeight: 700, padding: '10px 24px' }}
+                >
+                  Confirmar Entrada
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
       </div>
     </div>
   );

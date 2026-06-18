@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
   CheckCircle, XCircle, Clock, Trash2, Plus, AlertCircle, 
-  DollarSign, TrendingUp, Award, Percent, ArrowUpRight
+  DollarSign, TrendingUp, Award, Percent, ArrowUpRight, Edit2
 } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import { saveSimplifiedTradeEntry, syncDiaryOutcome } from '../services/learningEngine';
@@ -15,32 +15,70 @@ interface Trade {
   stake: number;
   status: 'GREEN' | 'RED' | 'PENDING';
   profit_loss: number;
+  banca_id?: string;
 }
 
 export default function Diary() {
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [initialBankroll, setInitialBankroll] = useState<number>(() => {
-    const saved = localStorage.getItem('trade_initial_bankroll');
-    return saved ? Number(saved) : 5000;
-  });
   
+  const [bancas, setBancas] = useState<any[]>(() => {
+    const savedBancas = localStorage.getItem('trade_bancas');
+    const savedInitial = localStorage.getItem('trade_initial_bankroll');
+    const defaultInitial = savedInitial ? Number(savedInitial) : 5000;
+    
+    const savedStake = localStorage.getItem('trade_default_stake');
+    const defaultStake = savedStake ? Number(savedStake) : 200;
+
+    if (savedBancas) {
+      try {
+        return JSON.parse(savedBancas);
+      } catch {
+        return [{ id: 'default', name: 'Banca Fictícia', initial: defaultInitial, defaultStake, defaultOdd: 1.80 }];
+      }
+    }
+    const list = [{ id: 'default', name: 'Banca Fictícia', initial: defaultInitial, defaultStake, defaultOdd: 1.80 }];
+    localStorage.setItem('trade_bancas', JSON.stringify(list));
+    return list;
+  });
+
+  const [activeBancaId, setActiveBancaId] = useState<string>(() => {
+    return localStorage.getItem('active_banca_id') || 'default';
+  });
+
+  const activeBanca = useMemo(() => {
+    return bancas.find(b => b.id === activeBancaId) || bancas[0] || { id: 'default', name: 'Banca Fictícia', initial: 5000, defaultStake: 200, defaultOdd: 1.80 };
+  }, [bancas, activeBancaId]);
+
+  const initialBankroll = activeBanca.initial;
+  const defaultStake = activeBanca.defaultStake !== undefined ? activeBanca.defaultStake : 200;
+  const defaultOdd = activeBanca.defaultOdd !== undefined ? activeBanca.defaultOdd : 1.80;
+
   const [isEditingInitial, setIsEditingInitial] = useState(false);
   const [tempBankrollInput, setTempBankrollInput] = useState(initialBankroll.toString());
+
+  useEffect(() => {
+    setTempBankrollInput(initialBankroll.toString());
+  }, [initialBankroll]);
   
   // Modal states
   const [isOpenModal, setIsOpenModal] = useState(false);
   const [matchName, setMatchName] = useState('');
   const [market, setMarket] = useState('Cantos Limite');
-  const [odd, setOdd] = useState('1.80');
-  const [defaultStake, setDefaultStake] = useState<number>(() => {
-    const saved = localStorage.getItem('trade_default_stake');
-    return saved ? Number(saved) : 200;
-  });
-  const [stake, setStake] = useState(() => {
-    const saved = localStorage.getItem('trade_default_stake');
-    return saved || '200';
-  });
+  const [odd, setOdd] = useState(defaultOdd.toString());
+  const [stake, setStake] = useState(defaultStake.toString());
   const [status, setStatus] = useState<'GREEN' | 'RED' | 'PENDING'>('PENDING');
+
+  // Sync fields when active banca's defaults change
+  useEffect(() => {
+    setOdd(defaultOdd.toString());
+    setStake(defaultStake.toString());
+  }, [defaultOdd, defaultStake, activeBancaId]);
+
+  // Edit trade states
+  const [isOpenEditModal, setIsOpenEditModal] = useState(false);
+  const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
+  const [editOdd, setEditOdd] = useState('');
+  const [editStake, setEditStake] = useState('');
   
   const [showSqlGuide, setShowSqlGuide] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
@@ -73,11 +111,60 @@ export default function Diary() {
     fetchTrades();
   }, []);
 
+  const handleSwitchBanca = (bancaId: string) => {
+    setActiveBancaId(bancaId);
+    localStorage.setItem('active_banca_id', bancaId);
+  };
+
+  const handleCreateBanca = () => {
+    const name = prompt("Digite o nome da nova banca (ex: Banca Real):");
+    if (!name || !name.trim()) return;
+    const initialStr = prompt("Digite o valor inicial da banca (R$):", "5000");
+    if (initialStr === null) return;
+    const initial = Number(initialStr) || 0;
+    
+    const newBanca = {
+      id: 'banca_' + Date.now(),
+      name: name.trim(),
+      initial,
+      defaultStake: 200,
+      defaultOdd: 1.80
+    };
+    
+    const updatedBancas = [...bancas, newBanca];
+    setBancas(updatedBancas);
+    localStorage.setItem('trade_bancas', JSON.stringify(updatedBancas));
+    
+    setActiveBancaId(newBanca.id);
+    localStorage.setItem('active_banca_id', newBanca.id);
+  };
+
+  const handleSaveDefaultStake = (val: number) => {
+    const updatedBancas = bancas.map(b => b.id === activeBancaId ? { ...b, defaultStake: val } : b);
+    setBancas(updatedBancas);
+    localStorage.setItem('trade_bancas', JSON.stringify(updatedBancas));
+
+    if (activeBancaId === 'default') {
+      localStorage.setItem('trade_default_stake', val.toString());
+    }
+  };
+
+  const handleSaveDefaultOdd = (val: number) => {
+    const updatedBancas = bancas.map(b => b.id === activeBancaId ? { ...b, defaultOdd: val } : b);
+    setBancas(updatedBancas);
+    localStorage.setItem('trade_bancas', JSON.stringify(updatedBancas));
+  };
+
   // Save bankroll locally
   const handleSaveBankroll = () => {
     const num = Number(tempBankrollInput) || 0;
-    setInitialBankroll(num);
-    localStorage.setItem('trade_initial_bankroll', num.toString());
+    const updatedBancas = bancas.map(b => b.id === activeBancaId ? { ...b, initial: num } : b);
+    setBancas(updatedBancas);
+    localStorage.setItem('trade_bancas', JSON.stringify(updatedBancas));
+
+    if (activeBancaId === 'default') {
+      localStorage.setItem('trade_initial_bankroll', num.toString());
+    }
     setIsEditingInitial(false);
   };
 
@@ -98,7 +185,8 @@ export default function Diary() {
       odd: oddNum,
       stake: stakeNum,
       status,
-      profit_loss: profitLoss
+      profit_loss: profitLoss,
+      banca_id: activeBancaId
     };
 
     let generatedTradeId = '';
@@ -118,8 +206,20 @@ export default function Diary() {
       // Supabase
       try {
         const { data, error } = await supabase.from('trades').insert([newTradeData]).select().single();
-        if (error) throw error;
-        generatedTradeId = data?.id || 'supabase-' + Date.now();
+        if (error) {
+          // If banca_id column is missing
+          if (error.code === '42703') {
+            console.warn("banca_id column missing on Supabase trades table, retrying without it...");
+            const { banca_id: _, ...newTradeWithoutBanca } = newTradeData;
+            const { data: retryData, error: retryError } = await supabase.from('trades').insert([newTradeWithoutBanca]).select().single();
+            if (retryError) throw retryError;
+            generatedTradeId = retryData?.id || 'supabase-' + Date.now();
+          } else {
+            throw error;
+          }
+        } else {
+          generatedTradeId = data?.id || 'supabase-' + Date.now();
+        }
         await fetchTrades();
       } catch (err) {
         alert("Erro ao salvar no banco de dados. Tentando replicar localmente.");
@@ -210,14 +310,59 @@ export default function Diary() {
     }
   };
 
+  // Edit trade
+  const handleSaveEditTrade = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTrade) return;
+
+    const oddNum = Number(editOdd) || 1.80;
+    const stakeNum = Number(editStake) || 200;
+    let profitLoss = 0;
+    if (editingTrade.status === 'GREEN') profitLoss = Number((stakeNum * (oddNum - 1)).toFixed(2));
+    if (editingTrade.status === 'RED') profitLoss = -stakeNum;
+
+    if (usingFallback) {
+      const updated = trades.map(t => t.id === editingTrade.id ? { ...t, odd: oddNum, stake: stakeNum, profit_loss: profitLoss } : t);
+      setTrades(updated);
+      localStorage.setItem('trades_db_replica', JSON.stringify(updated));
+    } else {
+      try {
+        const { error } = await supabase
+          .from('trades')
+          .update({ odd: oddNum, stake: stakeNum, profit_loss: profitLoss })
+          .eq('id', editingTrade.id);
+        if (error) throw error;
+        await fetchTrades();
+      } catch (err) {
+        alert("Erro ao salvar edição. Tentando replicar localmente.");
+        console.error(err);
+      }
+    }
+
+    setIsOpenEditModal(false);
+    setEditingTrade(null);
+  };
+
+  const handleOpenEditModal = (trade: Trade) => {
+    setEditingTrade(trade);
+    setEditOdd(trade.odd.toString());
+    setEditStake(trade.stake.toString());
+    setIsOpenEditModal(true);
+  };
+
+  // Filter trades by active banca
+  const filteredTrades = useMemo(() => {
+    return trades.filter((t: any) => (t.banca_id || 'default') === activeBancaId);
+  }, [trades, activeBancaId]);
+
   // Metrics Calculations
-  const totalProfitLoss = Number(trades.reduce((acc, curr) => acc + curr.profit_loss, 0).toFixed(2));
+  const totalProfitLoss = Number(filteredTrades.reduce((acc, curr) => acc + curr.profit_loss, 0).toFixed(2));
   const currentBankroll = initialBankroll + totalProfitLoss;
   const growthPercent = initialBankroll > 0 ? Number(((totalProfitLoss / initialBankroll) * 100).toFixed(2)) : 0;
   
-  const resolvedTrades = trades.filter(t => t.status !== 'PENDING');
-  const greensCount = trades.filter(t => t.status === 'GREEN').length;
-  const redsCount = trades.filter(t => t.status === 'RED').length;
+  const resolvedTrades = filteredTrades.filter(t => t.status !== 'PENDING');
+  const greensCount = filteredTrades.filter(t => t.status === 'GREEN').length;
+  const redsCount = filteredTrades.filter(t => t.status === 'RED').length;
   
   const winRate = resolvedTrades.length > 0 ? Number(((greensCount / resolvedTrades.length) * 100).toFixed(1)) : 0;
   const totalStakeInvested = resolvedTrades.reduce((acc, curr) => acc + curr.stake, 0);
@@ -227,18 +372,53 @@ export default function Diary() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 40 }}>
       
       {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 className="page-title">Diário & Gestão de Banca</h1>
           <p style={{ color: 'var(--text-muted)' }}>Controle de banca profissional integrado em tempo real com o banco de dados cloud.</p>
         </div>
-        <button 
-          onClick={() => setIsOpenModal(true)}
-          className="btn btn-primary"
-          style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}
-        >
-          <Plus size={18} /> Registrar Entrada
-        </button>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Banca Selector Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-surface)', borderRadius: 8, padding: '6px 12px', border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>Banca:</span>
+            <select
+              value={activeBancaId}
+              onChange={(e) => handleSwitchBanca(e.target.value)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-primary)',
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                outline: 'none',
+                paddingRight: 4
+              }}
+            >
+              {bancas.map(b => (
+                <option key={b.id} value={b.id} style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+                  {b.name} (R$ {b.initial})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button 
+            className="btn btn-outline" 
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+            onClick={handleCreateBanca}
+          >
+            <Plus size={16} /> Nova Banca
+          </button>
+
+          <button 
+            onClick={() => setIsOpenModal(true)}
+            className="btn btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}
+          >
+            <Plus size={18} /> Registrar Entrada
+          </button>
+        </div>
       </div>
 
       {/* SQL Setup Alert (collapsible guide) */}
@@ -275,8 +455,12 @@ export default function Diary() {
   odd NUMERIC NOT NULL,
   stake NUMERIC NOT NULL,
   status VARCHAR DEFAULT 'PENDING' NOT NULL,
-  profit_loss NUMERIC DEFAULT 0 NOT NULL
-);`}
+  profit_loss NUMERIC DEFAULT 0 NOT NULL,
+  banca_id VARCHAR DEFAULT 'default'
+);
+
+-- Caso já possua a tabela 'trades' criada, execute apenas este comando:
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'default';`}
             </pre>
             <p style={{ marginTop: 10 }}>
               4. Clique em <strong>"Run"</strong> no painel do Supabase. Em seguida, recarregue esta página!
@@ -320,22 +504,38 @@ export default function Diary() {
                   >
                     Edit. Banca Inicial (R$ {initialBankroll})
                   </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Stake Padrão: R$</span>
-                    <input
-                      type="number"
-                      value={defaultStake}
-                      onChange={(e) => {
-                        const val = Number(e.target.value) || 0;
-                        setDefaultStake(val);
-                        setStake(val.toString());
-                        localStorage.setItem('trade_default_stake', val.toString());
-                      }}
-                      style={{
-                        width: 55, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                        color: '#fff', fontSize: '0.75rem', padding: '1px 4px', borderRadius: 4, outline: 'none'
-                      }}
-                    />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Stake Padrão: R$</span>
+                      <input
+                        type="number"
+                        value={defaultStake}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 0;
+                          handleSaveDefaultStake(val);
+                        }}
+                        style={{
+                          width: 55, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+                          color: '#fff', fontSize: '0.75rem', padding: '1px 4px', borderRadius: 4, outline: 'none'
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Odd Padrão:</span>
+                      <input
+                        type="number"
+                        step="0.05"
+                        value={defaultOdd}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 1.80;
+                          handleSaveDefaultOdd(val);
+                        }}
+                        style={{
+                          width: 55, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+                          color: '#fff', fontSize: '0.75rem', padding: '1px 4px', borderRadius: 4, outline: 'none'
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               )}
@@ -414,14 +614,14 @@ export default function Diary() {
             </tr>
           </thead>
           <tbody>
-            {trades.length === 0 ? (
+            {filteredTrades.length === 0 ? (
               <tr>
                 <td colSpan={7} style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
                   Nenhuma entrada registrada ainda. Clique em "Registrar Entrada" para iniciar seu histórico!
                 </td>
               </tr>
             ) : (
-              trades.map(trade => (
+              filteredTrades.map(trade => (
                 <tr key={trade.id} style={{ borderBottom: '1px solid var(--border-color)', background: trade.status === 'PENDING' ? 'rgba(59, 130, 246, 0.01)' : 'transparent' }}>
                   <td style={{ padding: '16px 24px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                     {new Date(trade.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -477,6 +677,13 @@ export default function Diary() {
                           </button>
                         </>
                       )}
+                      <button
+                        onClick={() => handleOpenEditModal(trade)}
+                        style={{ background: 'transparent', border: 'none', color: 'rgba(59, 130, 246, 0.8)', cursor: 'pointer', padding: 4 }}
+                        title="Editar Odd / Stake"
+                      >
+                        <Edit2 size={16} />
+                      </button>
                       <button
                         onClick={() => handleDeleteTrade(trade.id)}
                         style={{ background: 'transparent', border: 'none', color: 'rgba(239, 68, 68, 0.6)', cursor: 'pointer', padding: 4 }}
@@ -605,6 +812,77 @@ export default function Diary() {
                   style={{ fontWeight: 700, padding: '10px 24px' }}
                 >
                   Registrar Entrada
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Edit Trade Modal */}
+      {isOpenEditModal && editingTrade && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000
+        }}>
+          <div className="card glass-panel" style={{ width: 440, padding: 24, borderRadius: 16 }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ArrowUpRight size={20} color="var(--accent-primary)" /> Editar Entrada
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 16 }}>
+              Confronto: <strong>{editingTrade.match_name}</strong> ({editingTrade.market})
+            </p>
+            
+            <form onSubmit={handleSaveEditTrade} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: 6, fontWeight: 600 }}>ODD DA ENTRADA</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1.01"
+                    value={editOdd}
+                    onChange={(e) => setEditOdd(e.target.value)}
+                    style={{
+                      width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                    }}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: 6, fontWeight: 600 }}>VALOR DA STAKE (R$)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={editStake}
+                    onChange={(e) => setEditStake(e.target.value)}
+                    style={{
+                      width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
+                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                    }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, marginTop: 12, justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => { setIsOpenEditModal(false); setEditingTrade(null); }}
+                  className="btn"
+                  style={{ background: 'transparent', color: 'var(--text-secondary)', border: 'none', cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ fontWeight: 700, padding: '10px 24px' }}
+                >
+                  Salvar Edição
                 </button>
               </div>
 

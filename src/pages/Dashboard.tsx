@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { TrendingUp, TrendingDown, DollarSign, Target, RefreshCw, AlertCircle, Plus, ArrowUpRight } from 'lucide-react';
 import { supabase } from '../services/supabase';
@@ -16,10 +16,64 @@ interface Trade {
 
 export default function Dashboard() {
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [initialBankroll, setInitialBankroll] = useState<number>(() => {
-    const saved = localStorage.getItem('trade_initial_bankroll');
-    return saved ? Number(saved) : 5000;
+  
+  const [bancas, setBancas] = useState<any[]>(() => {
+    const savedBancas = localStorage.getItem('trade_bancas');
+    const savedInitial = localStorage.getItem('trade_initial_bankroll');
+    const defaultInitial = savedInitial ? Number(savedInitial) : 5000;
+    
+    const savedStake = localStorage.getItem('trade_default_stake');
+    const defaultStake = savedStake ? Number(savedStake) : 200;
+
+    if (savedBancas) {
+      try {
+        return JSON.parse(savedBancas);
+      } catch {
+        return [{ id: 'default', name: 'Banca Fictícia', initial: defaultInitial, defaultStake, defaultOdd: 1.80 }];
+      }
+    }
+    const list = [{ id: 'default', name: 'Banca Fictícia', initial: defaultInitial, defaultStake, defaultOdd: 1.80 }];
+    localStorage.setItem('trade_bancas', JSON.stringify(list));
+    return list;
   });
+
+  const [activeBancaId, setActiveBancaId] = useState<string>(() => {
+    return localStorage.getItem('active_banca_id') || 'default';
+  });
+
+  const activeBanca = useMemo(() => {
+    return bancas.find(b => b.id === activeBancaId) || bancas[0] || { id: 'default', name: 'Banca Fictícia', initial: 5000, defaultStake: 200, defaultOdd: 1.80 };
+  }, [bancas, activeBancaId]);
+
+  const initialBankroll = activeBanca.initial;
+
+  const handleSwitchBanca = (bancaId: string) => {
+    setActiveBancaId(bancaId);
+    localStorage.setItem('active_banca_id', bancaId);
+  };
+
+  const handleCreateBanca = () => {
+    const name = prompt("Digite o nome da nova banca (ex: Banca Real):");
+    if (!name || !name.trim()) return;
+    const initialStr = prompt("Digite o valor inicial da banca (R$):", "5000");
+    if (initialStr === null) return;
+    const initial = Number(initialStr) || 0;
+    
+    const newBanca = {
+      id: 'banca_' + Date.now(),
+      name: name.trim(),
+      initial,
+      defaultStake: 200,
+      defaultOdd: 1.80
+    };
+    
+    const updatedBancas = [...bancas, newBanca];
+    setBancas(updatedBancas);
+    localStorage.setItem('trade_bancas', JSON.stringify(updatedBancas));
+    
+    setActiveBancaId(newBanca.id);
+    localStorage.setItem('active_banca_id', newBanca.id);
+  };
   
   const [isLoading, setIsLoading] = useState(false);
   const [showSqlGuide, setShowSqlGuide] = useState(false);
@@ -60,19 +114,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchTrades();
-    
-    // Sync initial bankroll when page loads
-    const saved = localStorage.getItem('trade_initial_bankroll');
-    if (saved) setInitialBankroll(Number(saved));
   }, []);
 
+  const filteredTrades = useMemo(() => {
+    return trades.filter((t: any) => (t.banca_id || 'default') === activeBancaId);
+  }, [trades, activeBancaId]);
+
   // Performance calculations
-  const totalProfitLoss = Number(trades.reduce((acc, curr) => acc + curr.profit_loss, 0).toFixed(2));
+  const totalProfitLoss = Number(filteredTrades.reduce((acc, curr) => acc + curr.profit_loss, 0).toFixed(2));
   const currentBankroll = initialBankroll + totalProfitLoss;
   const growthPercent = initialBankroll > 0 ? Number(((totalProfitLoss / initialBankroll) * 100).toFixed(2)) : 0;
 
   // Today's metrics (local calendar day)
-  const todayTrades = trades.filter(t => {
+  const todayTrades = filteredTrades.filter(t => {
     const tradeDate = new Date(t.created_at).toDateString();
     const todayDate = new Date().toDateString();
     return tradeDate === todayDate;
@@ -82,8 +136,8 @@ export default function Dashboard() {
   const todayReds = todayTrades.filter(t => t.status === 'RED').length;
 
   // Winrate
-  const resolvedTrades = trades.filter(t => t.status !== 'PENDING');
-  const greensCount = trades.filter(t => t.status === 'GREEN').length;
+  const resolvedTrades = filteredTrades.filter(t => t.status !== 'PENDING');
+  const greensCount = filteredTrades.filter(t => t.status === 'GREEN').length;
   const winRate = resolvedTrades.length > 0 ? Math.round((greensCount / resolvedTrades.length) * 100) : 0;
 
   // Handle addition of new funds (Aporte)
@@ -93,13 +147,18 @@ export default function Dashboard() {
     if (num <= 0) return;
 
     const newInitial = initialBankroll + num;
-    setInitialBankroll(newInitial);
-    localStorage.setItem('trade_initial_bankroll', newInitial.toString());
+    const updatedBancas = bancas.map(b => b.id === activeBancaId ? { ...b, initial: newInitial } : b);
+    setBancas(updatedBancas);
+    localStorage.setItem('trade_bancas', JSON.stringify(updatedBancas));
+
+    if (activeBancaId === 'default') {
+      localStorage.setItem('trade_initial_bankroll', newInitial.toString());
+    }
     setIsOpenAporteModal(false);
   };
 
   // Chronological points for SVG line chart
-  const resolvedChronological = [...trades]
+  const resolvedChronological = [...filteredTrades]
     .filter(t => t.status !== 'PENDING')
     .reverse();
 
@@ -161,7 +220,40 @@ export default function Dashboard() {
           </h1>
           <p style={{ color: 'var(--text-muted)' }}>Visão geral da sua banca e performance integrada ao banco de dados.</p>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Banca Selector Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-surface)', borderRadius: 8, padding: '6px 12px', border: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>Banca:</span>
+            <select
+              value={activeBancaId}
+              onChange={(e) => handleSwitchBanca(e.target.value)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--text-primary)',
+                fontWeight: 700,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                outline: 'none',
+                paddingRight: 4
+              }}
+            >
+              {bancas.map(b => (
+                <option key={b.id} value={b.id} style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+                  {b.name} (R$ {b.initial})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button 
+            className="btn btn-outline" 
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={handleCreateBanca}
+          >
+            <Plus size={16} /> Nova Banca
+          </button>
+
           <button 
             className="btn btn-outline" 
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}
@@ -206,8 +298,12 @@ export default function Dashboard() {
   odd NUMERIC NOT NULL,
   stake NUMERIC NOT NULL,
   status VARCHAR DEFAULT 'PENDING' NOT NULL,
-  profit_loss NUMERIC DEFAULT 0 NOT NULL
-);`}
+  profit_loss NUMERIC DEFAULT 0 NOT NULL,
+  banca_id VARCHAR DEFAULT 'default'
+);
+
+-- Caso já possua a tabela 'trades' criada, execute apenas este comando:
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'default';`}
               </pre>
             </div>
           )}
