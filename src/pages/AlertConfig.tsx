@@ -319,7 +319,8 @@ function SliderRow({
   onChange: (v: number) => void;
   isLast?: boolean;
 }) {
-  const display = format ? format(value) : String(value);
+  const safeValue = value !== undefined && value !== null ? value : min;
+  const display = format ? format(safeValue) : String(safeValue);
   return (
     <div style={isLast ? s.rowLast : s.row}>
       <div style={{ flex: 1 }}>
@@ -332,7 +333,7 @@ function SliderRow({
           min={min}
           max={max}
           step={step}
-          value={value}
+          value={safeValue}
           onChange={(e) => onChange(Number(e.target.value))}
           style={{ ...s.slider, accentColor: accentColor || 'var(--accent-primary)' }}
         />
@@ -412,7 +413,7 @@ export default function AlertConfig() {
           .eq('id', 'default')
           .single();
         if (error || !data || !data.config) return;
-        const cloudConfig = data.config as TelegramAlertConfig;
+        const cloudConfig = { ...getDefaultAlertConfig(), ...(data.config as any) };
         setConfig(cloudConfig);
         saveAlertConfig(cloudConfig); // atualiza cache local
         console.log('✅ Telegram alert config loaded from Supabase');
