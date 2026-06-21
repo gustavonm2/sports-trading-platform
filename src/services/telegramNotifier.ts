@@ -55,8 +55,12 @@ interface AlertConfig {
   minMinute: number;
   maxMinute: number;
   minCorners: number;
+  minCornersHt: number;
+  minCornersFt: number;
   minPossession: number;
   minDangerousAttacks: number;
+  minAtm5: number;
+  minAtm3: number;
   minShotsOnGoal: number;
   maxGoalDifference: number;
   funilMinScoreDiff: number;
@@ -84,8 +88,12 @@ function getDefaults(): AlertConfig {
     minMinute: 25,
     maxMinute: 85,
     minCorners: 3,
+    minCornersHt: 2,
+    minCornersFt: 5,
     minPossession: 45,
     minDangerousAttacks: 30,
+    minAtm5: 1.0,
+    minAtm3: 1.2,
     minShotsOnGoal: 2,
     maxGoalDifference: 2,
     funilMinScoreDiff: 2,
@@ -130,6 +138,8 @@ export interface TelegramAlertOpp {
     awayShotsOnGoal: number;
     homeScoreFinal?: number;
     awayScoreFinal?: number;
+    atm5?: number;
+    atm3?: number;
   };
 }
 
@@ -168,14 +178,24 @@ function passesFilters(opp: TelegramAlertOpp): boolean {
   // 8. Stats filters (only if stats provided)
   if (stats) {
     const totalCorners = stats.homeCorners + stats.awayCorners;
-    if (totalCorners < cfg.minCorners) return false;
+    const isHT = match.status === '1H' || match.status === 'HT';
+    const minCornersHt = cfg.minCornersHt !== undefined ? cfg.minCornersHt : 2;
+    const minCornersFt = cfg.minCornersFt !== undefined ? cfg.minCornersFt : 5;
+    const reqCorners = isHT ? minCornersHt : minCornersFt;
+    if (totalCorners < reqCorners) return false;
 
     const isHome = opp.teamName === match.homeTeam.name;
     const teamPossession = isHome ? stats.homePossession : stats.awayPossession;
     if (teamPossession < cfg.minPossession) return false;
 
-    const teamDA = isHome ? stats.homeDangerousAttacks : stats.awayDangerousAttacks;
-    if (teamDA < cfg.minDangerousAttacks) return false;
+    // Filtro de Ataques Perigosos por Minuto (ATM 5 e ATM 3)
+    const atm5 = stats.atm5 !== undefined ? stats.atm5 : 0;
+    const atm3 = stats.atm3 !== undefined ? stats.atm3 : 0;
+    const minAtm5 = cfg.minAtm5 !== undefined ? cfg.minAtm5 : 0;
+    const minAtm3 = cfg.minAtm3 !== undefined ? cfg.minAtm3 : 0;
+
+    if (atm5 < minAtm5) return false;
+    if (atm3 < minAtm3) return false;
 
     const teamSOG = isHome ? stats.homeShotsOnGoal : stats.awayShotsOnGoal;
     if (teamSOG < cfg.minShotsOnGoal) return false;
@@ -221,6 +241,9 @@ export async function sendTelegramAlert(opp: TelegramAlertOpp): Promise<boolean>
     ``,
     `🎯 <b>Time:</b> ${opp.teamName}`,
     `📊 <b>Confiança:</b> ${opp.confidence}%`,
+    ...(opp.stats && opp.stats.atm5 !== undefined && opp.stats.atm3 !== undefined ? [
+      `⚡ <b>Ataques/Min (ATM):</b> 5m: <b>${opp.stats.atm5.toFixed(1)}</b> · 3m: <b>${opp.stats.atm3.toFixed(1)}</b>`
+    ] : []),
     ``,
     `📋 ${opp.details}`,
     ``,

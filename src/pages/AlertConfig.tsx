@@ -26,8 +26,12 @@ export interface TelegramAlertConfig {
 
   // Filtro de métricas
   minCorners: number;
+  minCornersHt: number;
+  minCornersFt: number;
   minPossession: number;
   minDangerousAttacks: number;
+  minAtm5: number;
+  minAtm3: number;
   minShotsOnGoal: number;
 
   // Filtro de placar
@@ -56,8 +60,12 @@ export function getDefaultAlertConfig(): TelegramAlertConfig {
     minMinute: 25,
     maxMinute: 85,
     minCorners: 3,
+    minCornersHt: 2,
+    minCornersFt: 5,
     minPossession: 45,
     minDangerousAttacks: 30,
+    minAtm5: 1.0,
+    minAtm3: 1.2,
     minShotsOnGoal: 2,
     maxGoalDifference: 2,
     funilMinScoreDiff: 2,
@@ -525,13 +533,22 @@ export default function AlertConfig() {
         <h2 style={s.sectionTitle}>📈 Filtro de Métricas</h2>
         <div style={s.card}>
           <SliderRow
-            label="Escanteios mínimos"
-            value={config.minCorners}
+            label="Escanteios mínimos HT"
+            value={config.minCornersHt}
             min={0}
             max={10}
             step={1}
             accentColor="var(--status-green)"
-            onChange={(v) => update({ minCorners: v })}
+            onChange={(v) => update({ minCornersHt: v })}
+          />
+          <SliderRow
+            label="Escanteios mínimos FT"
+            value={config.minCornersFt}
+            min={0}
+            max={15}
+            step={1}
+            accentColor="var(--status-green)"
+            onChange={(v) => update({ minCornersFt: v })}
           />
           <SliderRow
             label="Posse mínima %"
@@ -544,13 +561,24 @@ export default function AlertConfig() {
             onChange={(v) => update({ minPossession: v })}
           />
           <SliderRow
-            label="Ataques perigosos mín"
-            value={config.minDangerousAttacks}
-            min={0}
-            max={80}
-            step={1}
+            label="Ataques perigosos por minuto (ATM 5)"
+            value={config.minAtm5}
+            min={0.0}
+            max={3.0}
+            step={0.1}
+            format={(v) => v.toFixed(1)}
             accentColor="var(--status-red)"
-            onChange={(v) => update({ minDangerousAttacks: v })}
+            onChange={(v) => update({ minAtm5: v })}
+          />
+          <SliderRow
+            label="Ataques perigosos por minuto (ATM 3)"
+            value={config.minAtm3}
+            min={0.0}
+            max={3.0}
+            step={0.1}
+            format={(v) => v.toFixed(1)}
+            accentColor="var(--status-red)"
+            onChange={(v) => update({ minAtm3: v })}
           />
           <SliderRow
             label="Chutes a gol mín"

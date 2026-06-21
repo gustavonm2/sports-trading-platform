@@ -1752,6 +1752,7 @@ export default function Radar() {
       return undefined;
     })();
 
+    const isHome = opp.teamName === opp.match.homeTeam.name;
     sendTelegramAlert({
       ...opp,
       matchUrl,
@@ -1766,6 +1767,8 @@ export default function Radar() {
         awayShotsOnGoal: oppStats.away?.shotsOnGoal ?? 0,
         homeScoreFinal: getScoreFinalForSide(opp.fixtureId, true),
         awayScoreFinal: getScoreFinalForSide(opp.fixtureId, false),
+        atm5: getAttacksInWindow(opp.fixtureId, 5, isHome) / 5,
+        atm3: getAttacksInWindow(opp.fixtureId, 3, isHome) / 3,
       } : undefined,
     }).catch(() => {});
 
