@@ -2281,6 +2281,7 @@ export default function Radar() {
   };
   // Track already alerted opportunities to avoid double playing the sound
   const alertedIdsRef = useRef<Set<string>>(new Set());
+  const telegramAlertedIdsRef = useRef<Set<string>>(new Set());
   const statsLastFetchRef = useRef<Record<number, number>>({});
 
   // 📈 EMA Smoothing: Suaviza o ScoreFinal para evitar volatilidade nos gatilhos
@@ -2324,21 +2325,15 @@ export default function Radar() {
     }
   };
 
-  // 📱 Push Notification — Capacitor nativo (iOS) ou Service Worker (web)
-  const sendPushNotification = (opp: Opportunity) => {
-    // Se "notificar só favoritos" estiver ativo, ignorar jogos não favoritados
+  // 📲 Send Telegram Alert with independent tracking
+  const triggerTelegramNotification = (opp: Opportunity) => {
     if (notifyFavoritesOnlyRef.current && !favoriteFixtureIdsRef.current.has(opp.fixtureId)) return;
 
-    // 📲 Telegram notification (com filtros avançados)
     const oppStats = allStats[opp.fixtureId];
-
-    // Resolver URL da Bet365 direto da fixture ou dos bridges
     const matchUrl = (() => {
-      // 1. Checar na fixture
       if ((opp.match as any).matchUrl && (opp.match as any).matchUrl.includes('bet365')) {
         return (opp.match as any).matchUrl;
       }
-      // 2. Checar no bridge da bet365
       const b365Bridge = bet365BridgeRef.current;
       if (b365Bridge?.connected && b365Bridge.matches?.length > 0) {
         const bm = findBet365Match(opp.match.homeTeam.name, opp.match.awayTeam.name, b365Bridge.matches);
@@ -2346,7 +2341,6 @@ export default function Radar() {
           return bm.matchUrl;
         }
       }
-      // 3. Checar no bridge do bestCorner
       const bcBridge = bestCornerBridgeRef.current;
       if (bcBridge?.connected && bcBridge.matches?.length > 0) {
         const bm = findBet365Match(opp.match.homeTeam.name, opp.match.awayTeam.name, bcBridge.matches);
@@ -2358,6 +2352,7 @@ export default function Radar() {
     })();
 
     const isHome = opp.teamName === opp.match.homeTeam.name;
+
     sendTelegramAlert({
       ...opp,
       matchUrl,
@@ -2375,7 +2370,20 @@ export default function Radar() {
         atm5: getAttacksInWindow(opp.fixtureId, 5, isHome) / 5,
         atm3: getAttacksInWindow(opp.fixtureId, 3, isHome) / 3,
       } : undefined,
-    }).catch(() => {});
+    }).then((wasSent) => {
+      if (wasSent) {
+        telegramAlertedIdsRef.current.add(opp.id);
+        console.log(`[Telegram] ✅ Alerta enviado e registrado: ${opp.match.homeTeam.name} vs ${opp.match.awayTeam.name}`);
+      }
+    }).catch((err) => {
+      console.error('[Telegram] ❌ Erro ao enviar alerta Telegram:', err);
+    });
+  };
+
+  // 📱 Push Notification — Capacitor nativo (iOS) ou Service Worker (web)
+  const sendPushNotification = (opp: Opportunity) => {
+    // Se "notificar só favoritos" estiver ativo, ignorar jogos não favoritados
+    if (notifyFavoritesOnlyRef.current && !favoriteFixtureIdsRef.current.has(opp.fixtureId)) return;
 
     const matchName = `${opp.match.homeTeam.name} ${opp.match.goalsHome}×${opp.match.goalsAway} ${opp.match.awayTeam.name}`;
     const title = `🎯 ${opp.strategyName}`;
@@ -2933,15 +2941,16 @@ export default function Radar() {
     // Filter out dismissed fixtures BEFORE setting state and playing sounds
     const nonDismissedOpps = activeOpps.filter(opp => !dismissedFixtureIdsRef.current.has(opp.fixtureId));
 
-    // Sound alerts triggers — only for non-dismissed
+    // Sound and Telegram alerts triggers — only for non-dismissed
     nonDismissedOpps.forEach(opp => {
+      // 1. UI and Sound Alerts (Basic filter)
       if (!alertedIdsRef.current.has(opp.id)) {
         alertedIdsRef.current.add(opp.id);
         if (soundEnabled && !playedSoundThisTick) {
           playAlertSound();
           playedSoundThisTick = true;
         }
-        // 📱 Push notification para mobile
+        // 📱 Push notification para mobile (UI)
         sendPushNotification(opp);
 
         // 🧠 Registrar sugestão automática no motor de aprendizado
@@ -2951,6 +2960,11 @@ export default function Radar() {
         // 📤 Sincronizar o estado de alertas enviados na nuvem (limita a no máximo 200 IDs para economizar dados)
         const updatedAlerts = Array.from(alertedIdsRef.current).slice(-200);
         broadcastScannerData(undefined, undefined, undefined, undefined, undefined, updatedAlerts);
+      }
+
+      // 2. Telegram Notifications (Refined filters check runs on every tick)
+      if (!telegramAlertedIdsRef.current.has(opp.id)) {
+        triggerTelegramNotification(opp);
       }
     });
 
