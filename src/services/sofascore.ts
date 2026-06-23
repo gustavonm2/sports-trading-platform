@@ -231,6 +231,32 @@ class SofascoreService {
       return { fixtures: [], statsMap: {}, isMock: true };
     }
   }
+
+  async getFixtureDetails(eventId: number): Promise<any> {
+    try {
+      const url = `${BASE_URL}/event/${eventId}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.error(`Error fetching fixture details for ${eventId}:`, e);
+    }
+    return null;
+  }
+
+  async getFixtureStatistics(eventId: number): Promise<any> {
+    try {
+      const url = `${BASE_URL}/event/${eventId}/statistics`;
+      const res = await fetch(url);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.error(`Error fetching fixture statistics for ${eventId}:`, e);
+    }
+    return null;
+  }
 }
 
 export const sofascore = new SofascoreService();

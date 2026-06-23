@@ -22,7 +22,7 @@ import { onBestCornerData } from '../services/bestCornerBridge';
 import type { BestCornerBridgePayload } from '../services/bestCornerBridge';
 import { initCloudSync, broadcastBridgeData, broadcastScannerData, onCloudBridgeData, onCloudScannerData, markAsOperator, getCloudSyncStatus } from '../services/cloudSync';
 import type { CloudSyncStatus } from '../services/cloudSync';
-import { saveTradeEntry } from '../services/learningEngine';
+import { saveTradeEntry, resolveTradeEntry } from '../services/learningEngine';
 import { sendTelegramAlert, getTelegramConfig, saveTelegramConfig, testTelegramConnection } from '../services/telegramNotifier';
 
 // Fuzzy team matching helper to link Sportsmonks/Sofascore matches to API-Sports dossiers
@@ -296,6 +296,21 @@ export default function Radar() {
   const [rawApiStats, setRawApiStats] = useState<Record<number, any>>({});
   const [allDossiers, setAllDossiers] = useState<Record<number, PreMatchDossier>>({});
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [monitoredOpps, setMonitoredOpps] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('learning_automatic_monitored');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('learning_automatic_monitored', JSON.stringify(monitoredOpps));
+  }, [monitoredOpps]);
+
+  const monitoredOppsRef = useRef(monitoredOpps);
+  useEffect(() => { monitoredOppsRef.current = monitoredOpps; }, [monitoredOpps]);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   const [showMatchesTable, setShowMatchesTable] = useState(false);
@@ -1639,6 +1654,309 @@ export default function Radar() {
     }
   };
 
+  const registerAutomaticSuggestion = useCallback(async (opp: Opportunity, stats: any) => {
+    try {
+      const activeBancaId = localStorage.getItem('active_banca_id') || 'default';
+      const fixture = allFixtures.find(f => f.id === opp.fixtureId);
+      const elapsed = fixture ? getDisplayElapsed(fixture.id, fixture.elapsed || 0, fixture.status || '') : 0;
+
+      // Calcular APM/IPR
+      let homeIpr = 0, awayIpr = 0;
+      let homeApm10 = 0, awayApm10 = 0, homeApm5 = 0, awayApm5 = 0, homeApm3 = 0, awayApm3 = 0;
+      if (stats) {
+        const unifiedSnapshots = [
+          ...(stats.snapshots || []),
+          ...(platformSnapshots[opp.fixtureId] || [])
+        ].reduce((acc: any[], curr: any) => {
+          if (!acc.some((s: any) => s.elapsed === curr.elapsed)) acc.push(curr);
+          return acc;
+        }, [] as any[]).sort((a: any, b: any) => a.elapsed - b.elapsed);
+
+        const apmData = calculateDynamicAPM(
+          unifiedSnapshots, elapsed,
+          stats.home.dangerousAttacks || 0,
+          stats.away.dangerousAttacks || 0,
+          stats
+        );
+        homeIpr = apmData.home.ipr;
+        awayIpr = apmData.away.ipr;
+        homeApm10 = apmData.home.apm10;
+        awayApm10 = apmData.away.apm10;
+        homeApm5 = apmData.home.apm5;
+        awayApm5 = apmData.away.apm5;
+        homeApm3 = apmData.home.apm3;
+        awayApm3 = apmData.away.apm3;
+      }
+
+      // Calcular Score Final
+      const homeScore = getScoreFinalForSide(opp.fixtureId, true);
+      const awayScore = getScoreFinalForSide(opp.fixtureId, false);
+
+      const homeCorners = stats?.home?.corners ?? 0;
+      const awayCorners = stats?.away?.corners ?? 0;
+      const goalsHome = fixture?.goalsHome ?? 0;
+      const goalsAway = fixture?.goalsAway ?? 0;
+
+      const learningEntry: any = {
+        fixture_id: opp.fixtureId,
+        league: fixture?.leagueName || opp.match?.leagueName || 'N/A',
+        home_team: fixture?.homeTeam?.name || opp.match?.homeTeam?.name || 'N/A',
+        away_team: fixture?.awayTeam?.name || opp.match?.awayTeam?.name || 'N/A',
+        elapsed,
+        period: elapsed <= 45 ? '1H' : elapsed > 45 && elapsed <= 90 ? '2H' : 'HT',
+        goals_home: goalsHome,
+        goals_away: goalsAway,
+        source: (fixture as any)?.source || 'api-sports',
+        league_tier: (fixture as any)?.leagueTier || 40,
+
+        // APM/ATM
+        home_apm_global: Number(stats?.home?.attacks) || 0,
+        away_apm_global: Number(stats?.away?.attacks) || 0,
+        home_apm_10: Math.round(homeApm10 * 100) / 100,
+        away_apm_10: Math.round(awayApm10 * 100) / 100,
+        home_apm_5: Math.round(homeApm5 * 100) / 100,
+        away_apm_5: Math.round(awayApm5 * 100) / 100,
+        home_apm_3: Math.round(homeApm3 * 100) / 100,
+        away_apm_3: Math.round(awayApm3 * 100) / 100,
+        home_ipr: Math.round(homeIpr * 100) / 100,
+        away_ipr: Math.round(awayIpr * 100) / 100,
+        home_acceleration_factor: 0,
+        away_acceleration_factor: 0,
+
+        // Normalized (calculated from raw stats)
+        home_niap: 0, home_ncg: 0, home_nesc: 0, home_nft: 0, home_ncv: 0, home_npos: 0, home_nca: 0,
+        away_niap: 0, away_ncg: 0, away_nesc: 0, away_nft: 0, away_ncv: 0, away_npos: 0, away_nca: 0,
+
+        // Scores
+        home_score: homeScore,
+        away_score: awayScore,
+        home_pls: 0, away_pls: 0, home_qual_pct: 0, away_qual_pct: 0,
+
+        // Raw Stats
+        home_shots_on: stats?.home?.shotsOnGoal || 0,
+        away_shots_on: stats?.away?.shotsOnGoal || 0,
+        home_total_shots: stats?.home?.totalShots || 0,
+        away_total_shots: stats?.away?.totalShots || 0,
+        home_corners: homeCorners,
+        away_corners: awayCorners,
+        home_possession: Number(stats?.home?.possession) || 0,
+        away_possession: Number(stats?.away?.possession) || 0,
+        home_da: stats?.home?.dangerousAttacks || 0,
+        away_da: stats?.away?.dangerousAttacks || 0,
+        home_yellow: stats?.home?.yellowCards || 0,
+        away_yellow: stats?.away?.yellowCards || 0,
+        home_red: stats?.home?.redCards || 0,
+        away_red: stats?.away?.redCards || 0,
+
+        // Context
+        market_type: opp.strategyName.toLowerCase().includes('gol') ? 'gols' : 'escanteios',
+        bet_type: opp.strategyName,
+        operating_mode: 'radar',
+        score_weights: activeScoreWeights,
+
+        // Resolução (Pendente na criação)
+        outcome: 'pending' as const,
+        profit_loss: 0,
+        notes: `[Auto Alerta]`,
+        banca_id: activeBancaId,
+        origem_aprendizagem: 'automatica'
+      };
+
+      const savedEntry = await saveTradeEntry(learningEntry);
+      
+      if (savedEntry && savedEntry.id) {
+        console.log(`[Auto Learning] Suggested entry saved with ID: ${savedEntry.id}`);
+        // Registrar para monitoramento
+        const newMonitored = {
+          id: `${opp.fixtureId}-${opp.strategyName}`,
+          dbEntryId: savedEntry.id,
+          fixtureId: opp.fixtureId,
+          strategyName: opp.strategyName,
+          marketType: opp.strategyName.toLowerCase().includes('gol') ? 'gols' : 'escanteios',
+          period: elapsed <= 45 ? '1H' : '2H',
+          elapsed,
+          initialCorners: homeCorners + awayCorners,
+          initialGoals: goalsHome + goalsAway,
+          timestamp: Date.now()
+        };
+
+        setMonitoredOpps(prev => [...prev.filter(m => m.id !== newMonitored.id), newMonitored]);
+      }
+    } catch (e) {
+      console.error('[Auto Learning] Falha ao registrar sugestão automática:', e);
+    }
+  }, [allFixtures, platformSnapshots, activeScoreWeights]);
+
+  // 🧠 Monitoramento de Sugestões Automáticas (Real-time & Offline check)
+  useEffect(() => {
+    if (monitoredOpps.length === 0) return;
+
+    (async () => {
+      let changed = false;
+      const nextMonitored = [...monitoredOpps];
+
+      for (let i = 0; i < nextMonitored.length; i++) {
+        const opp = nextMonitored[i];
+        const liveFixture = allFixtures.find(f => f.id === opp.fixtureId);
+        const liveStats = allStats[opp.fixtureId];
+
+        // 1. Checar se a partida ainda está live
+        if (liveFixture && liveStats) {
+          const elapsed = liveFixture.elapsed || 0;
+          let isResolved = false;
+          let outcome: 'green' | 'red' | null = null;
+
+          // Verificar critério de GREEN
+          if (opp.marketType === 'escanteios') {
+            const currentCorners = (liveStats.home?.corners ?? 0) + (liveStats.away?.corners ?? 0);
+            if (currentCorners > opp.initialCorners) {
+              isResolved = true;
+              outcome = 'green';
+            }
+          } else if (opp.marketType === 'gols') {
+            const currentGoals = (liveFixture.goalsHome ?? 0) + (liveFixture.goalsAway ?? 0);
+            if (currentGoals > opp.initialGoals) {
+              isResolved = true;
+              outcome = 'green';
+            }
+          }
+
+          // Verificar critério de RED (tempo esgotado)
+          if (!isResolved) {
+            if (opp.period === '1H') {
+              if (liveFixture.status === 'HT' || liveFixture.status === '2H' || liveFixture.status === 'FT' || elapsed > 45) {
+                isResolved = true;
+                outcome = 'red';
+              }
+            } else {
+              if (liveFixture.status === 'FT' || liveFixture.status === 'Finished') {
+                isResolved = true;
+                outcome = 'red';
+              }
+            }
+          }
+
+          if (isResolved && outcome) {
+            try {
+              await resolveTradeEntry(opp.dbEntryId, outcome, {
+                finalGoalsHome: liveFixture.goalsHome ?? 0,
+                finalGoalsAway: liveFixture.goalsAway ?? 0,
+                finalCornersHome: liveStats.home?.corners ?? 0,
+                finalCornersAway: liveStats.away?.corners ?? 0,
+                notes: `[Auto Alerta Resolvido Live: ${outcome.toUpperCase()}]`
+              });
+              console.log(`[Auto Learning] Opp resolved live: ${opp.id} -> ${outcome}`);
+            } catch (err) {
+              console.error('[Auto Learning] Erro ao resolver opp live:', err);
+            }
+            nextMonitored.splice(i, 1);
+            i--;
+            changed = true;
+          }
+        } else {
+          // 2. Partida não está mais live (finalizada enquanto usuário estava offline)
+          const matchAgeMinutes = (Date.now() - opp.timestamp) / 60000;
+          if (matchAgeMinutes > 150) {
+            console.log(`[Auto Learning] Match ${opp.fixtureId} is no longer live, performing offline check...`);
+            let resolvedOutcome: 'green' | 'red' | null = null;
+            let finalGoalsH = 0, finalGoalsA = 0;
+            let finalCornersH = 0, finalCornersA = 0;
+
+            try {
+              const details = await sofascore.getFixtureDetails(opp.fixtureId);
+              const statsData = await sofascore.getFixtureStatistics(opp.fixtureId);
+
+              if (details) {
+                finalGoalsH = Number(details.homeScore?.current ?? 0);
+                finalGoalsA = Number(details.awayScore?.current ?? 0);
+
+                if (statsData && statsData.statistics) {
+                  const periodKey = opp.period === '1H' ? '1ST' : 'ALL';
+                  const periodStats = statsData.statistics.find((s: any) => s.period === periodKey);
+                  let statItems: any[] = [];
+                  if (periodStats && Array.isArray(periodStats.groups)) {
+                    periodStats.groups.forEach((g: any) => {
+                      if (Array.isArray(g.statisticsItems)) statItems.push(...g.statisticsItems);
+                    });
+                  }
+                  
+                  const cornersItem = statItems.find(item => item.name.toLowerCase().includes('corner'));
+                  if (cornersItem) {
+                    finalCornersH = parseInt(cornersItem.home) || 0;
+                    finalCornersA = parseInt(cornersItem.away) || 0;
+                  }
+                }
+
+                if (opp.marketType === 'escanteios') {
+                  const totalCorners = finalCornersH + finalCornersA;
+                  if (totalCorners > opp.initialCorners) {
+                    resolvedOutcome = 'green';
+                  } else {
+                    resolvedOutcome = 'red';
+                  }
+                } else if (opp.marketType === 'gols') {
+                  if (opp.period === '1H') {
+                    const htGoalsH = Number(details.homeScore?.period1 ?? 0);
+                    const htGoalsA = Number(details.awayScore?.period1 ?? 0);
+                    if (htGoalsH + htGoalsA > opp.initialGoals) {
+                      resolvedOutcome = 'green';
+                    } else {
+                      resolvedOutcome = 'red';
+                    }
+                  } else {
+                    if (finalGoalsH + finalGoalsA > opp.initialGoals) {
+                      resolvedOutcome = 'green';
+                    } else {
+                      resolvedOutcome = 'red';
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('[Auto Learning] Erro na verificação offline via API Sofascore:', err);
+            }
+
+            if (resolvedOutcome) {
+              try {
+                await resolveTradeEntry(opp.dbEntryId, resolvedOutcome, {
+                  finalGoalsHome: finalGoalsH,
+                  finalGoalsAway: finalGoalsA,
+                  finalCornersHome: finalCornersH,
+                  finalCornersAway: finalCornersA,
+                  notes: `[Auto Alerta Resolvido Offline: ${resolvedOutcome.toUpperCase()}]`
+                });
+                console.log(`[Auto Learning] Opp resolved offline: ${opp.id} -> ${resolvedOutcome}`);
+              } catch (err) {
+                console.error('[Auto Learning] Erro ao salvar resolução offline:', err);
+              }
+              nextMonitored.splice(i, 1);
+              i--;
+              changed = true;
+            } else {
+              if (matchAgeMinutes > 240) {
+                try {
+                  await resolveTradeEntry(opp.dbEntryId, 'red', {
+                    notes: `[Auto Alerta Resolvido Fallback: RED]`
+                  });
+                  console.log(`[Auto Learning] Opp resolved by timeout: ${opp.id} -> red`);
+                } catch (err) {
+                  console.error('[Auto Learning] Erro no timeout:', err);
+                }
+                nextMonitored.splice(i, 1);
+                i--;
+                changed = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (changed) {
+        setMonitoredOpps(nextMonitored);
+      }
+    })();
+  }, [allFixtures, allStats, monitoredOpps]);
+
   const handlePeguei = async (opp: Opportunity) => {
     if (gottenOppIds.has(opp.id)) return;
     
@@ -2339,6 +2657,10 @@ export default function Radar() {
         // 📱 Push notification para mobile
         sendPushNotification(opp);
 
+        // 🧠 Registrar sugestão automática no motor de aprendizado
+        const oppStats = allStats[opp.fixtureId];
+        registerAutomaticSuggestion(opp, oppStats);
+
         // 📤 Sincronizar o estado de alertas enviados na nuvem (limita a no máximo 200 IDs para economizar dados)
         const updatedAlerts = Array.from(alertedIdsRef.current).slice(-200);
         broadcastScannerData(undefined, undefined, undefined, undefined, undefined, updatedAlerts);
@@ -2346,7 +2668,7 @@ export default function Radar() {
     });
 
     setOpportunities(nonDismissedOpps);
-  }, [allFixtures, allStats, allDossiers, soundEnabled, activeMode]);
+  }, [allFixtures, allStats, allDossiers, soundEnabled, activeMode, registerAutomaticSuggestion]);
 
   // Main polling effect for scanner (every 25 seconds for highly responsive scans)
   useEffect(() => {

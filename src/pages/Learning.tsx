@@ -172,6 +172,7 @@ function getRecTypeStyle(type: AIRecommendation['type']): { color: string; label
 export default function Learning() {
   // Estado global da página
   const [activeTab, setActiveTab] = useState<TabId>('entries');
+  const [origemFilter, setOrigemFilter] = useState<'manual' | 'automatica'>('manual');
   const [entries, setEntries] = useState<TradeEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -198,8 +199,8 @@ export default function Learning() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Busca todas as entradas do Supabase
-      const allEntries = await getTradeEntries();
+      // Busca todas as entradas do Supabase com base na origem selecionada
+      const allEntries = await getTradeEntries({ origem_aprendizagem: origemFilter });
       setEntries(allEntries);
 
       // Gera análise local se tiver entradas resolvidas suficientes
@@ -218,7 +219,7 @@ export default function Learning() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [origemFilter]);
 
   useEffect(() => {
     loadData();
@@ -273,7 +274,7 @@ export default function Learning() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `aprendizagem_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute("download", `aprendizagem_${origemFilter}_export_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -397,6 +398,39 @@ export default function Learning() {
             <RefreshCw size={18} /> Atualizar
           </button>
         </div>
+      </div>
+
+      {/* ================================================================== */}
+      {/* FILTRO DE ORIGEM (MANUAL VS AUTOMÁTICO) */}
+      {/* ================================================================== */}
+      <div style={{
+        display: 'flex', gap: 4, background: 'var(--bg-elevated)',
+        padding: 4, borderRadius: 12, width: 'fit-content',
+        border: '1px solid var(--border-color)',
+      }}>
+        {([
+          { id: 'manual' as const, label: 'Aprendizagem Manual' },
+          { id: 'automatica' as const, label: 'Aprendizagem Automática' }
+        ]).map(orig => (
+          <button
+            key={orig.id}
+            onClick={() => setOrigemFilter(orig.id)}
+            style={{
+              padding: '10px 20px', borderRadius: 8, border: 'none',
+              background: origemFilter === orig.id
+                ? 'linear-gradient(135deg, var(--accent-primary), #4f46e5)'
+                : 'transparent',
+              color: origemFilter === orig.id ? '#ffffff' : 'var(--text-secondary)',
+              fontWeight: origemFilter === orig.id ? 700 : 500,
+              fontSize: '0.875rem', cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'var(--font-sans)',
+              boxShadow: origemFilter === orig.id ? '0 2px 8px rgba(99, 102, 241, 0.25)' : 'none',
+            }}
+          >
+            {orig.label}
+          </button>
+        ))}
       </div>
 
       {/* ================================================================== */}
@@ -652,12 +686,12 @@ export default function Learning() {
 
                         {/* IPR Casa / Fora */}
                         <td style={{ padding: '14px 16px', fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                          {entry.home_ipr.toFixed(1)} / {entry.away_ipr.toFixed(1)}
+                          {(entry.home_ipr ?? 0).toFixed(1)} / {(entry.away_ipr ?? 0).toFixed(1)}
                         </td>
 
                         {/* Score composto */}
                         <td style={{ padding: '14px 16px', fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
-                          {entry.home_score.toFixed(1)} / {entry.away_score.toFixed(1)}
+                          {(entry.home_score ?? 0).toFixed(1)} / {(entry.away_score ?? 0).toFixed(1)}
                         </td>
 
                         {/* Resultado (outcome) */}
@@ -1259,6 +1293,25 @@ export default function Learning() {
           </div>
         </>
       )}
+
+      {/* ================================================================== */}
+      {/* CARD DE AJUDA: MIGRACAO SQL */}
+      {/* ================================================================== */}
+      <div className="card glass-panel" style={{ marginTop: 12, border: '1px solid rgba(139, 92, 246, 0.25)', padding: '20px 24px', background: 'rgba(139, 92, 246, 0.015)' }}>
+        <h3 style={{ fontSize: '0.95rem', fontWeight: 800, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--accent-primary)' }}>
+          <Key size={16} /> Banco de Dados Supabase (Opções e Estrutura)
+        </h3>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+          Se você estiver configurando o Trade Moreira pela primeira vez ou se as novas colunas de Aprendizagem Automática ainda não estiverem ativas, execute o comando SQL abaixo no console (SQL Editor) do seu projeto Supabase para habilitar a separação das fontes de dados:
+        </p>
+        <pre style={{
+          background: 'var(--bg-elevated)', padding: 12, borderRadius: 8, overflowX: 'auto',
+          border: '1px solid var(--border-color)', color: '#8b5cf6', fontSize: '0.75rem', fontFamily: 'monospace'
+        }}>
+{`-- Comando para adicionar a coluna de origem da aprendizagem (Manual vs Automática)
+ALTER TABLE public.trade_entries ADD COLUMN IF NOT EXISTS origem_aprendizagem VARCHAR DEFAULT 'manual';`}
+        </pre>
+      </div>
 
       {/* ================================================================== */}
       {/* MODAL: Resolução de Entrada */}

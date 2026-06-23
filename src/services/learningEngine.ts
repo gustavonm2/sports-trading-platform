@@ -124,6 +124,7 @@ export interface TradeEntry {
   profit_loss?: number;
   notes?: string;
   banca_id?: string;
+  origem_aprendizagem?: 'manual' | 'automatica';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -371,15 +372,15 @@ export async function saveTradeEntry(entry: TradeEntry): Promise<TradeEntry> {
 
   if (error) {
     if (error.code === '42703') {
-      console.warn("banca_id column missing on Supabase trade_entries table, retrying without it...");
-      const { banca_id, ...entryWithoutBanca } = entry as any;
+      console.warn("Column missing on Supabase trade_entries table, retrying with cleaned payload...");
+      const { banca_id, origem_aprendizagem, ...cleanEntry } = entry as any;
       const { data: retryData, error: retryError } = await supabase
         .from('trade_entries')
-        .insert([entryWithoutBanca])
+        .insert([cleanEntry])
         .select()
         .single();
       if (retryError) {
-        console.error('[LearningEngine] Erro no retry sem banca_id:', retryError);
+        console.error('[LearningEngine] Erro no retry sem colunas novas:', retryError);
         throw new Error(`Falha ao salvar entrada de trade: ${retryError.message}`);
       }
       return retryData as TradeEntry;
@@ -522,10 +523,6 @@ export async function syncDiaryOutcome(
   }
 }
 
-/**
- * resolveTradeEntry — Atualiza o resultado de um trade existente.
- * Agora opera diretamente na tabela `trades` do Diário.
- */
 export async function resolveTradeEntry(
   id: string,
   outcome: TradeOutcome,
@@ -538,28 +535,43 @@ export async function resolveTradeEntry(
     notes?: string;
   }
 ): Promise<TradeEntry> {
-  // Map outcome to Diary status format
-  const status = outcome === 'green' ? 'GREEN' : outcome === 'red' ? 'RED' : 'PENDING';
-
-  const updatePayload: Record<string, any> = {
-    status,
-    profit_loss: resolution.profitLoss || 0,
-  };
-
   const { data, error } = await supabase
-    .from('trades')
-    .update(updatePayload)
+    .from('trade_entries')
+    .update({
+      outcome,
+      resolved_at: new Date().toISOString(),
+      final_goals_home: resolution.finalGoalsHome,
+      final_goals_away: resolution.finalGoalsAway,
+      final_corners_home: resolution.finalCornersHome,
+      final_corners_away: resolution.finalCornersAway,
+      profit_loss: resolution.profitLoss || 0,
+      notes: resolution.notes
+    })
     .eq('id', id)
     .select()
     .single();
 
   if (error) {
-    console.error('[LearningEngine] Erro ao resolver trade:', error);
-    throw new Error(`Falha ao resolver trade: ${error.message}`);
+    console.error('[LearningEngine] Erro ao resolver trade_entries:', error);
+    throw new Error(`Falha ao resolver entrada de aprendizado: ${error.message}`);
   }
 
-  // Converte de volta para o formato TradeEntry
-  return convertDiaryToTradeEntry(data);
+  // Sincronizar com a tabela trades do diário se houver referência de ID
+  const notesText = resolution.notes || data?.notes || '';
+  const diaryMatch = notesText.match(/Diary ID:\s*([a-f0-9-]{36})/i);
+  if (diaryMatch && diaryMatch[1]) {
+    const diaryId = diaryMatch[1];
+    const status = outcome === 'green' ? 'GREEN' : outcome === 'red' ? 'RED' : 'PENDING';
+    await supabase
+      .from('trades')
+      .update({
+        status,
+        profit_loss: resolution.profitLoss || 0
+      })
+      .eq('id', diaryId);
+  }
+
+  return data as TradeEntry;
 }
 
 /** Filtros opcionais para buscar entradas */
@@ -578,42 +590,73 @@ export interface TradeEntryFilters {
   dateTo?: string;
   /** Limite de registros retornados */
   limit?: number;
+  /** Origem da aprendizagem */
+  origem_aprendizagem?: 'manual' | 'automatica';
 }
 
 /**
- * getTradeEntries — Busca entradas de trade DIRETAMENTE da tabela `trades` do Diário.
- * Converte os registros do formato simplificado para o formato TradeEntry da Aprendizagem.
- * Isso garante que toda entrada no Diário apareça automaticamente na Aprendizagem.
+ * getTradeEntries — Busca entradas de trade DIRETAMENTE da tabela `trade_entries` da Aprendizagem.
+ * Possui tratamento de fallback tolerante se colunas novas não estiverem presentes no banco.
  */
 export async function getTradeEntries(filters?: TradeEntryFilters): Promise<TradeEntry[]> {
-  // Primeiro tenta ler da tabela `trades` (Diário) — fonte primária
-  let query = supabase
-    .from('trades')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const buildQuery = (includeOrigem: boolean) => {
+    let query = supabase
+      .from('trade_entries')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-  // Aplica filtros de outcome mapeando GREEN→green, RED→red
-  if (filters?.outcome) {
-    query = query.eq('status', filters.outcome.toUpperCase());
-  }
-  if (filters?.resolvedOnly) {
-    query = query.neq('status', 'PENDING');
-  }
-  if (filters?.dateFrom) {
-    query = query.gte('created_at', filters.dateFrom);
-  }
-  if (filters?.dateTo) {
-    query = query.lte('created_at', filters.dateTo);
-  }
-  if (filters?.limit) {
-    query = query.limit(filters.limit);
-  }
+    if (includeOrigem) {
+      const origem = filters?.origem_aprendizagem || 'manual';
+      query = query.eq('origem_aprendizagem', origem);
+    }
+    if (filters?.marketType) {
+      query = query.eq('market_type', filters.marketType);
+    }
+    if (filters?.outcome) {
+      query = query.eq('outcome', filters.outcome);
+    }
+    if (filters?.resolvedOnly) {
+      query = query.in('outcome', ['green', 'red', 'void']);
+    }
+    if (filters?.leagueTier) {
+      query = query.eq('league_tier', filters.leagueTier);
+    }
+    if (filters?.dateFrom) {
+      query = query.gte('created_at', filters.dateFrom);
+    }
+    if (filters?.dateTo) {
+      query = query.lte('created_at', filters.dateTo);
+    }
+    if (filters?.limit) {
+      query = query.limit(filters.limit);
+    }
+    return query;
+  };
 
-  const { data, error } = await query;
-
-  if (error) {
-    console.error('[LearningEngine] Erro ao buscar trades do diário:', error);
-    // Fallback: tenta ler de localStorage
+  try {
+    const { data, error } = await buildQuery(true);
+    if (error) {
+      if (error.code === '42703') {
+        console.warn("origem_aprendizagem column missing on trade_entries, falling back...");
+        const { data: fallbackData, error: fallbackError } = await buildQuery(false);
+        if (fallbackError) throw fallbackError;
+        
+        const mapped = (fallbackData || []).map((row: any) => ({
+          ...row,
+          origem_aprendizagem: 'manual' as const
+        }));
+        
+        if (filters?.origem_aprendizagem === 'automatica') {
+          return [];
+        }
+        return mapped as TradeEntry[];
+      }
+      throw error;
+    }
+    return (data || []) as TradeEntry[];
+  } catch (err) {
+    console.error('[LearningEngine] Erro ao buscar trade entries:', err);
+    // Fallback para réplica local de trades convertidos para TradeEntry
     const localTrades = localStorage.getItem('trades_db_replica');
     if (localTrades) {
       const parsed = JSON.parse(localTrades);
@@ -621,9 +664,6 @@ export async function getTradeEntries(filters?: TradeEntryFilters): Promise<Trad
     }
     return [];
   }
-
-  // Converte cada registro do Diário para o formato TradeEntry
-  return (data || []).map((t: any) => convertDiaryToTradeEntry(t));
 }
 
 /**
