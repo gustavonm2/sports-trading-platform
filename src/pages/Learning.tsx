@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Brain, TrendingUp, BarChart3, CheckCircle, XCircle, Loader, Sparkles,
-  Target, Award, AlertTriangle, Filter, Clock, Eye, ChevronDown,
-  BookOpen, RefreshCw, Key, FileText, Download
+  Brain, TrendingUp, BarChart3, CheckCircle, XCircle, Sparkles,
+  Target, Award, AlertTriangle, Filter, Clock,
+  BookOpen, RefreshCw, Key, Download
 } from 'lucide-react';
 import {
-  getTradeEntries, resolveTradeEntry, analyzePatterns, generateGeminiReport,
-  getLearningReports, saveLearningReport,
-  getGoalLearningEntries, generateGoalGeminiReport,
+  getTradeEntries, resolveTradeEntry, analyzePatterns,
+  getGoalLearningEntries,
   type TradeEntry, type TradeOutcome, type LearningReport, type AIRecommendation,
   type GoalLearningEntry
 } from '../services/learningEngine';
@@ -17,7 +16,7 @@ import { sofascore } from '../services/sofascore';
 // Tipos auxiliares
 // ============================================================================
 
-type TabId = 'entries' | 'analysis' | 'gemini' | 'goal_learning';
+type TabId = 'entries' | 'analysis' | 'goal_learning';
 type OutcomeFilter = 'ALL' | 'PENDING' | 'green' | 'red';
 type MarketFilter = 'ALL' | 'gols' | 'escanteios';
 
@@ -187,20 +186,8 @@ export default function Learning() {
   // Tab 2: Análise
   const [analysis, setAnalysis] = useState<LearningReport | null>(null);
 
-  // Tab 3: Gemini
-  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem('openai_api_key') || '');
-  const [geminiLoading, setGeminiLoading] = useState(false);
-  const [geminiError, setGeminiError] = useState('');
-  const [currentReport, setCurrentReport] = useState<LearningReport | null>(null);
-  const [reports, setReports] = useState<LearningReport[]>([]);
-  const [showReportHistory, setShowReportHistory] = useState(false);
-
   // Aprendizado de Gols
   const [goalsList, setGoalsList] = useState<GoalLearningEntry[]>([]);
-  const [goalGeminiLoading, setGoalGeminiLoading] = useState(false);
-  const [goalGeminiError, setGoalGeminiError] = useState('');
-  const [currentGoalReport, setCurrentGoalReport] = useState<LearningReport | null>(null);
-  const [showGoalReportHistory, setShowGoalReportHistory] = useState(false);
 
   // ============================================================================
   // Carregamento de dados (todas as funções são async)
@@ -220,16 +207,6 @@ export default function Learning() {
       } else {
         setAnalysis(null);
       }
-
-      // Carrega relatórios salvos
-      const savedReports = await getLearningReports();
-      setReports(savedReports);
-
-      const latestTradeReport = savedReports.find(r => r.analysis_source === 'gemini' && (r.raw_summary?.origem_aprendizagem || 'manual') === origemFilter);
-      setCurrentReport(latestTradeReport || null);
-
-      const latestGoalReport = savedReports.find(r => r.analysis_source === 'gemini_gols');
-      setCurrentGoalReport(latestGoalReport || null);
 
       // Carrega momentos dos gols
       const goals = await getGoalLearningEntries();
@@ -272,15 +249,17 @@ export default function Learning() {
   // ============================================================================
 
   const handleExportCSV = () => {
-    if (entries.length === 0) return;
+    const isGoalTab = activeTab === 'goal_learning';
+    const listToExport = isGoalTab ? goalsList : entries;
+    if (listToExport.length === 0) return;
     
     const allKeys = new Set<string>();
-    entries.forEach(entry => Object.keys(entry).forEach(k => allKeys.add(k)));
+    listToExport.forEach(entry => Object.keys(entry).forEach(k => allKeys.add(k)));
     const headers = Array.from(allKeys);
     
     let csvContent = headers.join(",") + "\n";
     
-    entries.forEach(entry => {
+    listToExport.forEach(entry => {
       const row = headers.map(key => {
         const val = (entry as any)[key];
         if (val === null || val === undefined) return '""';
@@ -294,7 +273,9 @@ export default function Learning() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `aprendizagem_${origemFilter}_export_${new Date().toISOString().slice(0, 10)}.csv`);
+    
+    const prefix = isGoalTab ? 'aprendizagem_gols' : `aprendizagem_${origemFilter}`;
+    link.setAttribute("download", `${prefix}_export_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -371,64 +352,7 @@ export default function Learning() {
     }
   };
 
-  /** Gerar relatório Gemini (a key é lida de localStorage internamente) */
-  const handleGenerateReport = async () => {
-    if (!geminiKey.trim()) {
-      setGeminiError('Insira sua API Key da OpenAI antes de gerar o relatório.');
-      return;
-    }
 
-    // Salva a key no localStorage para que o service a leia
-    localStorage.setItem('openai_api_key', geminiKey);
-    setGeminiLoading(true);
-    setGeminiError('');
-
-    try {
-      // generateGeminiReport lê a key de localStorage internamente
-      const report = await generateGeminiReport(entries);
-      
-      // Enriquecer com o filtro de origem correspondente para separar os relatórios
-      report.raw_summary = {
-        ...report.raw_summary,
-        origem_aprendizagem: origemFilter
-      };
-
-      // Salva o relatório no Supabase
-      const savedReport = await saveLearningReport(report);
-      setCurrentReport(savedReport);
-      // Recarrega relatórios
-      const savedReports = await getLearningReports();
-      setReports(savedReports);
-    } catch (err) {
-      setGeminiError((err as Error).message);
-    } finally {
-      setGeminiLoading(false);
-    }
-  };
-
-  /** Gerar relatório de gols via ChatGPT */
-  const handleGenerateGoalReport = async () => {
-    if (!geminiKey.trim()) {
-      setGoalGeminiError('Insira sua API Key da OpenAI antes de gerar o relatório.');
-      return;
-    }
-
-    localStorage.setItem('openai_api_key', geminiKey);
-    setGoalGeminiLoading(true);
-    setGoalGeminiError('');
-
-    try {
-      const report = await generateGoalGeminiReport(goalsList);
-      const savedReport = await saveLearningReport(report);
-      setCurrentGoalReport(savedReport);
-      const savedReports = await getLearningReports();
-      setReports(savedReports);
-    } catch (err) {
-      setGoalGeminiError((err as Error).message);
-    } finally {
-      setGoalGeminiLoading(false);
-    }
-  };
 
   // ============================================================================
   // Renderização
@@ -437,7 +361,6 @@ export default function Learning() {
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'entries', label: 'Entradas', icon: <BookOpen size={16} /> },
     { id: 'analysis', label: 'Análise', icon: <BarChart3 size={16} /> },
-    { id: 'gemini', label: 'IA ChatGPT', icon: <Brain size={16} /> },
     { id: 'goal_learning', label: 'Aprendizado Gols', icon: <Sparkles size={16} /> },
   ];
 
@@ -464,7 +387,7 @@ export default function Learning() {
             onClick={handleExportCSV}
             className="btn"
             style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}
-            disabled={entries.length === 0}
+            disabled={activeTab === 'goal_learning' ? goalsList.length === 0 : entries.length === 0}
           >
             <Download size={18} /> Exportar CSV
           </button>
@@ -1067,313 +990,7 @@ export default function Learning() {
       {/* ================================================================== */}
       {/* TAB 3: IA GEMINI */}
       {/* ================================================================== */}
-      {activeTab === 'gemini' && (
-        <>
-          {/* Seção de API Key */}
-          <div className="card glass-panel" style={{ padding: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-              <Key size={18} color="var(--accent-primary)" />
-              <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Configuração da API</h3>
-            </div>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>OPENAI API KEY</label>
-                <input
-                  type="password"
-                  placeholder="Cole sua API Key da OpenAI (sk-...)..."
-                  value={geminiKey}
-                  onChange={e => {
-                    setGeminiKey(e.target.value);
-                    localStorage.setItem('openai_api_key', e.target.value);
-                  }}
-                  style={inputStyle}
-                />
-              </div>
-              <button
-                onClick={handleGenerateReport}
-                disabled={geminiLoading || resolved.length < 10}
-                className="btn btn-primary"
-                style={{
-                  fontWeight: 700, padding: '10px 24px', whiteSpace: 'nowrap',
-                  opacity: geminiLoading || resolved.length < 10 ? 0.5 : 1,
-                  cursor: geminiLoading || resolved.length < 10 ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {geminiLoading ? (
-                  <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Analisando (pode retentar)...</>
-                ) : (
-                  <><Brain size={16} /> 🧠 Gerar Análise com IA</>
-                )}
-              </button>
-            </div>
 
-            {resolved.length < 10 && (
-              <div style={{
-                marginTop: 12, padding: '10px 14px', borderRadius: 8,
-                background: 'rgba(245, 158, 11, 0.06)', border: '1px solid rgba(245, 158, 11, 0.15)',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <AlertTriangle size={14} color="var(--status-yellow)" />
-                <span style={{ fontSize: '0.8rem', color: 'var(--status-yellow)' }}>
-                  Mínimo de 10 entradas resolvidas necessárias. Você tem {resolved.length}.
-                </span>
-              </div>
-            )}
-
-            {geminiError && (
-              <div style={{
-                marginTop: 12, padding: '14px 18px', borderRadius: 10,
-                background: geminiError.includes('⏳') 
-                  ? 'rgba(245, 158, 11, 0.06)' 
-                  : 'rgba(239, 68, 68, 0.06)',
-                border: `1px solid ${geminiError.includes('⏳') 
-                  ? 'rgba(245, 158, 11, 0.2)' 
-                  : 'rgba(220, 38, 38, 0.15)'}`,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  {geminiError.includes('⏳') 
-                    ? <AlertTriangle size={16} color="var(--status-yellow)" style={{ marginTop: 2, flexShrink: 0 }} />
-                    : <XCircle size={16} color="var(--status-red)" style={{ marginTop: 2, flexShrink: 0 }} />
-                  }
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {geminiError.split('\n').map((line, idx) => (
-                      <span key={idx} style={{ 
-                        fontSize: line.startsWith('•') ? '0.78rem' : '0.82rem', 
-                        color: line.startsWith('•') ? 'var(--text-secondary)' : (geminiError.includes('⏳') ? 'var(--status-yellow)' : 'var(--status-red)'),
-                        fontWeight: idx === 0 ? 700 : 400,
-                        lineHeight: 1.5,
-                      }}>
-                        {line || null}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Relatório Atual */}
-          {currentReport && (
-            <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-              <div style={{
-                padding: '18px 24px', borderBottom: '1px solid var(--border-color)',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.04), rgba(59, 130, 246, 0.02))',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Sparkles size={18} color="var(--accent-primary)" />
-                  <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Relatório ChatGPT</h3>
-                </div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '4px 10px', borderRadius: 20, fontWeight: 600 }}>
-                  {currentReport.created_at
-                    ? new Date(currentReport.created_at).toLocaleString('pt-BR')
-                    : 'Agora'}
-                </span>
-              </div>
-
-              {/* Resumo do relatório com dados do raw_summary */}
-              <div style={{ padding: 24 }}>
-                {currentReport.raw_summary?.resumo_geral && (
-                  <div style={{
-                    background: 'var(--bg-elevated)', padding: 24, borderRadius: 12,
-                    fontSize: '0.85rem', lineHeight: 1.8, color: 'var(--text-secondary)',
-                    whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)',
-                    maxHeight: 300, overflowY: 'auto',
-                    border: '1px solid var(--border-color)', marginBottom: 20,
-                  }}>
-                    <h4 style={{ marginBottom: 8, fontWeight: 800, color: 'var(--text-primary)' }}>Resumo Geral</h4>
-                    {currentReport.raw_summary.resumo_geral}
-                  </div>
-                )}
-
-                {/* Padrões identificados */}
-                {currentReport.raw_summary?.padroes_identificados && (
-                  <div style={{ marginBottom: 20 }}>
-                    <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <BarChart3 size={16} color="var(--accent-primary)" />
-                      Padrões Identificados
-                    </h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {(currentReport.raw_summary.padroes_identificados as string[]).map((padrao: string, idx: number) => (
-                        <div key={idx} style={{
-                          background: 'var(--bg-elevated)', padding: '10px 16px', borderRadius: 8,
-                          fontSize: '0.83rem', color: 'var(--text-secondary)',
-                          borderLeft: '3px solid var(--accent-primary)',
-                        }}>
-                          {padrao}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Métricas-chave */}
-                {currentReport.raw_summary?.metricas_chave && (
-                  <div style={{ marginBottom: 20 }}>
-                    <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Target size={16} color="var(--accent-primary)" />
-                      Métricas-Chave
-                    </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-                      {Object.entries(currentReport.raw_summary.metricas_chave as Record<string, string>).map(([key, val]) => (
-                        <div key={key} style={{
-                          background: 'var(--bg-elevated)', padding: '10px 14px', borderRadius: 8,
-                          display: 'flex', flexDirection: 'column', gap: 4,
-                        }}>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                            {key.replace(/_/g, ' ')}
-                          </span>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                            {val}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Win Rate geral */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px',
-                  background: 'var(--bg-elevated)', borderRadius: 12, marginBottom: 20,
-                }}>
-                  <Award size={28} color={currentReport.overall_win_rate >= 60 ? 'var(--status-green)' : 'var(--status-yellow)'} />
-                  <div>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>
-                      Win Rate Global (IA)
-                    </span>
-                    <span style={{
-                      fontSize: '1.8rem', fontWeight: 900,
-                      color: currentReport.overall_win_rate >= 60 ? 'var(--status-green)' : currentReport.overall_win_rate >= 45 ? 'var(--status-yellow)' : 'var(--status-red)',
-                    }}>
-                      {currentReport.overall_win_rate}%
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-                    {currentReport.total_entries} entradas analisadas
-                  </span>
-                </div>
-              </div>
-
-              {/* Recomendações da IA */}
-              {currentReport.recommendations.length > 0 && (
-                <div style={{ padding: '0 24px 24px' }}>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Target size={16} color="var(--accent-primary)" />
-                    Recomendações da IA ({currentReport.recommendations.length})
-                  </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {currentReport.recommendations.map((rec, idx) => {
-                      const recStyle = getRecTypeStyle(rec.type);
-                      return (
-                        <div
-                          key={idx}
-                          style={{
-                            display: 'flex', flexDirection: 'column', gap: 6,
-                            padding: '14px 18px', borderRadius: 10,
-                            background: 'var(--bg-elevated)',
-                            borderLeft: `3px solid ${recStyle.color}`,
-                            border: '1px solid var(--border-color)',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: recStyle.color, textTransform: 'uppercase' }}>
-                              {recStyle.label}
-                            </span>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                              Confiança: {rec.confidence}%
-                            </span>
-                          </div>
-                          <span style={{ fontSize: '0.83rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                            {rec.description}
-                          </span>
-                          {rec.estimated_impact && (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                              Impacto estimado: {rec.estimated_impact}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Histórico de Relatórios */}
-          <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-            <button
-              onClick={() => setShowReportHistory(!showReportHistory)}
-              style={{
-                width: '100%', padding: '16px 24px', border: 'none', background: 'transparent',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <FileText size={18} color="var(--text-muted)" />
-                <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Histórico de Relatórios
-                </span>
-                <span style={{
-                  fontSize: '0.7rem', background: 'var(--bg-elevated)', padding: '2px 8px',
-                  borderRadius: 20, color: 'var(--text-muted)', fontWeight: 600,
-                }}>
-                  {reports.filter(r => r.analysis_source === 'gemini' && (r.raw_summary?.origem_aprendizagem || 'manual') === origemFilter).length}
-                </span>
-              </div>
-              <ChevronDown
-                size={18}
-                color="var(--text-muted)"
-                style={{
-                  transform: showReportHistory ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.2s ease',
-                }}
-              />
-            </button>
-
-            {showReportHistory && (
-              <div style={{ borderTop: '1px solid var(--border-color)' }}>
-                {reports.filter(r => r.analysis_source === 'gemini' && (r.raw_summary?.origem_aprendizagem || 'manual') === origemFilter).length === 0 ? (
-                  <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    Nenhum relatório gerado ainda.
-                  </div>
-                ) : (
-                  reports.filter(r => r.analysis_source === 'gemini' && (r.raw_summary?.origem_aprendizagem || 'manual') === origemFilter).map(report => (
-                    <div
-                      key={report.id}
-                      style={{
-                        padding: '14px 24px', borderBottom: '1px solid var(--border-color)',
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        cursor: 'pointer', transition: 'background 0.15s ease',
-                      }}
-                      onClick={() => setCurrentReport(report)}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Brain size={16} color="var(--accent-primary)" />
-                        <div>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block' }}>
-                            Relatório — {report.created_at
-                              ? new Date(report.created_at).toLocaleDateString('pt-BR')
-                              : '—'}
-                          </span>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            ChatGPT · {report.recommendations.length} recomendações
-                          </span>
-                        </div>
-                      </div>
-                      <Eye size={16} color="var(--text-muted)" />
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </>
-      )}
 
       {/* ================================================================== */}
       {/* TAB 4: APRENDIZADO GOLS */}
@@ -1443,260 +1060,7 @@ export default function Learning() {
             </div>
           </div>
 
-          {/* ChatGPT IA Report Section */}
-          <div className="card glass-panel" style={{ padding: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-              <Brain size={18} color="var(--accent-primary)" />
-              <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Padrões e Correlações de Gols com IA</h3>
-            </div>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-              <div style={{ flex: 1 }}>
-                <label style={labelStyle}>OPENAI API KEY</label>
-                <input
-                  type="password"
-                  placeholder="Cole sua API Key da OpenAI (sk-...)..."
-                  value={geminiKey}
-                  onChange={e => {
-                    setGeminiKey(e.target.value);
-                    localStorage.setItem('openai_api_key', e.target.value);
-                  }}
-                  style={inputStyle}
-                />
-              </div>
-              <button
-                onClick={handleGenerateGoalReport}
-                disabled={goalGeminiLoading || goalsList.length < 3}
-                className="btn btn-primary"
-                style={{
-                  fontWeight: 700, padding: '10px 24px', whiteSpace: 'nowrap',
-                  opacity: goalGeminiLoading || goalsList.length < 3 ? 0.5 : 1,
-                  cursor: goalGeminiLoading || goalsList.length < 3 ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {goalGeminiLoading ? (
-                  <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Analisando Gols...</>
-                ) : (
-                  <><Brain size={16} /> 🧠 Achar Padrões dos Gols</>
-                )}
-              </button>
-            </div>
 
-            {goalsList.length < 3 && (
-              <div style={{
-                marginTop: 12, padding: '10px 14px', borderRadius: 8,
-                background: 'rgba(245, 158, 11, 0.06)', border: '1px solid rgba(245, 158, 11, 0.15)',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <AlertTriangle size={14} color="var(--status-yellow)" />
-                <span style={{ fontSize: '0.8rem', color: 'var(--status-yellow)' }}>
-                  Mínimo de 3 gols registrados necessários para disparar a IA. Você tem {goalsList.length}.
-                </span>
-              </div>
-            )}
-
-            {goalGeminiError && (
-              <div style={{
-                marginTop: 12, padding: '14px 18px', borderRadius: 10,
-                background: 'rgba(239, 68, 68, 0.06)',
-                border: '1px solid rgba(220, 38, 38, 0.15)',
-                fontSize: '0.82rem', color: 'var(--status-red)',
-              }}>
-                {goalGeminiError}
-              </div>
-            )}
-          </div>
-
-          {/* Relatório IA de Gols Ativo */}
-          {currentGoalReport && (
-            <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-              <div style={{
-                padding: '18px 24px', borderBottom: '1px solid var(--border-color)',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.04), rgba(59, 130, 246, 0.02))',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Sparkles size={18} color="var(--accent-primary)" />
-                  <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Padrões e Insights Identificados (Gols)</h3>
-                </div>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '4px 10px', borderRadius: 20, fontWeight: 600 }}>
-                  {currentGoalReport.created_at
-                    ? new Date(currentGoalReport.created_at).toLocaleString('pt-BR')
-                    : 'Agora'}
-                </span>
-              </div>
-
-              <div style={{ padding: 24 }}>
-                {currentGoalReport.raw_summary?.resumo_geral && (
-                  <div style={{
-                    background: 'var(--bg-elevated)', padding: 20, borderRadius: 12,
-                    fontSize: '0.85rem', lineHeight: 1.8, color: 'var(--text-secondary)',
-                    whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)',
-                    border: '1px solid var(--border-color)', marginBottom: 20,
-                  }}>
-                    <h4 style={{ marginBottom: 8, fontWeight: 800, color: 'var(--text-primary)' }}>Resumo Estratégico</h4>
-                    {currentGoalReport.raw_summary.resumo_geral}
-                  </div>
-                )}
-
-                {/* Padrões identificados */}
-                {currentGoalReport.raw_summary?.padroes_identificados && (
-                  <div style={{ marginBottom: 20 }}>
-                    <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <BarChart3 size={16} color="var(--accent-primary)" />
-                      Correlações Encontradas
-                    </h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {(currentGoalReport.raw_summary.padroes_identificados as string[]).map((padrao: string, idx: number) => (
-                        <div key={idx} style={{
-                          background: 'var(--bg-elevated)', padding: '10px 16px', borderRadius: 8,
-                          fontSize: '0.83rem', color: 'var(--text-secondary)',
-                          borderLeft: '3px solid var(--accent-primary)',
-                        }}>
-                          {padrao}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Métricas-chave */}
-                {currentGoalReport.raw_summary?.metricas_chave && (
-                  <div style={{ marginBottom: 20 }}>
-                    <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Target size={16} color="var(--accent-primary)" />
-                      Métricas Médias no Momento do Gol
-                    </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-                      {Object.entries(currentGoalReport.raw_summary.metricas_chave as Record<string, string>).map(([key, val]) => (
-                        <div key={key} style={{
-                          background: 'var(--bg-elevated)', padding: '10px 14px', borderRadius: 8,
-                          display: 'flex', flexDirection: 'column', gap: 4,
-                        }}>
-                          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                            {key.replace(/_/g, ' ')}
-                          </span>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                            {val}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Recomendações da IA */}
-              {currentGoalReport.recommendations.length > 0 && (
-                <div style={{ padding: '0 24px 24px' }}>
-                  <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Target size={16} color="var(--accent-primary)" />
-                    Recomendações IA para Mercado de Gols ({currentGoalReport.recommendations.length})
-                  </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {currentGoalReport.recommendations.map((rec, idx) => {
-                      const recStyle = getRecTypeStyle(rec.type);
-                      return (
-                        <div
-                          key={idx}
-                          style={{
-                            display: 'flex', flexDirection: 'column', gap: 6,
-                            padding: '14px 18px', borderRadius: 10,
-                            background: 'var(--bg-elevated)',
-                            borderLeft: `3px solid ${recStyle.color}`,
-                            border: '1px solid var(--border-color)',
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: recStyle.color, textTransform: 'uppercase' }}>
-                              {recStyle.label}
-                            </span>
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                              Confiança: {rec.confidence}%
-                            </span>
-                          </div>
-                          <span style={{ fontSize: '0.83rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                            {rec.description}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Histórico de Relatórios de Gols */}
-          <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
-            <button
-              onClick={() => setShowGoalReportHistory(!showGoalReportHistory)}
-              style={{
-                width: '100%', padding: '16px 24px', border: 'none', background: 'transparent',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                cursor: 'pointer', fontFamily: 'var(--font-sans)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <FileText size={18} color="var(--text-muted)" />
-                <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Histórico de Relatórios (Gols)
-                </span>
-                <span style={{
-                  fontSize: '0.7rem', background: 'var(--bg-elevated)', padding: '2px 8px',
-                  borderRadius: 20, color: 'var(--text-muted)', fontWeight: 600,
-                }}>
-                  {reports.filter(r => r.analysis_source === 'gemini_gols').length}
-                </span>
-              </div>
-              <ChevronDown
-                size={18}
-                color="var(--text-muted)"
-                style={{
-                  transform: showGoalReportHistory ? 'rotate(180deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.2s ease',
-                }}
-              />
-            </button>
-
-            {showGoalReportHistory && (
-              <div style={{ borderTop: '1px solid var(--border-color)' }}>
-                {reports.filter(r => r.analysis_source === 'gemini_gols').length === 0 ? (
-                  <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    Nenhum relatório de gols gerado ainda.
-                  </div>
-                ) : (
-                  reports.filter(r => r.analysis_source === 'gemini_gols').map(report => (
-                    <div
-                      key={report.id}
-                      style={{
-                        padding: '14px 24px', borderBottom: '1px solid var(--border-color)',
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        cursor: 'pointer', transition: 'background 0.15s ease',
-                      }}
-                      onClick={() => setCurrentGoalReport(report)}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Brain size={16} color="var(--accent-primary)" />
-                        <div>
-                          <span style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block' }}>
-                            Relatório de Gols — {report.created_at
-                              ? new Date(report.created_at).toLocaleDateString('pt-BR')
-                              : '—'}
-                          </span>
-                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            ChatGPT · {report.recommendations.length} recomendações
-                          </span>
-                        </div>
-                      </div>
-                      <Eye size={16} color="var(--text-muted)" />
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
 
           {/* Tabela de Gols Registrados */}
           <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
