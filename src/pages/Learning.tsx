@@ -225,6 +225,12 @@ export default function Learning() {
       const savedReports = await getLearningReports();
       setReports(savedReports);
 
+      const latestTradeReport = savedReports.find(r => r.analysis_source === 'gemini' && (r.raw_summary?.origem_aprendizagem || 'manual') === origemFilter);
+      setCurrentReport(latestTradeReport || null);
+
+      const latestGoalReport = savedReports.find(r => r.analysis_source === 'gemini_gols');
+      setCurrentGoalReport(latestGoalReport || null);
+
       // Carrega momentos dos gols
       const goals = await getGoalLearningEntries();
       setGoalsList(goals);
@@ -380,6 +386,13 @@ export default function Learning() {
     try {
       // generateGeminiReport lê a key de localStorage internamente
       const report = await generateGeminiReport(entries);
+      
+      // Enriquecer com o filtro de origem correspondente para separar os relatórios
+      report.raw_summary = {
+        ...report.raw_summary,
+        origem_aprendizagem: origemFilter
+      };
+
       // Salva o relatório no Supabase
       const savedReport = await saveLearningReport(report);
       setCurrentReport(savedReport);
@@ -1307,7 +1320,7 @@ export default function Learning() {
                   fontSize: '0.7rem', background: 'var(--bg-elevated)', padding: '2px 8px',
                   borderRadius: 20, color: 'var(--text-muted)', fontWeight: 600,
                 }}>
-                  {reports.filter(r => r.analysis_source === 'gemini').length}
+                  {reports.filter(r => r.analysis_source === 'gemini' && (r.raw_summary?.origem_aprendizagem || 'manual') === origemFilter).length}
                 </span>
               </div>
               <ChevronDown
@@ -1322,12 +1335,12 @@ export default function Learning() {
 
             {showReportHistory && (
               <div style={{ borderTop: '1px solid var(--border-color)' }}>
-                {reports.filter(r => r.analysis_source === 'gemini').length === 0 ? (
+                {reports.filter(r => r.analysis_source === 'gemini' && (r.raw_summary?.origem_aprendizagem || 'manual') === origemFilter).length === 0 ? (
                   <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                     Nenhum relatório gerado ainda.
                   </div>
                 ) : (
-                  reports.filter(r => r.analysis_source === 'gemini').map(report => (
+                  reports.filter(r => r.analysis_source === 'gemini' && (r.raw_summary?.origem_aprendizagem || 'manual') === origemFilter).map(report => (
                     <div
                       key={report.id}
                       style={{
