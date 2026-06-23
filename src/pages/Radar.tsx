@@ -1712,6 +1712,20 @@ export default function Radar() {
 
   const registerAutomaticSuggestion = useCallback(async (opp: Opportunity, stats: any) => {
     try {
+      // Evitar duplicados: verificar se já existe registro automático para este jogo e estratégia
+      const { data: existing } = await supabase
+        .from('trade_entries')
+        .select('id')
+        .eq('fixture_id', opp.fixtureId)
+        .eq('bet_type', opp.strategyName)
+        .eq('origem_aprendizagem', 'automatica')
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        console.log(`[Auto Learning] Entry already exists for fixture ${opp.fixtureId} and strategy ${opp.strategyName}. Skipping.`);
+        return;
+      }
+
       const activeBancaId = localStorage.getItem('active_banca_id') || 'default';
       const fixture = allFixtures.find(f => f.id === opp.fixtureId);
       const elapsed = fixture ? getDisplayElapsed(fixture.id, fixture.elapsed || 0, fixture.status || '') : 0;
