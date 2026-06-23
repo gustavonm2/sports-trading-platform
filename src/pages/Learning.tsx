@@ -9,6 +9,7 @@ import {
   getLearningReports, saveLearningReport,
   type TradeEntry, type TradeOutcome, type LearningReport, type AIRecommendation
 } from '../services/learningEngine';
+import { sofascore } from '../services/sofascore';
 
 // ============================================================================
 // Tipos auxiliares
@@ -282,13 +283,42 @@ export default function Learning() {
   // ============================================================================
 
   /** Abrir modal de resolução */
-  const openResolutionModal = (entryId: string, outcome: TradeOutcome) => {
+  const openResolutionModal = async (entry: TradeEntry, outcome: TradeOutcome) => {
+    let initialNotes = entry.notes || '';
+    
     setResolutionModal({
-      entryId, outcome,
-      finalGoalsHome: '', finalGoalsAway: '',
-      finalCornersHome: '', finalCornersAway: '',
-      profitLoss: '', notes: '',
+      entryId: entry.id!,
+      outcome,
+      finalGoalsHome: '',
+      finalGoalsAway: '',
+      finalCornersHome: '',
+      finalCornersAway: '',
+      profitLoss: '',
+      notes: initialNotes,
     });
+
+    // Se temos um ID de partida real da API (número positivo), tentamos buscar os gols do Sofascore
+    if (entry.fixture_id && entry.fixture_id > 0) {
+      try {
+        const incidentsData = await sofascore.getFixtureIncidents(entry.fixture_id);
+        if (incidentsData && Array.isArray(incidentsData.incidents)) {
+          const postIncGoals = incidentsData.incidents
+            .filter((inc: any) => (inc.type === 'goal' || inc.incidentType === 'goal') && inc.time > entry.elapsed)
+            .map((inc: any) => `${inc.time}' (${inc.isHome ? 'Mandante' : 'Visitante'})`);
+          
+          const goalsStr = postIncGoals.length > 0 ? `Gols após entrada: ${postIncGoals.join(', ')}` : 'Gols após entrada: Nenhum';
+          
+          // Se já não houver a string "Gols após entrada" nas notas, adicionamos
+          if (!initialNotes.includes('Gols após entrada')) {
+            const separator = initialNotes ? ' | ' : '';
+            const updatedNotes = `${initialNotes}${separator}${goalsStr}`;
+            setResolutionModal(prev => prev ? { ...prev, notes: updatedNotes } : null);
+          }
+        }
+      } catch (err) {
+        console.warn('[Learning] Falha ao obter incidentes para pré-preenchimento:', err);
+      }
+    }
   };
 
   /** Confirmar resolução de trade — chama a API com assinatura correta */
@@ -724,7 +754,7 @@ export default function Learning() {
                             {(!entry.outcome || entry.outcome === 'pending') && entry.id && (
                               <>
                                 <button
-                                  onClick={() => openResolutionModal(entry.id!, 'green')}
+                                  onClick={() => openResolutionModal(entry, 'green')}
                                   title="Marcar GREEN"
                                   style={{
                                     padding: '4px 8px', background: 'rgba(16, 185, 129, 0.1)', border: 'none',
@@ -735,7 +765,7 @@ export default function Learning() {
                                   ✅ Green
                                 </button>
                                 <button
-                                  onClick={() => openResolutionModal(entry.id!, 'red')}
+                                  onClick={() => openResolutionModal(entry, 'red')}
                                   title="Marcar RED"
                                   style={{
                                     padding: '4px 8px', background: 'rgba(239, 68, 68, 0.1)', border: 'none',

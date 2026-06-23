@@ -309,6 +309,26 @@ export default function Radar() {
     localStorage.setItem('learning_automatic_monitored', JSON.stringify(monitoredOpps));
   }, [monitoredOpps]);
 
+  const [pendingManualEntries, setPendingManualEntries] = useState<any[]>([]);
+
+  // Carrega entries pendentes manuais para monitoramento de gols
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('trade_entries')
+          .select('*')
+          .eq('outcome', 'pending')
+          .eq('origem_aprendizagem', 'manual');
+        if (data) {
+          setPendingManualEntries(data);
+        }
+      } catch (e) {
+        console.warn('Erro ao carregar entries pendentes manuais:', e);
+      }
+    })();
+  }, []);
+
   const monitoredOppsRef = useRef(monitoredOpps);
   useEffect(() => { monitoredOppsRef.current = monitoredOpps; }, [monitoredOpps]);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -1679,7 +1699,10 @@ export default function Radar() {
       };
 
       try {
-        await saveTradeEntry(learningEntry);
+        const saved = await saveTradeEntry(learningEntry);
+        if (saved && saved.id) {
+          setPendingManualEntries(prev => [...prev, saved]);
+        }
         console.log('[Radar→Learning] ✅ Entrada salva no motor de aprendizado');
       } catch (err) {
         console.error('[Radar→Learning] ❌ Falha ao salvar no motor de aprendizado:', err);
@@ -1899,12 +1922,17 @@ export default function Radar() {
 
           if (isResolved && outcome) {
             try {
+              const postEntryGoals = matchEvents
+                .filter(ev => ev.type === 'goal' && (ev.elapsed > opp.elapsed || (ev.elapsed === opp.elapsed && ev.timestamp > opp.timestamp)))
+                .map(ev => `${ev.elapsed}' (${ev.side === 'home' ? 'Mandante' : 'Visitante'})`);
+              const goalsNote = postEntryGoals.length > 0 ? ` | Gols após entrada: ${postEntryGoals.join(', ')}` : ' | Gols após entrada: Nenhum';
+
               await resolveTradeEntry(opp.dbEntryId, outcome, {
                 finalGoalsHome: liveFixture.goalsHome ?? 0,
                 finalGoalsAway: liveFixture.goalsAway ?? 0,
                 finalCornersHome: liveStats.home?.corners ?? 0,
                 finalCornersAway: liveStats.away?.corners ?? 0,
-                notes: `[Auto Alerta Resolvido Live: ${outcome.toUpperCase()}]`
+                notes: `[Auto Alerta Resolvido Live: ${outcome.toUpperCase()}]${goalsNote}`
               });
               console.log(`[Auto Learning] Opp resolved live: ${opp.id} -> ${outcome}`);
             } catch (err) {
@@ -1919,8 +1947,14 @@ export default function Radar() {
           // Se já estávamos cientes de que ela terminou (finishedAt definido) e completou a carência de 3 minutos, resolvemos como RED
           if (opp.finishedAt && (Date.now() - opp.finishedAt >= 180000)) {
             try {
+              const matchEvents = platformEvents[opp.fixtureId] || [];
+              const postEntryGoals = matchEvents
+                .filter(ev => ev.type === 'goal' && (ev.elapsed > opp.elapsed || (ev.elapsed === opp.elapsed && ev.timestamp > opp.timestamp)))
+                .map(ev => `${ev.elapsed}' (${ev.side === 'home' ? 'Mandante' : 'Visitante'})`);
+              const goalsNote = postEntryGoals.length > 0 ? ` | Gols após entrada: ${postEntryGoals.join(', ')}` : ' | Gols após entrada: Nenhum';
+
               await resolveTradeEntry(opp.dbEntryId, 'red', {
-                notes: `[Auto Alerta Resolvido Fim Jogo: RED]`
+                notes: `[Auto Alerta Resolvido Fim Jogo: RED]${goalsNote}`
               });
               console.log(`[Auto Learning] Opp resolved on disappearance: ${opp.id} -> red`);
             } catch (err) {
@@ -1937,6 +1971,7 @@ export default function Radar() {
               let resolvedOutcome: 'green' | 'red' | null = null;
               let finalGoalsH = 0, finalGoalsA = 0;
               let finalCornersH = 0, finalCornersA = 0;
+              let offlineGoalsNote = '';
 
               try {
                 const details = await sofascore.getFixtureDetails(opp.fixtureId);
@@ -1987,6 +2022,23 @@ export default function Radar() {
                       }
                     }
                   }
+
+                  // Buscar incidentes para obter o momento dos gols
+                  try {
+                    const incidentsData = await sofascore.getFixtureIncidents(opp.fixtureId);
+                    if (incidentsData && Array.isArray(incidentsData.incidents)) {
+                      const postIncGoals = incidentsData.incidents
+                        .filter((inc: any) => (inc.type === 'goal' || inc.incidentType === 'goal') && inc.time > opp.elapsed)
+                        .map((inc: any) => `${inc.time}' (${inc.isHome ? 'Mandante' : 'Visitante'})`);
+                      if (postIncGoals.length > 0) {
+                        offlineGoalsNote = ` | Gols após entrada: ${postIncGoals.join(', ')}`;
+                      } else {
+                        offlineGoalsNote = ` | Gols após entrada: Nenhum`;
+                      }
+                    }
+                  } catch (incErr) {
+                    console.warn('Erro ao obter incidentes offline do Sofascore:', incErr);
+                  }
                 }
               } catch (err) {
                 console.warn('[Auto Learning] Erro na verificação offline via API Sofascore:', err);
@@ -1999,7 +2051,7 @@ export default function Radar() {
                     finalGoalsAway: finalGoalsA,
                     finalCornersHome: finalCornersH,
                     finalCornersAway: finalCornersA,
-                    notes: `[Auto Alerta Resolvido Offline: ${resolvedOutcome.toUpperCase()}]`
+                    notes: `[Auto Alerta Resolvido Offline: ${resolvedOutcome.toUpperCase()}]${offlineGoalsNote}`
                   });
                   console.log(`[Auto Learning] Opp resolved offline: ${opp.id} -> ${resolvedOutcome}`);
                 } catch (err) {
@@ -2010,9 +2062,24 @@ export default function Radar() {
                 changed = true;
               } else {
                 if (matchAgeMinutes > 240) {
+                  let fallbackGoalsNote = '';
+                  try {
+                    const incidentsData = await sofascore.getFixtureIncidents(opp.fixtureId);
+                    if (incidentsData && Array.isArray(incidentsData.incidents)) {
+                      const postIncGoals = incidentsData.incidents
+                        .filter((inc: any) => (inc.type === 'goal' || inc.incidentType === 'goal') && inc.time > opp.elapsed)
+                        .map((inc: any) => `${inc.time}' (${inc.isHome ? 'Mandante' : 'Visitante'})`);
+                      if (postIncGoals.length > 0) {
+                        fallbackGoalsNote = ` | Gols após entrada: ${postIncGoals.join(', ')}`;
+                      } else {
+                        fallbackGoalsNote = ` | Gols após entrada: Nenhum`;
+                      }
+                    }
+                  } catch (incErr) {}
+
                   try {
                     await resolveTradeEntry(opp.dbEntryId, 'red', {
-                      notes: `[Auto Alerta Resolvido Fallback: RED]`
+                      notes: `[Auto Alerta Resolvido Fallback: RED]${fallbackGoalsNote}`
                     });
                     console.log(`[Auto Learning] Opp resolved by timeout: ${opp.id} -> red`);
                   } catch (err) {
@@ -2033,6 +2100,62 @@ export default function Radar() {
       }
     })();
   }, [allFixtures, allStats, monitoredOpps, platformEvents]);
+
+  // ⚽ Monitoramento em Tempo Real dos Gols das Entradas Manuais Pendentes
+  useEffect(() => {
+    if (pendingManualEntries.length === 0) return;
+
+    (async () => {
+      let changed = false;
+      const nextPending = [...pendingManualEntries];
+
+      for (let i = 0; i < nextPending.length; i++) {
+        const entry = nextPending[i];
+        
+        // Se a partida sumiu de allFixtures ou terminou, nós a removemos do nosso monitoramento local
+        const liveFixture = allFixtures.find(f => f.id === entry.fixture_id);
+        if (!liveFixture) {
+          nextPending.splice(i, 1);
+          i--;
+          changed = true;
+          continue;
+        }
+
+        const matchEvents = platformEvents[entry.fixture_id] || [];
+        const postEntryGoals = matchEvents
+          .filter(ev => ev.type === 'goal' && ev.elapsed > entry.elapsed)
+          .map(ev => `${ev.elapsed}' (${ev.side === 'home' ? 'Mandante' : 'Visitante'})`);
+        
+        const goalsStr = postEntryGoals.length > 0 ? `Gols após entrada: ${postEntryGoals.join(', ')}` : 'Gols após entrada: Nenhum';
+
+        // Prepara novas notas mantendo as notas originais (ex: Diary ID)
+        let currentNotes = entry.notes || '';
+        if (!currentNotes.includes(goalsStr)) {
+          let baseNotes = currentNotes.split(' | Gols após entrada:')[0];
+          const separator = baseNotes ? ' | ' : '';
+          const updatedNotes = `${baseNotes}${separator}${goalsStr}`;
+
+          try {
+            const { error } = await supabase
+              .from('trade_entries')
+              .update({ notes: updatedNotes })
+              .eq('id', entry.id);
+
+            if (!error) {
+              entry.notes = updatedNotes;
+              changed = true;
+            }
+          } catch (err) {
+            console.warn('Erro ao atualizar gols da entrada manual:', err);
+          }
+        }
+      }
+
+      if (changed) {
+        setPendingManualEntries(nextPending);
+      }
+    })();
+  }, [allFixtures, platformEvents, pendingManualEntries]);
 
   const handlePeguei = async (opp: Opportunity) => {
     if (gottenOppIds.has(opp.id)) return;

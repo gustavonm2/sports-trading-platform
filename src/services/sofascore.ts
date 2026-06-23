@@ -257,6 +257,19 @@ class SofascoreService {
     }
     return null;
   }
+
+  async getFixtureIncidents(eventId: number): Promise<any> {
+    try {
+      const url = `${BASE_URL}/event/${eventId}/incidents`;
+      const res = await fetch(url);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.error(`Error fetching fixture incidents for ${eventId}:`, e);
+    }
+    return null;
+  }
 }
 
 export const sofascore = new SofascoreService();

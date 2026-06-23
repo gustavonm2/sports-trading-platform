@@ -1206,7 +1206,13 @@ export async function generateGeminiReport(entries: TradeEntry[]): Promise<Learn
     chutes_total: e.home_total_shots + e.away_total_shots,
     escanteios_total: e.home_corners + e.away_corners,
     posse_mandante: e.home_possession,
+    gols_marcados_depois_da_entrada: (() => {
+      if (!e.notes) return 'Nenhum ou Não registrado';
+      const match = e.notes.match(/Gols após entrada:\s*([^\r\n|]+)/i);
+      return match ? match[1].trim() : 'Nenhum ou Não registrado';
+    })(),
     resultado: e.outcome,
+    observacoes: e.notes || '',
   }));
 
   // Prompt estruturado em português (system + user)
@@ -1252,6 +1258,7 @@ Responda OBRIGATORIAMENTE em formato JSON válido com a seguinte estrutura:
 3. Identifique se há viés de minuto, liga ou mercado
 4. Avalie se a aceleração (APM3 vs APM Global) é preditiva
 5. Recomende thresholds específicos para métricas-chave
+6. IMPORTANTE: Analise o campo "gols_marcados_depois_da_entrada" (o momento/minuto em que saiu um gol após a nossa entrada). Compare esse momento com as métricas ofensivas registradas (como IPR, APM, Score) para nos ajudar a encontrar padrões preditivos para operar no mercado de gols no futuro.
 
 Responda APENAS com o JSON válido.`;
 
