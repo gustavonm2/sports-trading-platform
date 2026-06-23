@@ -4110,7 +4110,9 @@ export default function Radar() {
 
                     // Filtros de contexto: só marca potencial se faz sentido apostar
                     const isValidTime = f.elapsed <= 90 && f.status !== 'HT';
-                    const hasPotential = !hasOpp && isValidTime && stats && (
+                    const liveScore = getDisplayScore(f.id, f.goalsHome ?? 0, f.goalsAway ?? 0);
+                    const scoreDiff = Math.abs(liveScore.home - liveScore.away);
+                    const hasPotential = !hasOpp && isValidTime && stats && scoreDiff <= 2 && (
                       homeScore >= potentialThreshold || awayScore >= potentialThreshold
                     );
                     
@@ -5695,7 +5697,9 @@ export default function Radar() {
                     const homeQual = stats ? getQualityPctForSide(f.id, true) : 0;
                     const awayQual = stats ? getQualityPctForSide(f.id, false) : 0;
                     const isValidTime = f.elapsed <= 90 && f.status !== 'HT';
-                    const hasPotential = !hasOpp && isValidTime && stats && (
+                    const liveScore = getDisplayScore(f.id, f.goalsHome ?? 0, f.goalsAway ?? 0);
+                    const scoreDiff = Math.abs(liveScore.home - liveScore.away);
+                    const hasPotential = !hasOpp && isValidTime && stats && scoreDiff <= 2 && (
                       homeScore >= potentialThreshold || awayScore >= potentialThreshold
                     );
                     
@@ -7157,7 +7161,9 @@ export default function Radar() {
                     const homeScore = getScoreFinalForSide(f.id, true);
                     const awayScore = getScoreFinalForSide(f.id, false);
                     const vt = f.elapsed <= 90 && f.status !== 'HT';
-                    return !hasOpp && vt && (
+                    const liveScore = getDisplayScore(f.id, f.goalsHome ?? 0, f.goalsAway ?? 0);
+                    const scoreDiff = Math.abs(liveScore.home - liveScore.away);
+                    return !hasOpp && vt && scoreDiff <= 2 && (
                       homeScore >= potentialThreshold || awayScore >= potentialThreshold
                     );
                   });
@@ -7315,7 +7321,9 @@ export default function Radar() {
                 const homeScore = getScoreFinalForSide(f.id, true);
                 const awayScore = getScoreFinalForSide(f.id, false);
                 const vt = f.elapsed <= 90 && f.status !== 'HT';
-                return !hasOpp && vt && (
+                const liveScore = getDisplayScore(f.id, f.goalsHome ?? 0, f.goalsAway ?? 0);
+                const scoreDiff = Math.abs(liveScore.home - liveScore.away);
+                return !hasOpp && vt && scoreDiff <= 2 && (
                   homeScore >= potentialThreshold || awayScore >= potentialThreshold
                 );
               })
@@ -7403,16 +7411,18 @@ export default function Radar() {
 
             {alertFilter === 'potencial' && allFixtures.filter(f => {
               const s = allStats[f.id];
-              if (!s || (!s.hasTelemetry && !s.hasBridge)) return false;
+              if (!s) return false;
               if (fixtureSourceFilter === 'favorites' && !favoriteFixtureIds.has(f.id)) return false;
               const hasOpp = filteredOpps.some(o => o.fixtureId === f.id);
-              const thRef = activeMode === 'aggressive' ? 0.8 : activeMode === 'defensive' ? 1.4 : activeMode === 'funnel' ? 1.0 : 1.1;
-              const hR = s.home.iim / thRef; const aR = s.away.iim / thRef;
-              const vt = f.elapsed <= 85 && f.status !== 'HT';
-              const og = f.goalsHome + f.goalsAway <= 4;
-              return !hasOpp && vt && og && (
-                (hR >= 0.7 && s.home.corners >= 2) || (aR >= 0.7 && s.away.corners >= 2) ||
-                (s.home.iim + s.away.iim >= thRef * 1.2 && s.home.shotsOnGoal + s.away.shotsOnGoal >= 2)
+              const triggerThreshold = cornerTriggerThreshold;
+              const potentialThreshold = triggerThreshold - 1.0;
+              const homeScore = getScoreFinalForSide(f.id, true);
+              const awayScore = getScoreFinalForSide(f.id, false);
+              const vt = f.elapsed <= 90 && f.status !== 'HT';
+              const liveScore = getDisplayScore(f.id, f.goalsHome ?? 0, f.goalsAway ?? 0);
+              const scoreDiff = Math.abs(liveScore.home - liveScore.away);
+              return !hasOpp && vt && scoreDiff <= 2 && (
+                homeScore >= potentialThreshold || awayScore >= potentialThreshold
               );
             }).length === 0 && (
               <div className="card glass-panel" style={{ textAlign: 'center', padding: '50px 30px', color: 'var(--text-muted)' }}>
