@@ -352,6 +352,28 @@ export function onBestCornerData(callback: BridgeCallback): () => void {
     // Filtrar apenas mensagens da bridge
     if (event.data?.type !== 'BESTCORNER_BRIDGE_DATA') return;
     const payload = event.data.payload as BestCornerBridgePayload;
+    if (payload && Array.isArray(payload.matches)) {
+      payload.matches = payload.matches.map(m => {
+        const elapsed = typeof m.elapsed === 'number' ? m.elapsed + 2 : m.elapsed;
+        
+        // Também ajustar os minutos dos pastEvents se existirem
+        const pastEvents = Array.isArray(m.pastEvents) 
+          ? m.pastEvents.map(e => ({ ...e, elapsed: e.elapsed + 2 }))
+          : m.pastEvents;
+
+        // Também ajustar o elapsed dentro dos snapshots se existirem
+        const snapshots = Array.isArray(m.snapshots)
+          ? m.snapshots.map(s => ({ ...s, elapsed: s.elapsed + 2 }))
+          : m.snapshots;
+
+        return {
+          ...m,
+          elapsed,
+          pastEvents,
+          snapshots
+        };
+      });
+    }
     if (payload) {
       callback(payload);
     }
