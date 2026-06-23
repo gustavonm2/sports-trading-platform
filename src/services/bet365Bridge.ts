@@ -27,6 +27,7 @@ export interface Bet365MatchData {
   home: Partial<Record<string, number>>;
   away: Partial<Record<string, number>>;
   snapshots?: TelemetrySnapshot[];
+  pastEvents?: { elapsed: number, type: string, side: 'home' | 'away', text: string }[];
 }
 
 export interface Bet365BridgePayload {
@@ -281,6 +282,9 @@ export function mergeStats(
   if (bet365Data.away.apm5 !== undefined) merged.away.apm5 = bet365Data.away.apm5;
 
   merged.snapshots = bet365Data.snapshots || [];
+  if (bet365Data.pastEvents) {
+    merged.pastEvents = bet365Data.pastEvents;
+  }
   merged.hasBridge = true;
   return merged;
 }

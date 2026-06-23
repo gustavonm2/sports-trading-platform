@@ -674,22 +674,38 @@ export default function Radar() {
     return [...manualFixtures];
   }, [manualFixtures]);
 
-  // 🔄 Sincronizar dados da Bridge para atualizar os nomes dos times manuais, tempo decorrido e placar
+  // 🔄 Sincronizar dados da Bridge (Bet365 ou BestCorner) para atualizar nomes, tempo e placar das manualFixtures
   useEffect(() => {
-    if (!bet365Bridge || !bet365Bridge.connected || bet365Bridge.matches.length === 0 || manualFixtures.length === 0) return;
+    if (manualFixtures.length === 0) return;
+    
+    const hasBet365 = bet365Bridge && bet365Bridge.connected && bet365Bridge.matches.length > 0;
+    const hasBC = bestCornerBridge && bestCornerBridge.connected && bestCornerBridge.matches.length > 0;
+    
+    if (!hasBet365 && !hasBC) return;
 
     let updated = false;
     const nextManual = manualFixtures.map(f => {
-      let match = (f as any).matchUrl
-        ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl))
-        : null;
-      if (!match) {
-        match = findBet365Match(f.homeTeam.name, f.awayTeam.name, bet365Bridge.matches);
+      // Prioridade: Bet365 > BestCorner
+      let match = null;
+      if (hasBet365) {
+        match = (f as any).matchUrl
+          ? bet365Bridge!.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl))
+          : findBet365Match(f.homeTeam.name, f.awayTeam.name, bet365Bridge!.matches);
+      }
+      if (!match && hasBC) {
+        match = (f as any).matchUrl
+          ? bestCornerBridge!.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl))
+          : findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge!.matches);
       }
       
       if (match) {
-        const goalsHome = typeof match.home?.goals === 'number' ? match.home.goals : f.goalsHome || 0;
-        const goalsAway = typeof match.away?.goals === 'number' ? match.away.goals : f.goalsAway || 0;
+        const goalsHome = typeof match.home?.goals === 'number' ? match.home.goals 
+          : typeof (match as any).goalsHome === 'number' ? (match as any).goalsHome 
+          : f.goalsHome || 0;
+          
+        const goalsAway = typeof match.away?.goals === 'number' ? match.away.goals 
+          : typeof (match as any).goalsAway === 'number' ? (match as any).goalsAway 
+          : f.goalsAway || 0;
 
         if (
           f.homeTeam.name.includes('Aguardando') || 
@@ -715,7 +731,7 @@ export default function Radar() {
     if (updated) {
       setManualFixtures(nextManual);
     }
-  }, [bet365Bridge, manualFixtures]);
+  }, [bet365Bridge, bestCornerBridge, manualFixtures]);
 
   // 🎰 Sincronizar Scanner Fixtures com dados ao vivo do Scanner + Bridge (elapsed, goals, status)
   useEffect(() => {
@@ -820,10 +836,21 @@ export default function Radar() {
             if (!stillLive) return false;
           }
 
-          // REGRA 5: Status de jogo encerrado
+          // REGRA 5: Status de jogo encerrado (Carência de 3 minutos para permitir resoluções de green/red antes de remover)
           const status = (f.status || '').toUpperCase();
-          if (['FT', 'AET', 'PEN', 'CANC', 'PST', 'ABD', 'AWD', 'WO'].includes(status)) return false;
-          if (f.elapsed >= 95) return false;
+          const isEnded = ['FT', 'AET', 'PEN', 'CANC', 'PST', 'ABD', 'AWD', 'WO'].includes(status) || f.elapsed >= 95;
+          if (isEnded) {
+            const endedAt = (f as any).endedAt || 0;
+            if (endedAt === 0) {
+              (f as any).endedAt = Date.now();
+              return true;
+            }
+            const timeSinceEnd = Date.now() - endedAt;
+            if (timeSinceEnd < 180000) { // 3 minutos de carência
+              return true;
+            }
+            return false;
+          }
           return true;
         });
 
@@ -1354,8 +1381,14 @@ export default function Radar() {
         if (!stats) continue;
 
         const prevStats = prevStatsRef.current[fixture.id];
-        const elapsed = fixture.elapsed || 0;
+        const elapsed = getDisplayElapsed(fixture.id, fixture.elapsed || 0, fixture.status || '');
         if (elapsed <= 0) continue;
+
+        const liveScore = getDisplayScore(fixture.id, fixture.goalsHome || 0, fixture.goalsAway || 0);
+        const liveGoalsHome = liveScore.home;
+        const liveGoalsAway = liveScore.away;
+        const liveCornersHome = stats.home.corners || 0;
+        const liveCornersAway = stats.away.corners || 0;
 
         if (prevStats) {
           const newEvents: MatchEvent[] = [];
@@ -1388,10 +1421,10 @@ export default function Radar() {
             };
           };
 
-          if ((fixture.goalsHome || 0) > (prevStats.goalsHome || 0)) newEvents.push(createEvent('goal', 'home'));
-          if ((fixture.goalsAway || 0) > (prevStats.goalsAway || 0)) newEvents.push(createEvent('goal', 'away'));
-          if ((stats.home.corners || 0) > (prevStats.cornersHome || 0)) newEvents.push(createEvent('corner', 'home'));
-          if ((stats.away.corners || 0) > (prevStats.cornersAway || 0)) newEvents.push(createEvent('corner', 'away'));
+          if (liveGoalsHome > (prevStats.goalsHome || 0)) newEvents.push(createEvent('goal', 'home'));
+          if (liveGoalsAway > (prevStats.goalsAway || 0)) newEvents.push(createEvent('goal', 'away'));
+          if (liveCornersHome > (prevStats.cornersHome || 0)) newEvents.push(createEvent('corner', 'home'));
+          if (liveCornersAway > (prevStats.cornersAway || 0)) newEvents.push(createEvent('corner', 'away'));
 
           if (newEvents.length > 0) {
             nextEvents[fixture.id] = [...(nextEvents[fixture.id] || []), ...newEvents];
@@ -1427,10 +1460,10 @@ export default function Radar() {
         }
 
         prevStatsRef.current[fixture.id] = {
-          goalsHome: fixture.goalsHome || 0,
-          goalsAway: fixture.goalsAway || 0,
-          cornersHome: stats.home.corners || 0,
-          cornersAway: stats.away.corners || 0
+          goalsHome: liveGoalsHome,
+          goalsAway: liveGoalsAway,
+          cornersHome: liveCornersHome,
+          cornersAway: liveCornersAway
         };
       }
 
@@ -1806,16 +1839,20 @@ export default function Radar() {
           let isResolved = false;
           let outcome: 'green' | 'red' | null = null;
 
-          // Verificar critério de GREEN
+          const matchEvents = platformEvents[opp.fixtureId] || [];
+
+          // Verificar critério de GREEN (via placar live ou linha do tempo)
           if (opp.marketType === 'escanteios') {
             const currentCorners = (liveStats.home?.corners ?? 0) + (liveStats.away?.corners ?? 0);
-            if (currentCorners > opp.initialCorners) {
+            const hasTimelineCorner = matchEvents.some(ev => ev.type === 'corner' && ev.elapsed > opp.elapsed);
+            if (currentCorners > opp.initialCorners || hasTimelineCorner) {
               isResolved = true;
               outcome = 'green';
             }
           } else if (opp.marketType === 'gols') {
             const currentGoals = (liveFixture.goalsHome ?? 0) + (liveFixture.goalsAway ?? 0);
-            if (currentGoals > opp.initialGoals) {
+            const hasTimelineGoal = matchEvents.some(ev => ev.type === 'goal' && ev.elapsed > opp.elapsed);
+            if (currentGoals > opp.initialGoals || hasTimelineGoal) {
               isResolved = true;
               outcome = 'green';
             }
@@ -1856,7 +1893,7 @@ export default function Radar() {
         } else {
           // 2. Partida não está mais live (finalizada enquanto usuário estava offline)
           const matchAgeMinutes = (Date.now() - opp.timestamp) / 60000;
-          if (matchAgeMinutes > 150) {
+          if (matchAgeMinutes > 40) {
             console.log(`[Auto Learning] Match ${opp.fixtureId} is no longer live, performing offline check...`);
             let resolvedOutcome: 'green' | 'red' | null = null;
             let finalGoalsH = 0, finalGoalsA = 0;
@@ -1955,7 +1992,7 @@ export default function Radar() {
         setMonitoredOpps(nextMonitored);
       }
     })();
-  }, [allFixtures, allStats, monitoredOpps]);
+  }, [allFixtures, allStats, monitoredOpps, platformEvents]);
 
   const handlePeguei = async (opp: Opportunity) => {
     if (gottenOppIds.has(opp.id)) return;
