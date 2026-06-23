@@ -7,7 +7,9 @@ import {
 import {
   getTradeEntries, resolveTradeEntry, analyzePatterns, generateGeminiReport,
   getLearningReports, saveLearningReport,
-  type TradeEntry, type TradeOutcome, type LearningReport, type AIRecommendation
+  getGoalLearningEntries, generateGoalGeminiReport,
+  type TradeEntry, type TradeOutcome, type LearningReport, type AIRecommendation,
+  type GoalLearningEntry
 } from '../services/learningEngine';
 import { sofascore } from '../services/sofascore';
 
@@ -15,7 +17,7 @@ import { sofascore } from '../services/sofascore';
 // Tipos auxiliares
 // ============================================================================
 
-type TabId = 'entries' | 'analysis' | 'gemini';
+type TabId = 'entries' | 'analysis' | 'gemini' | 'goal_learning';
 type OutcomeFilter = 'ALL' | 'PENDING' | 'green' | 'red';
 type MarketFilter = 'ALL' | 'gols' | 'escanteios';
 
@@ -193,6 +195,13 @@ export default function Learning() {
   const [reports, setReports] = useState<LearningReport[]>([]);
   const [showReportHistory, setShowReportHistory] = useState(false);
 
+  // Aprendizado de Gols
+  const [goalsList, setGoalsList] = useState<GoalLearningEntry[]>([]);
+  const [goalGeminiLoading, setGoalGeminiLoading] = useState(false);
+  const [goalGeminiError, setGoalGeminiError] = useState('');
+  const [currentGoalReport, setCurrentGoalReport] = useState<LearningReport | null>(null);
+  const [showGoalReportHistory, setShowGoalReportHistory] = useState(false);
+
   // ============================================================================
   // Carregamento de dados (todas as funções são async)
   // ============================================================================
@@ -215,6 +224,10 @@ export default function Learning() {
       // Carrega relatórios salvos
       const savedReports = await getLearningReports();
       setReports(savedReports);
+
+      // Carrega momentos dos gols
+      const goals = await getGoalLearningEntries();
+      setGoalsList(goals);
     } catch (err) {
       console.error('[Learning] Erro ao carregar dados:', err);
     } finally {
@@ -380,6 +393,30 @@ export default function Learning() {
     }
   };
 
+  /** Gerar relatório de gols via ChatGPT */
+  const handleGenerateGoalReport = async () => {
+    if (!geminiKey.trim()) {
+      setGoalGeminiError('Insira sua API Key da OpenAI antes de gerar o relatório.');
+      return;
+    }
+
+    localStorage.setItem('openai_api_key', geminiKey);
+    setGoalGeminiLoading(true);
+    setGoalGeminiError('');
+
+    try {
+      const report = await generateGoalGeminiReport(goalsList);
+      const savedReport = await saveLearningReport(report);
+      setCurrentGoalReport(savedReport);
+      const savedReports = await getLearningReports();
+      setReports(savedReports);
+    } catch (err) {
+      setGoalGeminiError((err as Error).message);
+    } finally {
+      setGoalGeminiLoading(false);
+    }
+  };
+
   // ============================================================================
   // Renderização
   // ============================================================================
@@ -388,6 +425,7 @@ export default function Learning() {
     { id: 'entries', label: 'Entradas', icon: <BookOpen size={16} /> },
     { id: 'analysis', label: 'Análise', icon: <BarChart3 size={16} /> },
     { id: 'gemini', label: 'IA ChatGPT', icon: <Brain size={16} /> },
+    { id: 'goal_learning', label: 'Aprendizado Gols', icon: <Sparkles size={16} /> },
   ];
 
   return (
@@ -1269,7 +1307,7 @@ export default function Learning() {
                   fontSize: '0.7rem', background: 'var(--bg-elevated)', padding: '2px 8px',
                   borderRadius: 20, color: 'var(--text-muted)', fontWeight: 600,
                 }}>
-                  {reports.length}
+                  {reports.filter(r => r.analysis_source === 'gemini').length}
                 </span>
               </div>
               <ChevronDown
@@ -1284,12 +1322,12 @@ export default function Learning() {
 
             {showReportHistory && (
               <div style={{ borderTop: '1px solid var(--border-color)' }}>
-                {reports.length === 0 ? (
+                {reports.filter(r => r.analysis_source === 'gemini').length === 0 ? (
                   <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                     Nenhum relatório gerado ainda.
                   </div>
                 ) : (
-                  reports.map(report => (
+                  reports.filter(r => r.analysis_source === 'gemini').map(report => (
                     <div
                       key={report.id}
                       style={{
@@ -1310,7 +1348,7 @@ export default function Learning() {
                               : '—'}
                           </span>
                           <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            {report.analysis_source === 'gemini' ? 'ChatGPT' : 'Análise Local'} · {report.recommendations.length} recomendações · WR: {report.overall_win_rate}%
+                            ChatGPT · {report.recommendations.length} recomendações
                           </span>
                         </div>
                       </div>
@@ -1320,6 +1358,442 @@ export default function Learning() {
                 )}
               </div>
             )}
+          </div>
+        </>
+      )}
+
+      {/* ================================================================== */}
+      {/* TAB 4: APRENDIZADO GOLS */}
+      {/* ================================================================== */}
+      {activeTab === 'goal_learning' && (
+        <>
+          {/* KPI Summary Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            {/* Total Gols */}
+            <div className="card glass-panel" style={{ padding: 20, display: 'flex', gap: 14, alignItems: 'center' }}>
+              <div style={{ background: 'var(--accent-glow)', padding: 12, borderRadius: 10, color: 'var(--accent-primary)' }}>
+                <Target size={22} />
+              </div>
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Gols Registrados
+                </span>
+                <span style={{ fontSize: '1.6rem', fontWeight: 900 }}>{goalsList.length}</span>
+              </div>
+            </div>
+
+            {/* Mandantes */}
+            <div className="card glass-panel" style={{ padding: 20, display: 'flex', gap: 14, alignItems: 'center' }}>
+              <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: 12, borderRadius: 10, color: '#3b82f6' }}>
+                <Award size={22} />
+              </div>
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Gols de Mandantes
+                </span>
+                <span style={{ fontSize: '1.6rem', fontWeight: 900, color: '#3b82f6' }}>
+                  {goalsList.filter(g => g.scoring_team === 'home').length}
+                </span>
+              </div>
+            </div>
+
+            {/* Visitantes */}
+            <div className="card glass-panel" style={{ padding: 20, display: 'flex', gap: 14, alignItems: 'center' }}>
+              <div style={{ background: 'rgba(139, 92, 246, 0.1)', padding: 12, borderRadius: 10, color: '#8b5cf6' }}>
+                <Award size={22} />
+              </div>
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Gols de Visitantes
+                </span>
+                <span style={{ fontSize: '1.6rem', fontWeight: 900, color: '#8b5cf6' }}>
+                  {goalsList.filter(g => g.scoring_team === 'away').length}
+                </span>
+              </div>
+            </div>
+
+            {/* Minuto Médio */}
+            <div className="card glass-panel" style={{ padding: 20, display: 'flex', gap: 14, alignItems: 'center' }}>
+              <div style={{ background: 'rgba(245, 158, 11, 0.1)', padding: 12, borderRadius: 10, color: 'var(--status-yellow)' }}>
+                <Clock size={22} />
+              </div>
+              <div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Minuto Médio do Gol
+                </span>
+                <span style={{ fontSize: '1.6rem', fontWeight: 900 }}>
+                  {goalsList.length > 0 
+                    ? `${Math.round(goalsList.reduce((acc, curr) => acc + curr.elapsed, 0) / goalsList.length)}′`
+                    : '—'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* ChatGPT IA Report Section */}
+          <div className="card glass-panel" style={{ padding: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <Brain size={18} color="var(--accent-primary)" />
+              <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Padrões e Correlações de Gols com IA</h3>
+            </div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>OPENAI API KEY</label>
+                <input
+                  type="password"
+                  placeholder="Cole sua API Key da OpenAI (sk-...)..."
+                  value={geminiKey}
+                  onChange={e => {
+                    setGeminiKey(e.target.value);
+                    localStorage.setItem('openai_api_key', e.target.value);
+                  }}
+                  style={inputStyle}
+                />
+              </div>
+              <button
+                onClick={handleGenerateGoalReport}
+                disabled={goalGeminiLoading || goalsList.length < 3}
+                className="btn btn-primary"
+                style={{
+                  fontWeight: 700, padding: '10px 24px', whiteSpace: 'nowrap',
+                  opacity: goalGeminiLoading || goalsList.length < 3 ? 0.5 : 1,
+                  cursor: goalGeminiLoading || goalsList.length < 3 ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {goalGeminiLoading ? (
+                  <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Analisando Gols...</>
+                ) : (
+                  <><Brain size={16} /> 🧠 Achar Padrões dos Gols</>
+                )}
+              </button>
+            </div>
+
+            {goalsList.length < 3 && (
+              <div style={{
+                marginTop: 12, padding: '10px 14px', borderRadius: 8,
+                background: 'rgba(245, 158, 11, 0.06)', border: '1px solid rgba(245, 158, 11, 0.15)',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <AlertTriangle size={14} color="var(--status-yellow)" />
+                <span style={{ fontSize: '0.8rem', color: 'var(--status-yellow)' }}>
+                  Mínimo de 3 gols registrados necessários para disparar a IA. Você tem {goalsList.length}.
+                </span>
+              </div>
+            )}
+
+            {goalGeminiError && (
+              <div style={{
+                marginTop: 12, padding: '14px 18px', borderRadius: 10,
+                background: 'rgba(239, 68, 68, 0.06)',
+                border: '1px solid rgba(220, 38, 38, 0.15)',
+                fontSize: '0.82rem', color: 'var(--status-red)',
+              }}>
+                {goalGeminiError}
+              </div>
+            )}
+          </div>
+
+          {/* Relatório IA de Gols Ativo */}
+          {currentGoalReport && (
+            <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{
+                padding: '18px 24px', borderBottom: '1px solid var(--border-color)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                background: 'linear-gradient(135deg, rgba(30, 58, 138, 0.04), rgba(59, 130, 246, 0.02))',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Sparkles size={18} color="var(--accent-primary)" />
+                  <h3 style={{ fontSize: '1rem', fontWeight: 800 }}>Padrões e Insights Identificados (Gols)</h3>
+                </div>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '4px 10px', borderRadius: 20, fontWeight: 600 }}>
+                  {currentGoalReport.created_at
+                    ? new Date(currentGoalReport.created_at).toLocaleString('pt-BR')
+                    : 'Agora'}
+                </span>
+              </div>
+
+              <div style={{ padding: 24 }}>
+                {currentGoalReport.raw_summary?.resumo_geral && (
+                  <div style={{
+                    background: 'var(--bg-elevated)', padding: 20, borderRadius: 12,
+                    fontSize: '0.85rem', lineHeight: 1.8, color: 'var(--text-secondary)',
+                    whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)',
+                    border: '1px solid var(--border-color)', marginBottom: 20,
+                  }}>
+                    <h4 style={{ marginBottom: 8, fontWeight: 800, color: 'var(--text-primary)' }}>Resumo Estratégico</h4>
+                    {currentGoalReport.raw_summary.resumo_geral}
+                  </div>
+                )}
+
+                {/* Padrões identificados */}
+                {currentGoalReport.raw_summary?.padroes_identificados && (
+                  <div style={{ marginBottom: 20 }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <BarChart3 size={16} color="var(--accent-primary)" />
+                      Correlações Encontradas
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {(currentGoalReport.raw_summary.padroes_identificados as string[]).map((padrao: string, idx: number) => (
+                        <div key={idx} style={{
+                          background: 'var(--bg-elevated)', padding: '10px 16px', borderRadius: 8,
+                          fontSize: '0.83rem', color: 'var(--text-secondary)',
+                          borderLeft: '3px solid var(--accent-primary)',
+                        }}>
+                          {padrao}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Métricas-chave */}
+                {currentGoalReport.raw_summary?.metricas_chave && (
+                  <div style={{ marginBottom: 20 }}>
+                    <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Target size={16} color="var(--accent-primary)" />
+                      Métricas Médias no Momento do Gol
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                      {Object.entries(currentGoalReport.raw_summary.metricas_chave as Record<string, string>).map(([key, val]) => (
+                        <div key={key} style={{
+                          background: 'var(--bg-elevated)', padding: '10px 14px', borderRadius: 8,
+                          display: 'flex', flexDirection: 'column', gap: 4,
+                        }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                            {key.replace(/_/g, ' ')}
+                          </span>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {val}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Recomendações da IA */}
+              {currentGoalReport.recommendations.length > 0 && (
+                <div style={{ padding: '0 24px 24px' }}>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 800, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Target size={16} color="var(--accent-primary)" />
+                    Recomendações IA para Mercado de Gols ({currentGoalReport.recommendations.length})
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {currentGoalReport.recommendations.map((rec, idx) => {
+                      const recStyle = getRecTypeStyle(rec.type);
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            display: 'flex', flexDirection: 'column', gap: 6,
+                            padding: '14px 18px', borderRadius: 10,
+                            background: 'var(--bg-elevated)',
+                            borderLeft: `3px solid ${recStyle.color}`,
+                            border: '1px solid var(--border-color)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: recStyle.color, textTransform: 'uppercase' }}>
+                              {recStyle.label}
+                            </span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                              Confiança: {rec.confidence}%
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.83rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                            {rec.description}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Histórico de Relatórios de Gols */}
+          <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+            <button
+              onClick={() => setShowGoalReportHistory(!showGoalReportHistory)}
+              style={{
+                width: '100%', padding: '16px 24px', border: 'none', background: 'transparent',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <FileText size={18} color="var(--text-muted)" />
+                <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Histórico de Relatórios (Gols)
+                </span>
+                <span style={{
+                  fontSize: '0.7rem', background: 'var(--bg-elevated)', padding: '2px 8px',
+                  borderRadius: 20, color: 'var(--text-muted)', fontWeight: 600,
+                }}>
+                  {reports.filter(r => r.analysis_source === 'gemini_gols').length}
+                </span>
+              </div>
+              <ChevronDown
+                size={18}
+                color="var(--text-muted)"
+                style={{
+                  transform: showGoalReportHistory ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s ease',
+                }}
+              />
+            </button>
+
+            {showGoalReportHistory && (
+              <div style={{ borderTop: '1px solid var(--border-color)' }}>
+                {reports.filter(r => r.analysis_source === 'gemini_gols').length === 0 ? (
+                  <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    Nenhum relatório de gols gerado ainda.
+                  </div>
+                ) : (
+                  reports.filter(r => r.analysis_source === 'gemini_gols').map(report => (
+                    <div
+                      key={report.id}
+                      style={{
+                        padding: '14px 24px', borderBottom: '1px solid var(--border-color)',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        cursor: 'pointer', transition: 'background 0.15s ease',
+                      }}
+                      onClick={() => setCurrentGoalReport(report)}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <Brain size={16} color="var(--accent-primary)" />
+                        <div>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block' }}>
+                            Relatório de Gols — {report.created_at
+                              ? new Date(report.created_at).toLocaleDateString('pt-BR')
+                              : '—'}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            ChatGPT · {report.recommendations.length} recomendações
+                          </span>
+                        </div>
+                      </div>
+                      <Eye size={16} color="var(--text-muted)" />
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Tabela de Gols Registrados */}
+          <div className="card glass-panel" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '18px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)' }}>
+              <h2 style={{ fontSize: '1.05rem', fontWeight: 800 }}>
+                Snapshots dos Gols Capturados
+              </h2>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '4px 10px', borderRadius: 20, fontWeight: 600 }}>
+                {goalsList.length} gol{goalsList.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: 900 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-color)' }}>
+                    {['Horário', 'Liga', 'Jogo', 'Minuto', 'Placar', 'Marcador', 'IPR C/F', 'Score C/F', 'Chutes C/F', 'Cantos C/F'].map(col => (
+                      <th key={col} style={{
+                        padding: '14px 16px', color: 'var(--text-secondary)',
+                        fontWeight: 500, fontSize: '0.8rem', whiteSpace: 'nowrap',
+                      }}>
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {goalsList.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                          <Clock size={32} style={{ opacity: 0.4 }} />
+                          <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>Nenhum gol capturado ainda</span>
+                          <span style={{ fontSize: '0.8rem' }}>
+                            O sistema registrará automaticamente os gols em tempo real com o Radar aberto.
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    goalsList.map(goal => (
+                      <tr key={goal.id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.15s ease' }}>
+                        {/* Data/Horário */}
+                        <td style={{ padding: '14px 16px', color: 'var(--text-muted)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                          {goal.created_at
+                            ? new Date(goal.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + ' ' + new Date(goal.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                            : '—'}
+                        </td>
+
+                        {/* Liga */}
+                        <td style={{ padding: '14px 16px', fontSize: '0.8rem' }}>
+                          <span style={{
+                            background: 'var(--bg-elevated)', padding: '3px 8px', borderRadius: 4,
+                            fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)',
+                          }}>
+                            {goal.league}
+                          </span>
+                        </td>
+
+                        {/* Jogo */}
+                        <td style={{ padding: '14px 16px', fontWeight: 700, fontSize: '0.85rem' }}>
+                          {goal.home_team} x {goal.away_team}
+                        </td>
+
+                        {/* Minuto */}
+                        <td style={{ padding: '14px 16px', fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                          {goal.elapsed}′ ({goal.period})
+                        </td>
+
+                        {/* Placar após gol */}
+                        <td style={{ padding: '14px 16px', fontWeight: 700, fontSize: '0.85rem', fontFamily: 'monospace' }}>
+                          {goal.goals_home} - {goal.goals_away}
+                        </td>
+
+                        {/* Quem Marcou */}
+                        <td style={{ padding: '14px 16px' }}>
+                          <span style={{
+                            background: goal.scoring_team === 'home' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(139, 92, 246, 0.08)',
+                            color: goal.scoring_team === 'home' ? '#3b82f6' : '#8b5cf6',
+                            padding: '3px 8px', borderRadius: 4, fontSize: '0.7rem', fontWeight: 700,
+                          }}>
+                            {goal.scoring_team === 'home' ? 'MANDANTE' : 'VISITANTE'}
+                          </span>
+                        </td>
+
+                        {/* IPR */}
+                        <td style={{ padding: '14px 16px', fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          {(goal.home_ipr ?? 0).toFixed(1)} / {(goal.away_ipr ?? 0).toFixed(1)}
+                        </td>
+
+                        {/* Score */}
+                        <td style={{ padding: '14px 16px', fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          {(goal.home_score ?? 0).toFixed(1)} / {(goal.away_score ?? 0).toFixed(1)}
+                        </td>
+
+                        {/* Chutes */}
+                        <td style={{ padding: '14px 16px', fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          {goal.home_total_shots} / {goal.away_total_shots}
+                        </td>
+
+                        {/* Cantos */}
+                        <td style={{ padding: '14px 16px', fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                          {goal.home_corners} / {goal.away_corners}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

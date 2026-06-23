@@ -185,8 +185,8 @@ export interface LearningReport {
   /** Recomendações geradas */
   recommendations: AIRecommendation[];
 
-  /** Fonte da análise ('local' ou 'gemini') */
-  analysis_source: 'local' | 'gemini';
+  /** Fonte da análise ('local', 'gemini' ou 'gemini_gols') */
+  analysis_source: 'local' | 'gemini' | 'gemini_gols';
 
   /** Dados brutos resumidos (opcional) */
   raw_summary?: Record<string, any>;
@@ -1453,4 +1453,290 @@ export async function getLearningReports(): Promise<LearningReport[]> {
   }
 
   return (data || []) as LearningReport[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APRENDIZADO AUTOMÁTICO DE GOLS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GoalLearningEntry {
+  id?: string;
+  created_at?: string;
+  fixture_id: number;
+  league: string;
+  home_team: string;
+  away_team: string;
+  elapsed: number;
+  period: string;
+  goals_home: number;
+  goals_away: number;
+  scoring_team: 'home' | 'away';
+  source: string;
+  league_tier: number;
+
+  // APM/IPR
+  home_apm_global: number;
+  away_apm_global: number;
+  home_apm_10: number;
+  away_apm_10: number;
+  home_apm_5: number;
+  away_apm_5: number;
+  home_apm_3: number;
+  away_apm_3: number;
+  home_ipr: number;
+  away_ipr: number;
+
+  // Stats brutos
+  home_shots_on: number;
+  away_shots_on: number;
+  home_total_shots: number;
+  away_total_shots: number;
+  home_corners: number;
+  away_corners: number;
+  home_possession: number;
+  away_possession: number;
+  home_da: number;
+  away_da: number;
+  home_yellow: number;
+  away_yellow: number;
+  home_red: number;
+  away_red: number;
+
+  // Scores
+  home_score: number;
+  away_score: number;
+}
+
+export async function saveGoalLearningEntry(entry: GoalLearningEntry): Promise<GoalLearningEntry> {
+  const { data, error } = await supabase
+    .from('goal_learning_entries')
+    .insert([entry])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('[LearningEngine] Erro ao salvar goal learning entry:', error);
+    throw new Error(`Falha ao salvar entrada de gol: ${error.message}`);
+  }
+
+  return data as GoalLearningEntry;
+}
+
+export async function getGoalLearningEntries(): Promise<GoalLearningEntry[]> {
+  const { data, error } = await supabase
+    .from('goal_learning_entries')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[LearningEngine] Erro ao buscar goal learning entries:', error);
+    throw new Error(`Falha ao buscar entradas de gols: ${error.message}`);
+  }
+
+  return (data || []) as GoalLearningEntry[];
+}
+
+export async function generateGoalGeminiReport(entries: GoalLearningEntry[]): Promise<LearningReport> {
+  const apiKey = localStorage.getItem('openai_api_key');
+  if (!apiKey) {
+    throw new Error('Chave da API OpenAI não configurada. Insira sua API Key acima.');
+  }
+
+  if (entries.length < 3) {
+    throw new Error('Mínimo de 3 gols registrados necessários para gerar relatório.');
+  }
+
+  // Prepara resumo dos gols para o prompt
+  const goalSummaries = entries.map(e => ({
+    liga: e.league,
+    tier: TIER_LABELS[e.league_tier] || e.league_tier,
+    minuto: e.elapsed,
+    periodo: e.period,
+    placar_apos_gol: `${e.goals_home}x${e.goals_away}`,
+    quem_marcou: e.scoring_team === 'home' ? 'Mandante' : 'Visitante',
+    score_mandante: e.home_score,
+    score_visitante: e.away_score,
+    apm_global_mandante: e.home_apm_global,
+    apm_global_visitante: e.away_apm_global,
+    apm3_mandante: e.home_apm_3,
+    apm3_visitante: e.away_apm_3,
+    ipr_mandante: e.home_ipr,
+    ipr_visitante: e.away_ipr,
+    chutes_total: e.home_total_shots + e.away_total_shots,
+    escanteios_total: e.home_corners + e.away_corners,
+    posse_mandante: e.home_possession,
+  }));
+
+  const systemPrompt = `Você é um analista especializado em trading esportivo ao vivo e análise preditiva de gols. Responda SEMPRE em JSON válido, sem markdown, sem texto adicional. Idioma: português brasileiro.`;
+
+  const userPrompt = `Analise os seguintes ${entries.length} gols registrados e suas respectivas métricas e estatísticas ofensivas no momento exato em que o gol aconteceu. Ajude a encontrar padrões preditivos para operar no mercado de gols (ex: Over Gols).
+
+## DADOS DOS MOMENTOS DOS GOLS:
+${JSON.stringify(goalSummaries, null, 2)}
+
+## INSTRUÇÕES:
+Responda OBRIGATORIAMENTE em formato JSON válido com a seguinte estrutura:
+
+{
+  "resumo_geral": "Texto resumindo os principais achados sobre quais cenários ofensivos (IPR, APM, etc) mais geram gols",
+  "frequencia_gols_por_faixa": "Texto ou dados sobre faixas de minuto mais propensas",
+  "padroes_identificados": [
+    "Padrão 1 (ex: gols costumam sair quando IPR do mandante é superior a X)",
+    "Padrão 2 (ex: a maioria dos gols no 1H ocorreu com APM3 > Y)"
+  ],
+  "recomendacoes": [
+    {
+      "type": "avoid|prefer|insight|warning",
+      "confidence": 75,
+      "description": "Recomendação prática em português para operar ou evitar mercado de gols nesse padrão",
+      "conditions": {"chave": "valor"},
+      "estimated_impact": "Descrição do impacto estimado na probabilidade de gol"
+    }
+  ],
+  "metricas_chave": {
+    "ipr_medio_quando_sai_gol": "valor médio",
+    "apm3_medio_quando_sai_gol": "valor médio",
+    "melhor_faixa_minuto_gols": "ex: 75-90",
+    "score_medio_do_marcador": "valor médio"
+  }
+}
+
+Responda APENAS com o JSON válido.`;
+
+  const requestBody = JSON.stringify({
+    model: OPENAI_MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+    response_format: { type: 'json_object' },
+  });
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < RETRY_CONFIG.maxAttempts; attempt++) {
+    try {
+      const response = await fetch(OPENAI_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: requestBody,
+      });
+
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const delayMs = getRetryDelay(attempt, retryAfter);
+        const delaySec = Math.round(delayMs / 1000);
+        console.warn(`[LearningEngine] ⏳ Rate limit (429) em análise de gols. Tentativa ${attempt + 1}/${RETRY_CONFIG.maxAttempts}. Aguardando ${delaySec}s...`);
+
+        if (attempt < RETRY_CONFIG.maxAttempts - 1) {
+          await sleep(delayMs);
+          continue;
+        }
+
+        throw new Error(
+          `⏳ Limite de requisições da API OpenAI atingido.\n\n` +
+          `Opções:\n` +
+          `• Aguarde alguns minutos e tente novamente\n` +
+          `• Verifique seu saldo em platform.openai.com`
+        );
+      }
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error('[LearningEngine] Erro na API OpenAI (Gols):', response.status, errorBody);
+
+        if (response.status === 401) {
+          throw new Error('🔑 API Key inválida. Verifique sua chave da OpenAI.');
+        }
+        if (response.status === 403) {
+          throw new Error('🔑 Sem permissão. Verifique se sua API Key tem acesso ao modelo gpt-4o-mini.');
+        }
+        if (response.status === 402) {
+          throw new Error('💳 Saldo insuficiente na conta OpenAI. Adicione créditos em platform.openai.com/billing.');
+        }
+
+        try {
+          const errJson = JSON.parse(errorBody);
+          const msg = errJson?.error?.message || `Erro ${response.status}`;
+          throw new Error(`API OpenAI: ${msg}`);
+        } catch (parseErr) {
+          if (parseErr instanceof Error && parseErr.message.startsWith('API OpenAI:')) throw parseErr;
+          throw new Error(`API OpenAI retornou erro ${response.status}. Tente novamente.`);
+        }
+      }
+
+      const data = await response.json();
+      const rawText = data?.choices?.[0]?.message?.content;
+      if (!rawText) {
+        throw new Error('Resposta vazia da OpenAI. Verifique a chave da API.');
+      }
+
+      const cleanedText = rawText
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+      let aiResponse: any;
+      try {
+        aiResponse = JSON.parse(cleanedText);
+      } catch {
+        console.error('[LearningEngine] Falha ao parsear resposta de gols:', cleanedText);
+        throw new Error('Resposta da IA não é um JSON válido. Tente novamente.');
+      }
+
+      const recommendations: AIRecommendation[] = (aiResponse.recomendacoes || []).map((rec: any) => ({
+        type: (['avoid', 'prefer', 'insight', 'warning'].includes(rec.type) ? rec.type : 'insight') as AIRecommendation['type'],
+        confidence: Math.min(100, Math.max(0, Number(rec.confidence) || 50)),
+        description: String(rec.description || ''),
+        conditions: rec.conditions || {},
+        estimated_impact: rec.estimated_impact || undefined,
+      }));
+
+      const dates = entries
+        .map(e => e.created_at)
+        .filter((d): d is string => !!d)
+        .sort();
+
+      return {
+        period_start: dates[0] || new Date().toISOString(),
+        period_end: dates[dates.length - 1] || new Date().toISOString(),
+        total_entries: entries.length,
+        overall_win_rate: 100, // Não aplicável diretamente a gols
+        win_rate_by_tier: {},
+        win_rate_by_elapsed: {},
+        win_rate_by_score_range: {},
+        win_rate_by_market: {},
+        top_green_correlations: [],
+        top_red_correlations: [],
+        recommendations,
+        analysis_source: 'gemini_gols',
+        raw_summary: {
+          resumo_geral: aiResponse.resumo_geral,
+          padroes_identificados: aiResponse.padroes_identificados,
+          metricas_chave: aiResponse.metricas_chave,
+        },
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (!lastError.message.includes('429') && !lastError.message.includes('fetch') && !lastError.message.includes('Failed to fetch')) {
+        throw lastError;
+      }
+
+      if (attempt < RETRY_CONFIG.maxAttempts - 1) {
+        const delayMs = getRetryDelay(attempt);
+        console.warn(`[LearningEngine] ⏳ Erro de rede em gols. Retry ${attempt + 1}/${RETRY_CONFIG.maxAttempts} em ${Math.round(delayMs / 1000)}s...`);
+        await sleep(delayMs);
+        continue;
+      }
+    }
+  }
+
+  throw lastError || new Error('Falha na comunicação com a API após múltiplas tentativas.');
 }

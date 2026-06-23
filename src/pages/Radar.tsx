@@ -22,7 +22,7 @@ import { onBestCornerData } from '../services/bestCornerBridge';
 import type { BestCornerBridgePayload } from '../services/bestCornerBridge';
 import { initCloudSync, broadcastBridgeData, broadcastScannerData, onCloudBridgeData, onCloudScannerData, markAsOperator, getCloudSyncStatus } from '../services/cloudSync';
 import type { CloudSyncStatus } from '../services/cloudSync';
-import { saveTradeEntry, resolveTradeEntry } from '../services/learningEngine';
+import { saveTradeEntry, resolveTradeEntry, saveGoalLearningEntry } from '../services/learningEngine';
 import { sendTelegramAlert, getTelegramConfig, saveTelegramConfig, testTelegramConnection } from '../services/telegramNotifier';
 
 // Fuzzy team matching helper to link Sportsmonks/Sofascore matches to API-Sports dossiers
@@ -1441,8 +1441,81 @@ export default function Radar() {
             };
           };
 
-          if (liveGoalsHome > (prevStats.goalsHome || 0)) newEvents.push(createEvent('goal', 'home'));
-          if (liveGoalsAway > (prevStats.goalsAway || 0)) newEvents.push(createEvent('goal', 'away'));
+          const saveGoalSnapshot = async (scoringSide: 'home' | 'away', finalGHome: number, finalGAway: number) => {
+            try {
+              const unifiedSnapshots = [
+                ...(stats.snapshots || []),
+                ...(platformSnapshots[fixture.id] || [])
+              ].reduce((acc: TelemetrySnapshot[], curr: any) => {
+                if (!acc.some((s: TelemetrySnapshot) => s.elapsed === curr.elapsed)) acc.push(curr);
+                return acc;
+              }, [] as TelemetrySnapshot[]).sort((a: TelemetrySnapshot, b: TelemetrySnapshot) => a.elapsed - b.elapsed);
+              
+              const homeDA = Number(stats.home.dangerousAttacks) || 0;
+              const awayDA = Number(stats.away.dangerousAttacks) || 0;
+              const apmData = calculateDynamicAPM(unifiedSnapshots, elapsed, homeDA, awayDA, stats);
+              
+              const homeScore = getScoreFinalForSide(fixture.id, true);
+              const awayScore = getScoreFinalForSide(fixture.id, false);
+
+              const goalEntry = {
+                fixture_id: fixture.id,
+                league: fixture.leagueName || 'N/A',
+                home_team: fixture.homeTeam?.name || 'N/A',
+                away_team: fixture.awayTeam?.name || 'N/A',
+                elapsed,
+                period: elapsed <= 45 ? '1H' : elapsed > 45 && elapsed <= 90 ? '2H' : 'HT',
+                goals_home: finalGHome,
+                goals_away: finalGAway,
+                scoring_team: scoringSide,
+                source: (fixture as any).source || 'api-sports',
+                league_tier: (fixture as any).leagueTier || 40,
+
+                home_apm_global: Number(stats.home?.attacks) || 0,
+                away_apm_global: Number(stats.away?.attacks) || 0,
+                home_apm_10: Math.round((apmData.home?.apm10 || 0) * 100) / 100,
+                away_apm_10: Math.round((apmData.away?.apm10 || 0) * 100) / 100,
+                home_apm_5: Math.round((apmData.home?.apm5 || 0) * 100) / 100,
+                away_apm_5: Math.round((apmData.away?.apm5 || 0) * 100) / 100,
+                home_apm_3: Math.round((apmData.home?.apm3 || 0) * 100) / 100,
+                away_apm_3: Math.round((apmData.away?.apm3 || 0) * 100) / 100,
+                home_ipr: Math.round((apmData.home?.ipr || 0) * 100) / 100,
+                away_ipr: Math.round((apmData.away?.ipr || 0) * 100) / 100,
+
+                home_shots_on: stats.home?.shotsOnGoal || 0,
+                away_shots_on: stats.away?.shotsOnGoal || 0,
+                home_total_shots: stats.home?.totalShots || 0,
+                away_total_shots: stats.away?.totalShots || 0,
+                home_corners: liveCornersHome,
+                away_corners: liveCornersAway,
+                home_possession: Number(stats.home?.possession) || 0,
+                away_possession: Number(stats.away?.possession) || 0,
+                home_da: homeDA,
+                away_da: awayDA,
+                home_yellow: stats.home?.yellowCards || 0,
+                away_yellow: stats.away?.yellowCards || 0,
+                home_red: stats.home?.redCards || 0,
+                away_red: stats.away?.redCards || 0,
+
+                home_score: homeScore,
+                away_score: awayScore,
+              };
+
+              await saveGoalLearningEntry(goalEntry);
+              console.log(`[Goal Learning] ✅ Gol de ${scoringSide} em ${fixture.homeTeam?.name} x ${fixture.awayTeam?.name} (${finalGHome}x${finalGAway}) salvo.`);
+            } catch (err) {
+              console.error('[Goal Learning] ❌ Erro ao salvar gol:', err);
+            }
+          };
+
+          if (liveGoalsHome > (prevStats.goalsHome || 0)) {
+            newEvents.push(createEvent('goal', 'home'));
+            saveGoalSnapshot('home', liveGoalsHome, liveGoalsAway);
+          }
+          if (liveGoalsAway > (prevStats.goalsAway || 0)) {
+            newEvents.push(createEvent('goal', 'away'));
+            saveGoalSnapshot('away', liveGoalsHome, liveGoalsAway);
+          }
           if (liveCornersHome > (prevStats.cornersHome || 0)) newEvents.push(createEvent('corner', 'home'));
           if (liveCornersAway > (prevStats.cornersAway || 0)) newEvents.push(createEvent('corner', 'away'));
 
@@ -1489,7 +1562,7 @@ export default function Radar() {
 
       return eventsChanged ? nextEvents : prevEvents;
     });
-  }, [allStats, allFixtures, platformSnapshots]);
+  }, [allStats, allFixtures, platformSnapshots, getScoreFinalForSide]);
 
   const savePegueiTrade = async (opp: Opportunity, stakeVal: number, oddVal: number) => {
     const activeBancaId = localStorage.getItem('active_banca_id') || 'default';
