@@ -233,13 +233,13 @@ export default function Learning() {
   const resolved = entries.filter(e => e.outcome === 'green' || e.outcome === 'red');
   const greensCount = entries.filter(e => e.outcome === 'green').length;
   const redsCount = entries.filter(e => e.outcome === 'red').length;
-  const pendingCount = entries.filter(e => !e.outcome).length;
+  const pendingCount = entries.filter(e => !e.outcome || e.outcome === 'pending').length;
   const winRate = resolved.length > 0 ? Math.round((greensCount / resolved.length) * 100) : 0;
 
   // Filtro de entradas para exibição na tabela
   const filteredEntries = entries.filter(e => {
     // Filtro por outcome
-    if (outcomeFilter === 'PENDING' && e.outcome) return false;
+    if (outcomeFilter === 'PENDING' && e.outcome && e.outcome !== 'pending') return false;
     if (outcomeFilter === 'green' && e.outcome !== 'green') return false;
     if (outcomeFilter === 'red' && e.outcome !== 'red') return false;
     // Filtro por mercado
@@ -636,7 +636,7 @@ export default function Learning() {
                         key={entry.id}
                         style={{
                           borderBottom: '1px solid var(--border-color)',
-                          background: !entry.outcome ? 'rgba(59, 130, 246, 0.015)' : 'transparent',
+                          background: (!entry.outcome || entry.outcome === 'pending') ? 'rgba(59, 130, 246, 0.015)' : 'transparent',
                           transition: 'background 0.15s ease',
                         }}
                       >
@@ -711,7 +711,7 @@ export default function Learning() {
                               ⬜ VOID
                             </span>
                           )}
-                          {!entry.outcome && (
+                          {(!entry.outcome || entry.outcome === 'pending') && (
                             <span className="badge badge-yellow" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                               <Clock size={12} className="pulse-indicator" /> Pendente
                             </span>
@@ -721,7 +721,7 @@ export default function Learning() {
                         {/* Ações */}
                         <td style={{ padding: '14px 16px', textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                            {!entry.outcome && entry.id && (
+                            {(!entry.outcome || entry.outcome === 'pending') && entry.id && (
                               <>
                                 <button
                                   onClick={() => openResolutionModal(entry.id!, 'green')}

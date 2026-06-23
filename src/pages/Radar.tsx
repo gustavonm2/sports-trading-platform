@@ -1844,14 +1844,14 @@ export default function Radar() {
           // Verificar critério de GREEN (via placar live ou linha do tempo)
           if (opp.marketType === 'escanteios') {
             const currentCorners = (liveStats.home?.corners ?? 0) + (liveStats.away?.corners ?? 0);
-            const hasTimelineCorner = matchEvents.some(ev => ev.type === 'corner' && ev.elapsed > opp.elapsed);
+            const hasTimelineCorner = matchEvents.some(ev => ev.type === 'corner' && (ev.elapsed > opp.elapsed || (ev.elapsed === opp.elapsed && ev.timestamp > opp.timestamp)));
             if (currentCorners > opp.initialCorners || hasTimelineCorner) {
               isResolved = true;
               outcome = 'green';
             }
           } else if (opp.marketType === 'gols') {
             const currentGoals = (liveFixture.goalsHome ?? 0) + (liveFixture.goalsAway ?? 0);
-            const hasTimelineGoal = matchEvents.some(ev => ev.type === 'goal' && ev.elapsed > opp.elapsed);
+            const hasTimelineGoal = matchEvents.some(ev => ev.type === 'goal' && (ev.elapsed > opp.elapsed || (ev.elapsed === opp.elapsed && ev.timestamp > opp.timestamp)));
             if (currentGoals > opp.initialGoals || hasTimelineGoal) {
               isResolved = true;
               outcome = 'green';
@@ -1861,14 +1861,38 @@ export default function Radar() {
           // Verificar critério de RED (tempo esgotado)
           if (!isResolved) {
             if (opp.period === '1H') {
-              if (liveFixture.status === 'HT' || liveFixture.status === '2H' || liveFixture.status === 'FT' || elapsed > 45) {
-                isResolved = true;
-                outcome = 'red';
+              const isPeriodEnded = liveFixture.status === 'HT' || liveFixture.status === '2H' || liveFixture.status === 'FT' || elapsed > 45;
+              if (isPeriodEnded) {
+                // Carência de 3 minutos para registrar eventos tardios
+                if (!opp.finishedAt) {
+                  opp.finishedAt = Date.now();
+                  changed = true;
+                } else if (Date.now() - opp.finishedAt >= 180000) {
+                  isResolved = true;
+                  outcome = 'red';
+                }
+              } else {
+                if (opp.finishedAt) {
+                  delete opp.finishedAt;
+                  changed = true;
+                }
               }
             } else {
-              if (liveFixture.status === 'FT' || liveFixture.status === 'Finished') {
-                isResolved = true;
-                outcome = 'red';
+              const isGameEnded = liveFixture.status === 'FT' || liveFixture.status === 'Finished' || elapsed >= 95;
+              if (isGameEnded) {
+                // Carência de 3 minutos para registrar eventos tardios
+                if (!opp.finishedAt) {
+                  opp.finishedAt = Date.now();
+                  changed = true;
+                } else if (Date.now() - opp.finishedAt >= 180000) {
+                  isResolved = true;
+                  outcome = 'red';
+                }
+              } else {
+                if (opp.finishedAt) {
+                  delete opp.finishedAt;
+                  changed = true;
+                }
               }
             }
           }
@@ -1891,97 +1915,113 @@ export default function Radar() {
             changed = true;
           }
         } else {
-          // 2. Partida não está mais live (finalizada enquanto usuário estava offline)
-          const matchAgeMinutes = (Date.now() - opp.timestamp) / 60000;
-          if (matchAgeMinutes > 40) {
-            console.log(`[Auto Learning] Match ${opp.fixtureId} is no longer live, performing offline check...`);
-            let resolvedOutcome: 'green' | 'red' | null = null;
-            let finalGoalsH = 0, finalGoalsA = 0;
-            let finalCornersH = 0, finalCornersA = 0;
-
+          // 2. Partida não está mais live (finalizada / sumiu de allFixtures)
+          // Se já estávamos cientes de que ela terminou (finishedAt definido) e completou a carência de 3 minutos, resolvemos como RED
+          if (opp.finishedAt && (Date.now() - opp.finishedAt >= 180000)) {
             try {
-              const details = await sofascore.getFixtureDetails(opp.fixtureId);
-              const statsData = await sofascore.getFixtureStatistics(opp.fixtureId);
-
-              if (details) {
-                finalGoalsH = Number(details.homeScore?.current ?? 0);
-                finalGoalsA = Number(details.awayScore?.current ?? 0);
-
-                if (statsData && statsData.statistics) {
-                  const periodKey = opp.period === '1H' ? '1ST' : 'ALL';
-                  const periodStats = statsData.statistics.find((s: any) => s.period === periodKey);
-                  let statItems: any[] = [];
-                  if (periodStats && Array.isArray(periodStats.groups)) {
-                    periodStats.groups.forEach((g: any) => {
-                      if (Array.isArray(g.statisticsItems)) statItems.push(...g.statisticsItems);
-                    });
-                  }
-                  
-                  const cornersItem = statItems.find(item => item.name.toLowerCase().includes('corner'));
-                  if (cornersItem) {
-                    finalCornersH = parseInt(cornersItem.home) || 0;
-                    finalCornersA = parseInt(cornersItem.away) || 0;
-                  }
-                }
-
-                if (opp.marketType === 'escanteios') {
-                  const totalCorners = finalCornersH + finalCornersA;
-                  if (totalCorners > opp.initialCorners) {
-                    resolvedOutcome = 'green';
-                  } else {
-                    resolvedOutcome = 'red';
-                  }
-                } else if (opp.marketType === 'gols') {
-                  if (opp.period === '1H') {
-                    const htGoalsH = Number(details.homeScore?.period1 ?? 0);
-                    const htGoalsA = Number(details.awayScore?.period1 ?? 0);
-                    if (htGoalsH + htGoalsA > opp.initialGoals) {
-                      resolvedOutcome = 'green';
-                    } else {
-                      resolvedOutcome = 'red';
-                    }
-                  } else {
-                    if (finalGoalsH + finalGoalsA > opp.initialGoals) {
-                      resolvedOutcome = 'green';
-                    } else {
-                      resolvedOutcome = 'red';
-                    }
-                  }
-                }
-              }
+              await resolveTradeEntry(opp.dbEntryId, 'red', {
+                notes: `[Auto Alerta Resolvido Fim Jogo: RED]`
+              });
+              console.log(`[Auto Learning] Opp resolved on disappearance: ${opp.id} -> red`);
             } catch (err) {
-              console.warn('[Auto Learning] Erro na verificação offline via API Sofascore:', err);
+              console.error('[Auto Learning] Erro ao resolver no sumiço:', err);
             }
+            nextMonitored.splice(i, 1);
+            i--;
+            changed = true;
+          } else {
+            // Caso contrário (como usuário offline por muito tempo), fazemos o check do Sofascore
+            const matchAgeMinutes = (Date.now() - opp.timestamp) / 60000;
+            if (matchAgeMinutes > 40) {
+              console.log(`[Auto Learning] Match ${opp.fixtureId} is no longer live, performing offline check...`);
+              let resolvedOutcome: 'green' | 'red' | null = null;
+              let finalGoalsH = 0, finalGoalsA = 0;
+              let finalCornersH = 0, finalCornersA = 0;
 
-            if (resolvedOutcome) {
               try {
-                await resolveTradeEntry(opp.dbEntryId, resolvedOutcome, {
-                  finalGoalsHome: finalGoalsH,
-                  finalGoalsAway: finalGoalsA,
-                  finalCornersHome: finalCornersH,
-                  finalCornersAway: finalCornersA,
-                  notes: `[Auto Alerta Resolvido Offline: ${resolvedOutcome.toUpperCase()}]`
-                });
-                console.log(`[Auto Learning] Opp resolved offline: ${opp.id} -> ${resolvedOutcome}`);
+                const details = await sofascore.getFixtureDetails(opp.fixtureId);
+                const statsData = await sofascore.getFixtureStatistics(opp.fixtureId);
+
+                if (details) {
+                  finalGoalsH = Number(details.homeScore?.current ?? 0);
+                  finalGoalsA = Number(details.awayScore?.current ?? 0);
+
+                  if (statsData && statsData.statistics) {
+                    const periodKey = opp.period === '1H' ? '1ST' : 'ALL';
+                    const periodStats = statsData.statistics.find((s: any) => s.period === periodKey);
+                    let statItems: any[] = [];
+                    if (periodStats && Array.isArray(periodStats.groups)) {
+                      periodStats.groups.forEach((g: any) => {
+                        if (Array.isArray(g.statisticsItems)) statItems.push(...g.statisticsItems);
+                      });
+                    }
+                    
+                    const cornersItem = statItems.find(item => item.name.toLowerCase().includes('corner'));
+                    if (cornersItem) {
+                      finalCornersH = parseInt(cornersItem.home) || 0;
+                      finalCornersA = parseInt(cornersItem.away) || 0;
+                    }
+                  }
+
+                  if (opp.marketType === 'escanteios') {
+                    const totalCorners = finalCornersH + finalCornersA;
+                    if (totalCorners > opp.initialCorners) {
+                      resolvedOutcome = 'green';
+                    } else {
+                      resolvedOutcome = 'red';
+                    }
+                  } else if (opp.marketType === 'gols') {
+                    if (opp.period === '1H') {
+                      const htGoalsH = Number(details.homeScore?.period1 ?? 0);
+                      const htGoalsA = Number(details.awayScore?.period1 ?? 0);
+                      if (htGoalsH + htGoalsA > opp.initialGoals) {
+                        resolvedOutcome = 'green';
+                      } else {
+                        resolvedOutcome = 'red';
+                      }
+                    } else {
+                      if (finalGoalsH + finalGoalsA > opp.initialGoals) {
+                        resolvedOutcome = 'green';
+                      } else {
+                        resolvedOutcome = 'red';
+                      }
+                    }
+                  }
+                }
               } catch (err) {
-                console.error('[Auto Learning] Erro ao salvar resolução offline:', err);
+                console.warn('[Auto Learning] Erro na verificação offline via API Sofascore:', err);
               }
-              nextMonitored.splice(i, 1);
-              i--;
-              changed = true;
-            } else {
-              if (matchAgeMinutes > 240) {
+
+              if (resolvedOutcome) {
                 try {
-                  await resolveTradeEntry(opp.dbEntryId, 'red', {
-                    notes: `[Auto Alerta Resolvido Fallback: RED]`
+                  await resolveTradeEntry(opp.dbEntryId, resolvedOutcome, {
+                    finalGoalsHome: finalGoalsH,
+                    finalGoalsAway: finalGoalsA,
+                    finalCornersHome: finalCornersH,
+                    finalCornersAway: finalCornersA,
+                    notes: `[Auto Alerta Resolvido Offline: ${resolvedOutcome.toUpperCase()}]`
                   });
-                  console.log(`[Auto Learning] Opp resolved by timeout: ${opp.id} -> red`);
+                  console.log(`[Auto Learning] Opp resolved offline: ${opp.id} -> ${resolvedOutcome}`);
                 } catch (err) {
-                  console.error('[Auto Learning] Erro no timeout:', err);
+                  console.error('[Auto Learning] Erro ao salvar resolução offline:', err);
                 }
                 nextMonitored.splice(i, 1);
                 i--;
                 changed = true;
+              } else {
+                if (matchAgeMinutes > 240) {
+                  try {
+                    await resolveTradeEntry(opp.dbEntryId, 'red', {
+                      notes: `[Auto Alerta Resolvido Fallback: RED]`
+                    });
+                    console.log(`[Auto Learning] Opp resolved by timeout: ${opp.id} -> red`);
+                  } catch (err) {
+                    console.error('[Auto Learning] Erro no timeout:', err);
+                  }
+                  nextMonitored.splice(i, 1);
+                  i--;
+                  changed = true;
+                }
               }
             }
           }

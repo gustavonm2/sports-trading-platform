@@ -15,7 +15,7 @@ import { supabase } from './supabase';
 export type MarketType = 'gols' | 'escanteios';
 
 /** Resultado final do trade */
-export type TradeOutcome = 'green' | 'red' | 'void';
+export type TradeOutcome = 'green' | 'red' | 'void' | 'pending';
 
 /** Tier da liga (afeta a confiabilidade dos dados) */
 export type LeagueTier = 100 | 70 | 40 | 10;
@@ -797,7 +797,7 @@ const TIER_LABELS: Record<number, string> = {
  * Ignora trades com outcome 'void'.
  */
 function calculateWinRate(entries: TradeEntry[]): number {
-  const resolved = entries.filter(e => e.outcome && e.outcome !== 'void');
+  const resolved = entries.filter(e => e.outcome === 'green' || e.outcome === 'red');
   if (resolved.length === 0) return 0;
 
   const greens = resolved.filter(e => e.outcome === 'green').length;
