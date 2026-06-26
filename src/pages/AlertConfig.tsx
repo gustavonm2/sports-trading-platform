@@ -40,6 +40,15 @@ export interface TelegramAlertConfig {
   // Funil strategy specific
   funilMinScoreDiff: number;
   funilTeamStatus: 'drawing_or_losing' | 'any';
+
+  // Goals specific
+  golsMinAtm10: number;
+  golsMinAtm5: number;
+  golsMinAtm3: number;
+  golsMinScore: number;
+  golsMinSogHt: number;
+  golsMinSogFt: number;
+  golsMinTotalShots: number;
 }
 
 // ─── Defaults & persistence ─────────────────────────────────────────────────
@@ -70,6 +79,15 @@ export function getDefaultAlertConfig(): TelegramAlertConfig {
     maxGoalDifference: 2,
     funilMinScoreDiff: 2,
     funilTeamStatus: 'drawing_or_losing',
+
+    // Goals defaults
+    golsMinAtm10: 0.8,
+    golsMinAtm5: 1.0,
+    golsMinAtm3: 1.2,
+    golsMinScore: 6.0,
+    golsMinSogHt: 1,
+    golsMinSogFt: 3,
+    golsMinTotalShots: 5,
   };
 }
 
@@ -457,8 +475,17 @@ export default function AlertConfig() {
         `  ⚽ Virada: ${config.strategyVirada ? '✅' : '❌'}`,
         `  🔻 Funil: ${config.strategyFunil ? '✅' : '❌'}`,
         '',
-        `📊 Confiança ≥ ${config.minConfidence}% · Score ≥ ${config.minScore}`,
-        `⏱️ Respeitando as janelas de tempo globais do sistema.`,
+        '<b>Filtros de Escanteios:</b>',
+        `  Confiança ≥ ${config.minConfidence}%`,
+        `  Score ≥ ${config.minScore}`,
+        `  Cantos HT ≥ ${config.minCornersHt} | FT ≥ ${config.minCornersFt}`,
+        `  ATM 5 ≥ ${config.minAtm5} | ATM 3 ≥ ${config.minAtm3}`,
+        '',
+        '<b>Filtros de Gols:</b>',
+        `  Score ≥ ${config.golsMinScore}`,
+        `  ATM 10 ≥ ${config.golsMinAtm10} | ATM 5 ≥ ${config.golsMinAtm5} | ATM 3 ≥ ${config.golsMinAtm3}`,
+        `  Chutes Alvo HT ≥ ${config.golsMinSogHt} | FT ≥ ${config.golsMinSogFt}`,
+        `  Finalizações Totais ≥ ${config.golsMinTotalShots}`,
         '',
         '✅ Conexão OK! Alertas serão enviados aqui.',
       ];
@@ -500,9 +527,9 @@ export default function AlertConfig() {
         </div>
       </div>
 
-      {/* ── 2. Filtros de Qualidade ────────────────────────────── */}
+      {/* ── 2. Configurações para Escanteios ────────────────────── */}
       <div style={s.section}>
-        <h2 style={s.sectionTitle}>📊 Filtros de Qualidade</h2>
+        <h2 style={s.sectionTitle}>📐 Filtros para Escanteios (Canto Limite & Funil)</h2>
         <div style={s.card}>
           <SliderRow
             label="Confiança mínima"
@@ -523,16 +550,7 @@ export default function AlertConfig() {
             format={(v) => v.toFixed(1)}
             accentColor="var(--accent-primary)"
             onChange={(v) => update({ minScore: v })}
-            isLast
           />
-        </div>
-      </div>
-
-
-      {/* ── 4. Filtro de Métricas ─────────────────────────────── */}
-      <div style={s.section}>
-        <h2 style={s.sectionTitle}>📈 Filtro de Métricas</h2>
-        <div style={s.card}>
           <SliderRow
             label="Escanteios mínimos HT"
             value={config.minCornersHt}
@@ -589,15 +607,7 @@ export default function AlertConfig() {
             step={1}
             accentColor="var(--status-yellow)"
             onChange={(v) => update({ minShotsOnGoal: v })}
-            isLast
           />
-        </div>
-      </div>
-
-      {/* ── 5. Filtro de Placar ────────────────────────────────── */}
-      <div style={s.section}>
-        <h2 style={s.sectionTitle}>⚽ Filtro de Placar</h2>
-        <div style={s.card}>
           <SliderRow
             label="Diferença máxima de gols"
             value={config.maxGoalDifference}
@@ -606,6 +616,81 @@ export default function AlertConfig() {
             step={1}
             accentColor="var(--status-red)"
             onChange={(v) => update({ maxGoalDifference: v })}
+            isLast
+          />
+        </div>
+      </div>
+
+      {/* ── 3. Configurações para Gols ────────────────────────── */}
+      <div style={s.section}>
+        <h2 style={s.sectionTitle}>⚽ Filtros para Gols (Over HT & Virada)</h2>
+        <div style={s.card}>
+          <SliderRow
+            label="Score mínimo para Gols"
+            value={config.golsMinScore}
+            min={4}
+            max={10}
+            step={0.5}
+            format={(v) => v.toFixed(1)}
+            accentColor="var(--accent-primary)"
+            onChange={(v) => update({ golsMinScore: v })}
+          />
+          <SliderRow
+            label="ATM 10 mínimo"
+            value={config.golsMinAtm10}
+            min={0.0}
+            max={3.0}
+            step={0.1}
+            format={(v) => v.toFixed(1)}
+            accentColor="var(--status-red)"
+            onChange={(v) => update({ golsMinAtm10: v })}
+          />
+          <SliderRow
+            label="ATM 5 mínimo"
+            value={config.golsMinAtm5}
+            min={0.0}
+            max={3.0}
+            step={0.1}
+            format={(v) => v.toFixed(1)}
+            accentColor="var(--status-red)"
+            onChange={(v) => update({ golsMinAtm5: v })}
+          />
+          <SliderRow
+            label="ATM 3 mínimo"
+            value={config.golsMinAtm3}
+            min={0.0}
+            max={3.0}
+            step={0.1}
+            format={(v) => v.toFixed(1)}
+            accentColor="var(--status-red)"
+            onChange={(v) => update({ golsMinAtm3: v })}
+          />
+          <SliderRow
+            label="Chutes no alvo mínimos HT"
+            value={config.golsMinSogHt}
+            min={0}
+            max={10}
+            step={1}
+            accentColor="var(--status-yellow)"
+            onChange={(v) => update({ golsMinSogHt: v })}
+          />
+          <SliderRow
+            label="Chutes no alvo mínimos FT"
+            value={config.golsMinSogFt}
+            min={0}
+            max={15}
+            step={1}
+            accentColor="var(--status-yellow)"
+            onChange={(v) => update({ golsMinSogFt: v })}
+          />
+          <SliderRow
+            label="Finalizações totais mínimas"
+            value={config.golsMinTotalShots}
+            min={0}
+            max={20}
+            step={1}
+            accentColor="var(--status-green)"
+            onChange={(v) => update({ golsMinTotalShots: v })}
             isLast
           />
         </div>

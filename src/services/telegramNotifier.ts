@@ -65,6 +65,15 @@ interface AlertConfig {
   maxGoalDifference: number;
   funilMinScoreDiff: number;
   funilTeamStatus: 'drawing_or_losing' | 'any';
+
+  // Goals specific
+  golsMinAtm10: number;
+  golsMinAtm5: number;
+  golsMinAtm3: number;
+  golsMinScore: number;
+  golsMinSogHt: number;
+  golsMinSogFt: number;
+  golsMinTotalShots: number;
 }
 
 function loadAlertConfig(): AlertConfig {
@@ -98,6 +107,15 @@ function getDefaults(): AlertConfig {
     maxGoalDifference: 2,
     funilMinScoreDiff: 2,
     funilTeamStatus: 'drawing_or_losing',
+
+    // Goals defaults
+    golsMinAtm10: 0.8,
+    golsMinAtm5: 1.0,
+    golsMinAtm3: 1.2,
+    golsMinScore: 6.0,
+    golsMinSogHt: 1,
+    golsMinSogFt: 3,
+    golsMinTotalShots: 5,
   };
 }
 
@@ -136,8 +154,13 @@ export interface TelegramAlertOpp {
     awayDangerousAttacks: number;
     homeShotsOnGoal: number;
     awayShotsOnGoal: number;
+    homeShotsOnGoalHt?: number;
+    awayShotsOnGoalHt?: number;
+    homeTotalShots?: number;
+    awayTotalShots?: number;
     homeScoreFinal?: number;
     awayScoreFinal?: number;
+    atm10?: number;
     atm5?: number;
     atm3?: number;
   };
@@ -161,56 +184,99 @@ function passesFilters(opp: TelegramAlertOpp): boolean {
   // 2. Confidence filter
   if (opp.confidence < cfg.minConfidence) return false;
 
-  // 3. Score filter (from details)
-  if (stats?.homeScoreFinal !== undefined && stats?.awayScoreFinal !== undefined) {
-    const isHome = opp.teamName === match.homeTeam.name;
-    const teamScore = isHome ? stats.homeScoreFinal : stats.awayScoreFinal;
-    if (teamScore < cfg.minScore) return false;
-  }
-
-  // 4. Youth league filter
+  // 3. Youth league filter
   if (cfg.excludeYouth && isYouthLeague(match.leagueName)) return false;
 
-  // 7. Goal difference filter
-  const goalDiff = Math.abs(match.goalsHome - match.goalsAway);
-  if (goalDiff > cfg.maxGoalDifference) return false;
+  const isGoalStrategy = opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito';
 
-  // 8. Stats filters (only if stats provided)
-  if (stats) {
-    const totalCorners = stats.homeCorners + stats.awayCorners;
-    const isHT = match.status === '1H' || match.status === 'HT';
-    const minCornersHt = cfg.minCornersHt !== undefined ? cfg.minCornersHt : 2;
-    const minCornersFt = cfg.minCornersFt !== undefined ? cfg.minCornersFt : 5;
-    const reqCorners = isHT ? minCornersHt : minCornersFt;
-    if (totalCorners < reqCorners) return false;
+  if (isGoalStrategy) {
+    // --- FILTROS ESPECÍFICOS PARA GOLS ---
+    if (stats) {
+      const isHome = opp.teamName === match.homeTeam.name;
+      const teamScore = isHome ? stats.homeScoreFinal : stats.awayScoreFinal;
+      const golsMinScore = cfg.golsMinScore !== undefined ? cfg.golsMinScore : 6.0;
+      if (teamScore !== undefined && teamScore < golsMinScore) return false;
 
-    const isHome = opp.teamName === match.homeTeam.name;
-    const teamPossession = isHome ? stats.homePossession : stats.awayPossession;
-    if (teamPossession < cfg.minPossession) return false;
+      // ATMs:
+      const atm10 = stats.atm10 !== undefined ? stats.atm10 : 0;
+      const atm5 = stats.atm5 !== undefined ? stats.atm5 : 0;
+      const atm3 = stats.atm3 !== undefined ? stats.atm3 : 0;
 
-    // Filtro de Ataques Perigosos por Minuto (ATM 5 e ATM 3)
-    const atm5 = stats.atm5 !== undefined ? stats.atm5 : 0;
-    const atm3 = stats.atm3 !== undefined ? stats.atm3 : 0;
-    const minAtm5 = cfg.minAtm5 !== undefined ? cfg.minAtm5 : 0;
-    const minAtm3 = cfg.minAtm3 !== undefined ? cfg.minAtm3 : 0;
+      const golsMinAtm10 = cfg.golsMinAtm10 !== undefined ? cfg.golsMinAtm10 : 0.8;
+      const golsMinAtm5 = cfg.golsMinAtm5 !== undefined ? cfg.golsMinAtm5 : 1.0;
+      const golsMinAtm3 = cfg.golsMinAtm3 !== undefined ? cfg.golsMinAtm3 : 1.2;
 
-    if (atm5 < minAtm5) return false;
-    if (atm3 < minAtm3) return false;
+      if (atm10 < golsMinAtm10) return false;
+      if (atm5 < golsMinAtm5) return false;
+      if (atm3 < golsMinAtm3) return false;
 
-    const teamSOG = isHome ? stats.homeShotsOnGoal : stats.awayShotsOnGoal;
-    if (teamSOG < cfg.minShotsOnGoal) return false;
+      // Chutes no alvo (SOG) HT e FT (separados):
+      const isHT = match.status === '1H' || match.status === 'HT';
+      const teamSog = isHome ? stats.homeShotsOnGoal : stats.awayShotsOnGoal;
+      
+      if (isHT) {
+        const golsMinSogHt = cfg.golsMinSogHt !== undefined ? cfg.golsMinSogHt : 1;
+        if (teamSog < golsMinSogHt) return false;
+      } else {
+        const golsMinSogFt = cfg.golsMinSogFt !== undefined ? cfg.golsMinSogFt : 3;
+        if (teamSog < golsMinSogFt) return false;
+      }
 
-    // 9. Funil specific filters
-    if (opp.isFunnel && cfg.strategyFunil) {
-      const homeScore = stats.homeScoreFinal ?? 0;
-      const awayScore = stats.awayScoreFinal ?? 0;
-      const scoreDiff = isHome ? homeScore - awayScore : awayScore - homeScore;
-      if (scoreDiff < cfg.funilMinScoreDiff) return false;
+      // Finalizações totais
+      const totalShots = isHome ? (stats.homeTotalShots ?? 0) : (stats.awayTotalShots ?? 0);
+      const golsMinTotalShots = cfg.golsMinTotalShots !== undefined ? cfg.golsMinTotalShots : 5;
+      if (totalShots < golsMinTotalShots) return false;
+    }
+  } else {
+    // --- FILTROS ESPECÍFICOS PARA ESCANTEIOS (Original) ---
+    // Score filter (from details)
+    if (stats?.homeScoreFinal !== undefined && stats?.awayScoreFinal !== undefined) {
+      const isHome = opp.teamName === match.homeTeam.name;
+      const teamScore = isHome ? stats.homeScoreFinal : stats.awayScoreFinal;
+      if (teamScore < cfg.minScore) return false;
+    }
 
-      if (cfg.funilTeamStatus === 'drawing_or_losing') {
-        const teamGoals = isHome ? match.goalsHome : match.goalsAway;
-        const oppGoals = isHome ? match.goalsAway : match.goalsHome;
-        if (teamGoals > oppGoals) return false; // Team is winning, skip
+    // Goal difference filter
+    const goalDiff = Math.abs(match.goalsHome - match.goalsAway);
+    if (goalDiff > cfg.maxGoalDifference) return false;
+
+    // Stats filters (only if stats provided)
+    if (stats) {
+      const totalCorners = stats.homeCorners + stats.awayCorners;
+      const isHT = match.status === '1H' || match.status === 'HT';
+      const minCornersHt = cfg.minCornersHt !== undefined ? cfg.minCornersHt : 2;
+      const minCornersFt = cfg.minCornersFt !== undefined ? cfg.minCornersFt : 5;
+      const reqCorners = isHT ? minCornersHt : minCornersFt;
+      if (totalCorners < reqCorners) return false;
+
+      const isHome = opp.teamName === match.homeTeam.name;
+      const teamPossession = isHome ? stats.homePossession : stats.awayPossession;
+      if (teamPossession < cfg.minPossession) return false;
+
+      // Filtro de Ataques Perigosos por Minuto (ATM 5 e ATM 3)
+      const atm5 = stats.atm5 !== undefined ? stats.atm5 : 0;
+      const atm3 = stats.atm3 !== undefined ? stats.atm3 : 0;
+      const minAtm5 = cfg.minAtm5 !== undefined ? cfg.minAtm5 : 0;
+      const minAtm3 = cfg.minAtm3 !== undefined ? cfg.minAtm3 : 0;
+
+      if (atm5 < minAtm5) return false;
+      if (atm3 < minAtm3) return false;
+
+      const teamSOG = isHome ? stats.homeShotsOnGoal : stats.awayShotsOnGoal;
+      if (teamSOG < cfg.minShotsOnGoal) return false;
+
+      // Funil specific filters
+      if (opp.isFunnel && cfg.strategyFunil) {
+        const homeScore = stats.homeScoreFinal ?? 0;
+        const awayScore = stats.awayScoreFinal ?? 0;
+        const scoreDiff = isHome ? homeScore - awayScore : awayScore - homeScore;
+        if (scoreDiff < cfg.funilMinScoreDiff) return false;
+
+        if (cfg.funilTeamStatus === 'drawing_or_losing') {
+          const teamGoals = isHome ? match.goalsHome : match.goalsAway;
+          const oppGoals = isHome ? match.goalsAway : match.goalsHome;
+          if (teamGoals > oppGoals) return false; // Team is winning, skip
+        }
       }
     }
   }

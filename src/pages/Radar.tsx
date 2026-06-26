@@ -1082,6 +1082,20 @@ export default function Radar() {
     if (bestCornerBridge && bestCornerBridge.connected && bestCornerBridge.matches.length > 0) {
       applyBridgeData(bestCornerBridge.matches);
     }
+
+    // Capture halftime shots on target
+    for (const fixture of allFixtures) {
+      const stats = updated[fixture.id];
+      if (stats) {
+        const isHTOrFirstHalf = fixture.status === '1H' || fixture.status === 'HT' || (fixture.elapsed !== undefined && fixture.elapsed <= 45);
+        if (isHTOrFirstHalf) {
+          halftimeStatsRef.current[fixture.id] = {
+            homeSog: stats.home.shotsOnGoal ?? 0,
+            awaySog: stats.away.shotsOnGoal ?? 0
+          };
+        }
+      }
+    }
     
     return updated;
   }, [rawApiStats, bet365Bridge, bestCornerBridge, allFixtures]);
@@ -2282,6 +2296,7 @@ export default function Radar() {
   // Track already alerted opportunities to avoid double playing the sound
   const alertedIdsRef = useRef<Set<string>>(new Set());
   const telegramAlertedIdsRef = useRef<Set<string>>(new Set());
+  const halftimeStatsRef = useRef<Record<number, { homeSog: number; awaySog: number }>>({});
   const statsLastFetchRef = useRef<Record<number, number>>({});
 
   // 📈 EMA Smoothing: Suaviza o ScoreFinal para evitar volatilidade nos gatilhos
@@ -2365,8 +2380,13 @@ export default function Radar() {
         awayDangerousAttacks: oppStats.away?.dangerousAttacks ?? 0,
         homeShotsOnGoal: oppStats.home?.shotsOnGoal ?? 0,
         awayShotsOnGoal: oppStats.away?.shotsOnGoal ?? 0,
+        homeShotsOnGoalHt: halftimeStatsRef.current[opp.fixtureId]?.homeSog,
+        awayShotsOnGoalHt: halftimeStatsRef.current[opp.fixtureId]?.awaySog,
+        homeTotalShots: oppStats.home?.totalShots ?? 0,
+        awayTotalShots: oppStats.away?.totalShots ?? 0,
         homeScoreFinal: getScoreFinalForSide(opp.fixtureId, true),
         awayScoreFinal: getScoreFinalForSide(opp.fixtureId, false),
+        atm10: getAttacksInWindow(opp.fixtureId, 10, isHome) / 10,
         atm5: getAttacksInWindow(opp.fixtureId, 5, isHome) / 5,
         atm3: getAttacksInWindow(opp.fixtureId, 3, isHome) / 3,
       } : undefined,
