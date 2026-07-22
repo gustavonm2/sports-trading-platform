@@ -792,7 +792,16 @@ export default function Radar() {
   const [manualFixtures, setManualFixtures] = useState<Fixture[]>(() => {
     try {
       const saved = localStorage.getItem('bet365_manual_fixtures');
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      if (Array.isArray(parsed)) {
+        const now = Date.now();
+        const twelveHours = 12 * 60 * 60 * 1000;
+        return parsed.filter((f: any) => {
+          const added = f.addedAt || f.timestamp || now;
+          return (now - added) < twelveHours;
+        });
+      }
+      return [];
     } catch (e) {
       return [];
     }
@@ -852,7 +861,18 @@ export default function Radar() {
   }, [manualFixtures]);
 
   useEffect(() => {
-    localStorage.setItem('bet365_manual_fixtures', JSON.stringify(manualFixtures));
+    try {
+      localStorage.setItem('bet365_manual_fixtures', JSON.stringify(manualFixtures));
+    } catch (e) {
+      console.warn('[Storage] Falha ao persistir manualFixtures (cota excedida):', e);
+      try {
+        if (manualFixtures.length > 30) {
+          localStorage.setItem('bet365_manual_fixtures', JSON.stringify(manualFixtures.slice(-30)));
+        }
+      } catch (inner) {
+        console.error('[Storage] Falha ao tentar reduzir tamanho das manualFixtures:', inner);
+      }
+    }
   }, [manualFixtures]);
 
   // Concatena fixtures da API com as criadas manualmente
@@ -1276,7 +1296,29 @@ export default function Radar() {
   const [platformSnapshots, setPlatformSnapshots] = useState<Record<number, { elapsed: number; homeDA: number; awayDA: number; timestamp: number }[]>>(() => {
     try {
       const saved = localStorage.getItem('platform_telemetry_snapshots');
-      return saved ? JSON.parse(saved) : {};
+      const parsed = saved ? JSON.parse(saved) : {};
+      const now = Date.now();
+      const sixHours = 6 * 60 * 60 * 1000;
+      let cleaned = false;
+      Object.keys(parsed).forEach(key => {
+        const snaps = parsed[Number(key)];
+        if (Array.isArray(snaps) && snaps.length > 0) {
+          const lastSnap = snaps[snaps.length - 1];
+          if (now - lastSnap.timestamp > sixHours) {
+            delete parsed[Number(key)];
+            cleaned = true;
+          }
+        } else {
+          delete parsed[Number(key)];
+          cleaned = true;
+        }
+      });
+      if (cleaned) {
+        try {
+          localStorage.setItem('platform_telemetry_snapshots', JSON.stringify(parsed));
+        } catch {}
+      }
+      return parsed;
     } catch { return {}; }
   });
 
