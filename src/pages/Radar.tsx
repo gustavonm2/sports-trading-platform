@@ -598,8 +598,22 @@ export default function Radar() {
     } catch { /* ignore */ }
     setDismissedVersion(v => v + 1);
   }, []);
-  const [bet365Bridge, setBet365Bridge] = useState<Bet365BridgePayload | null>(null);
-  const [bestCornerBridge, setBestCornerBridge] = useState<BestCornerBridgePayload | null>(null);
+  const [bet365Bridge, setBet365BridgeRaw] = useState<Bet365BridgePayload | null>(null);
+  const [bestCornerBridge, setBestCornerBridgeRaw] = useState<BestCornerBridgePayload | null>(null);
+
+  const setBet365Bridge = useCallback((payload: Bet365BridgePayload | null) => {
+    if (payload && !Array.isArray(payload.matches)) {
+      payload = { ...payload, matches: [] };
+    }
+    setBet365BridgeRaw(payload);
+  }, []);
+
+  const setBestCornerBridge = useCallback((payload: BestCornerBridgePayload | null) => {
+    if (payload && !Array.isArray(payload.matches)) {
+      payload = { ...payload, matches: [] };
+    }
+    setBestCornerBridgeRaw(payload);
+  }, []);
   
   const bet365BridgeRef = useRef<Bet365BridgePayload | null>(null);
   useEffect(() => {
@@ -1178,6 +1192,7 @@ export default function Radar() {
     const updated = { ...rawApiStats };
     
       const applyBridgeData = (bridgeMatches: any[]) => {
+        if (!Array.isArray(bridgeMatches)) return;
         for (const fixture of allFixtures) {
           let bridgeMatch = (fixture as any).matchUrl
             ? bridgeMatches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
