@@ -621,7 +621,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                     onChange={(e) => setTempBankrollInput(e.target.value)}
                     style={{
                       width: 80, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', fontSize: '0.75rem', padding: '2px 6px', borderRadius: 4
+                      color: 'var(--text-primary)', fontSize: '0.75rem', padding: '2px 6px', borderRadius: 4
                     }}
                   />
                   <button onClick={handleSaveBankroll} style={{ background: 'var(--accent-primary)', border: 'none', color: '#fff', fontSize: '0.7rem', padding: '2px 6px', borderRadius: 4, cursor: 'pointer' }}>OK</button>
@@ -646,7 +646,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                         }}
                         style={{
                           width: 55, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                          color: '#fff', fontSize: '0.75rem', padding: '1px 4px', borderRadius: 4, outline: 'none'
+                          color: 'var(--text-primary)', fontSize: '0.75rem', padding: '1px 4px', borderRadius: 4, outline: 'none'
                         }}
                       />
                     </div>
@@ -662,7 +662,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                         }}
                         style={{
                           width: 55, background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                          color: '#fff', fontSize: '0.75rem', padding: '1px 4px', borderRadius: 4, outline: 'none'
+                          color: 'var(--text-primary)', fontSize: '0.75rem', padding: '1px 4px', borderRadius: 4, outline: 'none'
                         }}
                       />
                     </div>
@@ -698,7 +698,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
           </div>
           <div>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>TAXA DE ACERTO (WINRATE)</span>
-            <span style={{ fontSize: '1.4rem', fontWeight: 900, color: '#ffffff' }}>
+            <span style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--text-primary)' }}>
               {winRate}%
               <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginLeft: 8 }}>
                 ({greensCount}G - {redsCount}R)
@@ -852,7 +852,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                   onChange={(e) => setMatchName(e.target.value)}
                   style={{
                     width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                    color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                    color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
                   }}
                   required
                 />
@@ -866,7 +866,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                     onChange={(e) => setMarket(e.target.value)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem', cursor: 'pointer'
+                      color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem', cursor: 'pointer'
                     }}
                   >
                     <option value="Cantos Limite">Cantos Limite</option>
@@ -884,7 +884,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                     onChange={(e) => setStatus(e.target.value as any)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem', cursor: 'pointer'
+                      color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem', cursor: 'pointer'
                     }}
                   >
                     <option value="PENDING">Pendente / Ao Vivo</option>
@@ -905,7 +905,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                     onChange={(e) => setOdd(e.target.value)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                      color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
                     }}
                     required
                   />
@@ -920,7 +920,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                     onChange={(e) => setStake(e.target.value)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                      color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
                     }}
                     required
                   />
@@ -976,7 +976,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                     onChange={(e) => setEditOdd(e.target.value)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                      color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
                     }}
                     required
                   />
@@ -991,7 +991,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                     onChange={(e) => setEditStake(e.target.value)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                      color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
                     }}
                     required
                   />

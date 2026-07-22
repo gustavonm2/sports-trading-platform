@@ -2,7 +2,7 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, Activity, BookOpen, ShieldAlert, Calendar, 
-  Shield, TrendingUp, CheckCircle, Clock, Download, Brain,
+  Shield, TrendingUp, CheckCircle, Download, Brain,
   Bell, ChevronDown, ChevronUp, Goal, CornerDownRight, Trophy,
   Menu, X, LogOut
 } from 'lucide-react';
@@ -273,15 +273,6 @@ export default function Layout() {
           </Link>
 
           <Link 
-            to="/scheduler" 
-            className={`nav-item ${isLinkActive('/scheduler') ? 'active' : ''}`}
-            onClick={closeSidebar}
-          >
-            <Clock size={20} />
-            Scheduler de Operação
-          </Link>
-
-          <Link 
             to="/diary" 
             className={`nav-item ${isLinkActive('/diary') ? 'active' : ''}`}
             onClick={closeSidebar}
@@ -457,6 +448,27 @@ export default function Layout() {
                 borderRadius: 4,
                 lineHeight: 1.3
               }}>DOWNLOAD</span>
+            </a>
+
+            <a 
+              href="/bestcorner-prelive-extension.zip"
+              download="bestcorner-prelive-extension.zip"
+              className="nav-item"
+              style={{ textDecoration: 'none' }}
+              onClick={closeSidebar}
+            >
+              <Download size={18} />
+              BCS Pré-Live Ext
+              <span style={{ 
+                marginLeft: 'auto', 
+                fontSize: '0.6rem', 
+                fontWeight: 800, 
+                background: 'rgba(59, 130, 246, 0.1)', 
+                color: '#3b82f6', 
+                padding: '2px 6px', 
+                borderRadius: 4,
+                lineHeight: 1.3
+              }}>NOVO</span>
             </a>
             
             <button

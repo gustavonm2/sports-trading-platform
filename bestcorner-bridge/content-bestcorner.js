@@ -547,4 +547,40 @@
   setTimeout(scanMatches, 2000);
   console.log('[BestCorner Bridge Scanner] Iniciado com novos seletores.');
 
+  // ═══════════════════════════════════════════════════════════════════
+  // AUTO-RELOAD — Previne travamento da página BCS
+  // ═══════════════════════════════════════════════════════════════════
+  let autoReloadTimer = null;
+
+  function setupAutoReload() {
+    chrome.storage.local.get(['bridge_autoreload_min'], (res) => {
+      const minutes = parseInt(res.bridge_autoreload_min || '0', 10);
+      if (autoReloadTimer) { clearTimeout(autoReloadTimer); autoReloadTimer = null; }
+      
+      if (minutes > 0) {
+        const ms = minutes * 60 * 1000;
+        const reloadAt = Date.now() + ms;
+        chrome.storage.local.set({ bridge_reload_at: reloadAt });
+        
+        autoReloadTimer = setTimeout(() => {
+          console.log(`[BestCorner Bridge] 🔄 Auto-reload (${minutes} min) — recarregando...`);
+          location.reload();
+        }, ms);
+        
+        console.log(`[BestCorner Bridge] ⏰ Auto-reload em ${minutes} min.`);
+      } else {
+        chrome.storage.local.set({ bridge_reload_at: 0 });
+      }
+    });
+  }
+
+  // Escutar mudanças de config (popup altera o valor)
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.bridge_autoreload_min) {
+      setupAutoReload();
+    }
+  });
+
+  setupAutoReload();
+
 })();

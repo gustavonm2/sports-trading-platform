@@ -19,21 +19,25 @@ export function saveTelegramConfig(botToken: string, chatId: string, enabled: bo
   localStorage.setItem(STORAGE_KEY_ENABLED, String(enabled));
 }
 
-export async function sendTelegramMessage(text: string): Promise<boolean> {
+export async function sendTelegramMessage(text: string, replyMarkup?: object): Promise<boolean> {
   const { botToken, chatId, enabled } = getTelegramConfig();
   if (!enabled || !botToken || !chatId) return false;
 
   try {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    };
+    if (replyMarkup) {
+      body.reply_markup = replyMarkup;
+    }
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(body),
     });
     return res.ok;
   } catch (err) {
@@ -46,6 +50,7 @@ export async function sendTelegramMessage(text: string): Promise<boolean> {
 interface AlertConfig {
   strategyCanto: boolean;
   strategyGols: boolean;
+  strategyGolsFt: boolean;
   strategyVirada: boolean;
   strategyFunil: boolean;
   minConfidence: number;
@@ -73,7 +78,9 @@ interface AlertConfig {
   golsMinScore: number;
   golsMinSogHt: number;
   golsMinSogFt: number;
-  golsMinTotalShots: number;
+  golsMinTotalShotsHt: number;
+  golsMinTotalShotsFt: number;
+  golsMinConfidence: number;
 }
 
 function loadAlertConfig(): AlertConfig {
@@ -88,6 +95,7 @@ function getDefaults(): AlertConfig {
   return {
     strategyCanto: true,
     strategyGols: true,
+    strategyGolsFt: true,
     strategyVirada: false,
     strategyFunil: true,
     minConfidence: 70,
@@ -115,12 +123,32 @@ function getDefaults(): AlertConfig {
     golsMinScore: 6.0,
     golsMinSogHt: 1,
     golsMinSogFt: 3,
-    golsMinTotalShots: 5,
+    golsMinTotalShotsHt: 2,
+    golsMinTotalShotsFt: 5,
+    golsMinConfidence: 70,
   };
 }
 
 // Youth league detection
-const YOUTH_KEYWORDS = ['sub-', 'sub ', 'u19', 'u20', 'u21', 'u23', 'youth', 'junior', 'juvenil', 'reserve', 'academy', 'primavera', 'b team'];
+const YOUTH_KEYWORDS = [
+  // Brasil
+  'sub-', 'sub ', 'sub17', 'sub20', 'sub23',
+  // Argentina
+  'reserva',
+  // Internacional
+  'youth', 'u17', 'u18', 'u19', 'u20', 'u21', 'u23',
+  'junior', 'júnior', 'juvenil', 'cadete',
+  // Itália
+  'primavera',
+  // Portugal / Espanha
+  'juniores', 'juvenis', 'academi',
+  // Turquia / Outros
+  'development', 'reserve', 'b team',
+  // Feminino
+  'women', 'feminino', 'feminin',
+  // Amistosos
+  'amistoso', 'friendly', 'club friendly'
+];
 
 function isYouthLeague(leagueName: string): boolean {
   const lower = leagueName.toLowerCase();
@@ -135,6 +163,7 @@ export interface TelegramAlertOpp {
   suggestion: string;
   isFunnel?: boolean;
   matchUrl?: string;
+  isPremiumBCS?: boolean;
   match: {
     homeTeam: { name: string };
     awayTeam: { name: string };
@@ -158,6 +187,8 @@ export interface TelegramAlertOpp {
     awayShotsOnGoalHt?: number;
     homeTotalShots?: number;
     awayTotalShots?: number;
+    homeTotalShotsHt?: number;
+    awayTotalShotsHt?: number;
     homeScoreFinal?: number;
     awayScoreFinal?: number;
     atm10?: number;
@@ -179,21 +210,28 @@ function passesFilters(opp: TelegramAlertOpp): boolean {
     }
   }
   if (opp.strategyName === 'Over 0.5 Gols HT' && !cfg.strategyGols) return false;
+  if (opp.strategyName === 'Over 0.5 Gols FT' && !cfg.strategyGolsFt) return false;
   if (opp.strategyName === 'Virada do Favorito' && !cfg.strategyVirada) return false;
 
   // 2. Confidence filter
-  if (opp.confidence < cfg.minConfidence) return false;
+  const isGoalStrategy = opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Over 0.5 Gols FT' || opp.strategyName === 'Virada do Favorito';
+  const reqConfidence = isGoalStrategy
+    ? (cfg.golsMinConfidence !== undefined ? cfg.golsMinConfidence : 70)
+    : cfg.minConfidence;
+  if (opp.confidence < reqConfidence) return false;
 
   // 3. Youth league filter
   if (cfg.excludeYouth && isYouthLeague(match.leagueName)) return false;
 
-  const isGoalStrategy = opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito';
-
   if (isGoalStrategy) {
     // --- FILTROS ESPECÍFICOS PARA GOLS ---
     if (stats) {
+      const isAmbas = opp.teamName === 'Ambas' || opp.teamName === 'Ambas as equipes';
       const isHome = opp.teamName === match.homeTeam.name;
-      const teamScore = isHome ? stats.homeScoreFinal : stats.awayScoreFinal;
+
+      const teamScore = isAmbas
+        ? Math.max(stats.homeScoreFinal ?? 0, stats.awayScoreFinal ?? 0)
+        : (isHome ? stats.homeScoreFinal : stats.awayScoreFinal);
       const golsMinScore = cfg.golsMinScore !== undefined ? cfg.golsMinScore : 6.0;
       if (teamScore !== undefined && teamScore < golsMinScore) return false;
 
@@ -212,7 +250,9 @@ function passesFilters(opp: TelegramAlertOpp): boolean {
 
       // Chutes no alvo (SOG) HT e FT (separados):
       const isHT = match.status === '1H' || match.status === 'HT';
-      const teamSog = isHome ? stats.homeShotsOnGoal : stats.awayShotsOnGoal;
+      const teamSog = isAmbas
+        ? ((stats.homeShotsOnGoal ?? 0) + (stats.awayShotsOnGoal ?? 0))
+        : (isHome ? stats.homeShotsOnGoal : stats.awayShotsOnGoal);
       
       if (isHT) {
         const golsMinSogHt = cfg.golsMinSogHt !== undefined ? cfg.golsMinSogHt : 1;
@@ -222,10 +262,23 @@ function passesFilters(opp: TelegramAlertOpp): boolean {
         if (teamSog < golsMinSogFt) return false;
       }
 
-      // Finalizações totais
-      const totalShots = isHome ? (stats.homeTotalShots ?? 0) : (stats.awayTotalShots ?? 0);
-      const golsMinTotalShots = cfg.golsMinTotalShots !== undefined ? cfg.golsMinTotalShots : 5;
-      if (totalShots < golsMinTotalShots) return false;
+      // Finalizações totais (HT e FT separados)
+      const golsMinTotalShotsHt = cfg.golsMinTotalShotsHt !== undefined ? cfg.golsMinTotalShotsHt : 2;
+      const teamTotalShotsHt = isAmbas
+        ? ((stats.homeTotalShotsHt ?? stats.homeTotalShots ?? 0) + (stats.awayTotalShotsHt ?? stats.awayTotalShots ?? 0))
+        : (isHome
+            ? (stats.homeTotalShotsHt ?? stats.homeTotalShots ?? 0)
+            : (stats.awayTotalShotsHt ?? stats.awayTotalShots ?? 0)
+          );
+      if (teamTotalShotsHt < golsMinTotalShotsHt) return false;
+
+      if (!isHT) {
+        const golsMinTotalShotsFt = cfg.golsMinTotalShotsFt !== undefined ? cfg.golsMinTotalShotsFt : 5;
+        const teamTotalShotsFt = isAmbas
+          ? ((stats.homeTotalShots ?? 0) + (stats.awayTotalShots ?? 0))
+          : (isHome ? (stats.homeTotalShots ?? 0) : (stats.awayTotalShots ?? 0));
+        if (teamTotalShotsFt < golsMinTotalShotsFt) return false;
+      }
     }
   } else {
     // --- FILTROS ESPECÍFICOS PARA ESCANTEIOS (Original) ---
@@ -298,9 +351,10 @@ export async function sendTelegramAlert(opp: TelegramAlertOpp): Promise<boolean>
 
   const emoji = isFunil ? '🔻' : isCorners ? '🚩' : '⚽';
   const strategyLabel = isFunil ? 'FUNIL (DOMÍNIO)' : opp.strategyName.toUpperCase();
+  const premiumMarker = opp.isPremiumBCS ? ' ⭐ <b>[BCS ELITE]</b>' : '';
   
   const lines = [
-    `${emoji} <b>${strategyLabel}</b>`,
+    `${emoji} <b>${strategyLabel}</b>${premiumMarker}`,
     ``,
     `🏟️ <b>${match.homeTeam.name} ${score} ${match.awayTeam.name}</b>`,
     `🏆 ${match.leagueName} · ⏱️ ${match.elapsed}' (${match.status})`,
@@ -316,12 +370,31 @@ export async function sendTelegramAlert(opp: TelegramAlertOpp): Promise<boolean>
     `💡 <i>${opp.suggestion}</i>`,
   ];
 
-  if (opp.matchUrl) {
-    lines.push(``);
-    lines.push(`🔗 <a href="${opp.matchUrl}">Abrir na Bet365</a>`);
-  }
+  // Build deep link for "PEGUEI" button
+  const baseUrl = 'https://www.trademoreira.com.br';
+  const pegueiParams = new URLSearchParams({
+    action: 'peguei',
+    home: match.homeTeam.name,
+    away: match.awayTeam.name,
+    strategy: opp.strategyName,
+    league: match.leagueName,
+    elapsed: String(match.elapsed),
+    fixtureId: String((opp as any).fixtureId || ''),
+  });
+  const pegueiUrl = `${baseUrl}/radar?${pegueiParams.toString()}`;
 
-  return sendTelegramMessage(lines.join('\n'));
+  const buttons: Array<Array<{text: string; url: string}>> = [];
+  const row: Array<{text: string; url: string}> = [
+    { text: '⚡ PEGUEI A ENTRADA', url: pegueiUrl },
+  ];
+  if (opp.matchUrl) {
+    row.push({ text: '🔗 Bet365', url: opp.matchUrl });
+  }
+  buttons.push(row);
+
+  const replyMarkup = { inline_keyboard: buttons };
+
+  return sendTelegramMessage(lines.join('\n'), replyMarkup);
 }
 
 export async function testTelegramConnection(): Promise<{ ok: boolean; error?: string }> {

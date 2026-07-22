@@ -655,7 +655,7 @@ ALTER TABLE trade_entries ADD COLUMN IF NOT EXISTS banca_id VARCHAR DEFAULT 'def
                     onChange={(e) => setAporteVal(e.target.value)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '12px 12px 12px 38px', borderRadius: 8, outline: 'none', fontSize: '0.95rem', fontWeight: 700
+                      color: 'var(--text-primary)', padding: '12px 12px 12px 38px', borderRadius: 8, outline: 'none', fontSize: '0.95rem', fontWeight: 700
                     }}
                     required
                   />

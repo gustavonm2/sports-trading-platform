@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <style>
     body {
-      width: 280px;
+      width: 300px;
       margin: 0;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -50,6 +50,48 @@
       color: #94a3b8;
       line-height: 1.5;
     }
+    .section {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid #1e293b;
+    }
+    .section-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .reload-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .reload-row select {
+      flex: 1;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+    .countdown {
+      font-size: 13px;
+      font-weight: 700;
+      min-width: 50px;
+      text-align: center;
+      color: #64748b;
+    }
+    .countdown.active {
+      color: #10b981;
+    }
+    .countdown.warning {
+      color: #f59e0b;
+    }
   </style>
 </head>
 <body>
@@ -66,6 +108,20 @@
   <div class="info">
     Abra a página do BestCornerStats e mantenha a aba aberta.<br><br>
     Os dados serão enviados automaticamente para o TradeMoreira.
+  </div>
+
+  <div class="section">
+    <div class="section-label">🔄 Auto-Reload (anti-travamento)</div>
+    <div class="reload-row">
+      <select id="reload-select">
+        <option value="0">Desligado</option>
+        <option value="5">5 min</option>
+        <option value="10">10 min</option>
+        <option value="15">15 min</option>
+        <option value="30">30 min</option>
+      </select>
+      <span class="countdown" id="countdown">Desligado</span>
+    </div>
   </div>
 
   <script src="popup.js"></script>

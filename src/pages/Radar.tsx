@@ -25,11 +25,20 @@ import type { CloudSyncStatus } from '../services/cloudSync';
 import { saveTradeEntry, resolveTradeEntry, saveGoalLearningEntry } from '../services/learningEngine';
 import { sendTelegramAlert, getTelegramConfig, saveTelegramConfig, testTelegramConnection } from '../services/telegramNotifier';
 
+// Helper to get team name safely in case of different data structures (object, string, null)
+function getTeamName(team: any): string {
+  if (!team) return '';
+  if (typeof team === 'string') return team;
+  return team.name || '';
+}
+
 // Fuzzy team matching helper to link Sportsmonks/Sofascore matches to API-Sports dossiers
-function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefined | null): boolean {
+function fuzzyMatchTeam(name1: any, name2: any): boolean {
   if (!name1 || !name2) return false;
-  const n1 = name1.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const n2 = name2.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const s1 = typeof name1 === 'string' ? name1 : String(name1);
+  const s2 = typeof name2 === 'string' ? name2 : String(name2);
+  const n1 = s1.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const n2 = s2.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   
   if (n1.includes(n2) || n2.includes(n1)) return true;
   
@@ -38,6 +47,7 @@ function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefi
   
   return words1.some(w => words2.includes(w));
 }
+
 
 // Robust URL matching helper
 function matchUrls(url1: string | undefined | null, url2: string | undefined | null): boolean {
@@ -62,6 +72,42 @@ function matchUrls(url1: string | undefined | null, url2: string | undefined | n
   if (ev1 && ev2 && ev1 === ev2) return true;
   
   return false;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BLOQUEIO DE LIGAS JUVENIS / RESERVAS
+// ═══════════════════════════════════════════════════════════════════
+const DEFAULT_BLOCKED_KEYWORDS = [
+  // Brasil
+  'sub-', 'sub ', 'sub17', 'sub20', 'sub23',
+  // Argentina  
+  'reserva',
+  // Internacional
+  'youth', 'u17', 'u18', 'u19', 'u20', 'u21', 'u23',
+  'junior', 'júnior', 'juvenil', 'cadete',
+  // Itália
+  'primavera',
+  // Portugal / Espanha
+  'juniores', 'juvenis', 'academi',
+  // Turquia / Outros
+  'development', 'reserve', 'women', 'feminino', 'feminin',
+  // Amistosos / Friendlies
+  'amistoso', 'friendly', 'club friendly'
+];
+
+function getBlockedKeywords(): string[] {
+  try {
+    const saved = localStorage.getItem('blocked_league_keywords');
+    if (saved) return JSON.parse(saved) as string[];
+  } catch { /* ignore */ }
+  return DEFAULT_BLOCKED_KEYWORDS;
+}
+
+function isBlockedLeague(leagueName: string | undefined): boolean {
+  if (!leagueName) return false;
+  const name = leagueName.toLowerCase();
+  const keywords = getBlockedKeywords();
+  return keywords.some(kw => name.includes(kw.toLowerCase()));
 }
 
 // Priority sorting helper based on league status to ensure premium matches are scanned first
@@ -106,16 +152,17 @@ function getFixturePriority(leagueName: string | undefined): number {
   return 40;
 }
 
-interface Opportunity {
+export interface Opportunity {
   id: string; // unique ID
   fixtureId: number;
   match: Fixture;
-  strategyName: 'Canto Limite' | 'Over 0.5 Gols HT' | 'Virada do Favorito';
+  strategyName: 'Canto Limite' | 'Over 0.5 Gols HT' | 'Over 0.5 Gols FT' | 'Virada do Favorito';
   teamName: string;
   confidence: number;
   details: string;
   suggestion: string;
   isFunnel?: boolean;
+  isPremiumBCS?: boolean;
 }
 
 export interface MatchEvent {
@@ -288,6 +335,77 @@ export default function Radar() {
       LocalNotifications.requestPermissions().catch(() => {});
     }
   }, []);
+
+  // 📲 Deep Link: Handle "PEGUEI" action from Telegram inline button
+  const [, setSearchParamsNav] = useSearchParams();
+  useEffect(() => {
+    const action = searchParams.get('action');
+    if (action !== 'peguei') return;
+
+    const home = searchParams.get('home') || '';
+    const away = searchParams.get('away') || '';
+    const strategy = searchParams.get('strategy') || 'Canto Limite';
+    const league = searchParams.get('league') || '';
+    const elapsed = searchParams.get('elapsed') || '0';
+
+    if (!home || !away) return;
+
+    // Load default stake/odd from banca
+    const activeBancaId = localStorage.getItem('active_banca_id') || 'default';
+    const savedBancas = localStorage.getItem('trade_bancas');
+    let stakeVal = 200;
+    let oddVal = 1.80;
+    if (savedBancas) {
+      try {
+        const parsedBancas = JSON.parse(savedBancas);
+        const activeBanca = parsedBancas.find((b: any) => b.id === activeBancaId);
+        if (activeBanca) {
+          stakeVal = activeBanca.defaultStake ?? 200;
+          oddVal = activeBanca.defaultOdd ?? 1.80;
+        }
+      } catch { /* ignore */ }
+    }
+
+    const matchName = `${home} x ${away}`;
+
+    // Register trade directly
+    const registerTelegramEntry = async () => {
+      const newTradeData = {
+        match_name: matchName,
+        market: strategy,
+        odd: oddVal,
+        stake: stakeVal,
+        status: 'PENDING' as const,
+        profit_loss: 0,
+        metrics: {
+          elapsed: Number(elapsed),
+          league,
+          source: 'telegram_deeplink',
+        },
+        banca_id: activeBancaId,
+      };
+
+      try {
+        const { error } = await supabase.from('trades').insert([newTradeData]);
+        if (error) {
+          console.warn('[Telegram DeepLink] Supabase error, saving locally:', error);
+          // Fallback local
+          const localTrades = localStorage.getItem('trades_db_replica');
+          const parsed = localTrades ? JSON.parse(localTrades) : [];
+          parsed.push({ id: crypto.randomUUID(), ...newTradeData, created_at: new Date().toISOString() });
+          localStorage.setItem('trades_db_replica', JSON.stringify(parsed));
+        }
+        console.log(`✅ [Telegram DeepLink] Trade registrado: ${matchName} (${strategy})`);
+      } catch (e) {
+        console.error('[Telegram DeepLink] Error:', e);
+      }
+    };
+
+    registerTelegramEntry();
+
+    // Clear query params to prevent re-triggering
+    setSearchParamsNav({}, { replace: true });
+  }, [searchParams, setSearchParamsNav]);
   
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [selectedFixture, setSelectedFixture] = useState<Fixture | null>(null);
@@ -296,6 +414,40 @@ export default function Radar() {
   const [rawApiStats, setRawApiStats] = useState<Record<number, any>>({});
   const [allDossiers, setAllDossiers] = useState<Record<number, PreMatchDossier>>({});
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+
+  // Track halftime shots/sog for alerts filtering (moved here to prevent TDZ crash)
+  const halftimeStatsRef = useRef<Record<number, { homeSog: number; awaySog: number; homeShots: number; awayShots: number }>>({});
+
+  // Estatísticas Pré-live do BestCorner (BCS)
+  const [preLiveStats, setPreLiveStats] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchPreLiveStats = async () => {
+      try {
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const formatDate = (d: Date) => d.toISOString().split('T')[0];
+
+        const { data, error } = await supabase
+          .from('bestcorner_prelive_stats')
+          .select('*')
+          .gte('date', formatDate(yesterday));
+
+        if (error) throw error;
+        if (data) {
+          setPreLiveStats(data);
+          console.log(`[BCS] Carregadas ${data.length} estatísticas pré-live de BestCorner.`);
+        }
+      } catch (err) {
+        console.warn('[BCS] Erro ao carregar estatísticas pré-live de BestCorner:', err);
+      }
+    };
+
+    fetchPreLiveStats();
+    const interval = setInterval(fetchPreLiveStats, 30 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
   const [monitoredOpps, setMonitoredOpps] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem('learning_automatic_monitored');
@@ -710,12 +862,12 @@ export default function Radar() {
       if (hasBet365) {
         match = (f as any).matchUrl
           ? bet365Bridge!.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl))
-          : findBet365Match(f.homeTeam.name, f.awayTeam.name, bet365Bridge!.matches);
+          : findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bet365Bridge!.matches);
       }
       if (!match && hasBC) {
         match = (f as any).matchUrl
           ? bestCornerBridge!.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl))
-          : findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge!.matches);
+          : findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bestCornerBridge!.matches);
       }
       
       if (match) {
@@ -727,9 +879,10 @@ export default function Radar() {
           : typeof (match as any).goalsAway === 'number' ? (match as any).goalsAway 
           : f.goalsAway || 0;
 
+        const currentHomeName = getTeamName(f.homeTeam);
         if (
-          f.homeTeam.name.includes('Aguardando') || 
-          f.homeTeam.name !== match.homeTeam || 
+          currentHomeName.includes('Aguardando') || 
+          currentHomeName !== match.homeTeam || 
           f.elapsed !== (match.elapsed || 0) ||
           f.goalsHome !== goalsHome ||
           f.goalsAway !== goalsAway
@@ -737,8 +890,8 @@ export default function Radar() {
           updated = true;
           return {
             ...f,
-            homeTeam: { ...f.homeTeam, name: match.homeTeam },
-            awayTeam: { ...f.awayTeam, name: match.awayTeam },
+            homeTeam: typeof f.homeTeam === 'object' && f.homeTeam ? { ...f.homeTeam, name: match.homeTeam } as any : { id: 0, name: match.homeTeam, logo: '' } as any,
+            awayTeam: typeof f.awayTeam === 'object' && f.awayTeam ? { ...f.awayTeam, name: match.awayTeam } as any : { id: 0, name: match.awayTeam, logo: '' } as any,
             elapsed: (Number(match.elapsed) || 0) >= (f.elapsed || 0) ? Number(match.elapsed) : f.elapsed,
             goalsHome,
             goalsAway
@@ -771,7 +924,7 @@ export default function Radar() {
       if (bet365Bridge?.connected && bet365Bridge.matches.length > 0) {
         const bridgeMatch = (f as any).matchUrl
           ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (f as any).matchUrl))
-          : findBet365Match(f.homeTeam.name, f.awayTeam.name, bet365Bridge.matches);
+          : findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bet365Bridge.matches);
         
         if (bridgeMatch) {
           if (bridgeMatch.elapsed && bridgeMatch.elapsed > 0 && bridgeMatch.elapsed >= (f.elapsed || 0)) {
@@ -788,11 +941,13 @@ export default function Radar() {
       }
       
       // 🥈 PRIORIDADE 2: Scanner match data (fallback)
-      const matchKey = `${f.homeTeam.name}_${f.awayTeam.name}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const homeName = getTeamName(f.homeTeam);
+      const awayName = getTeamName(f.awayTeam);
+      const matchKey = `${homeName}_${awayName}`.toLowerCase().replace(/[^a-z0-9]/g, '');
       const scanMatch = scannerMatches.find(m => {
         const key = m.matchKey.toLowerCase().replace(/[^a-z0-9]/g, '');
         return key === matchKey || 
-          (m.homeTeam.toLowerCase() === f.homeTeam.name.toLowerCase() && m.awayTeam.toLowerCase() === f.awayTeam.name.toLowerCase());
+          (m.homeTeam.toLowerCase() === homeName.toLowerCase() && m.awayTeam.toLowerCase() === awayName.toLowerCase());
       });
 
       // Resolver valores finais: Bridge > Scanner > Existente
@@ -841,8 +996,8 @@ export default function Radar() {
           // REGRA 4: Scanner ativo + jogo sumiu do In-Play
           if ((f as any).source === 'scanner' && scannerMatches.length > 0) {
             const stillLive = scannerMatches.some(m => 
-              m.homeTeam.toLowerCase() === f.homeTeam.name.toLowerCase() && 
-              m.awayTeam.toLowerCase() === f.awayTeam.name.toLowerCase()
+              m.homeTeam.toLowerCase() === getTeamName(f.homeTeam).toLowerCase() && 
+              m.awayTeam.toLowerCase() === getTeamName(f.awayTeam).toLowerCase()
             );
             if (!stillLive) return false;
           }
@@ -850,8 +1005,8 @@ export default function Radar() {
           // REGRA 4.5: BestCorner ativo + jogo sumiu do In-Play
           if ((f as any).source === 'bestcorner' && bestCornerBridge && bestCornerBridge.connected && bestCornerBridge.matches && bestCornerBridge.matches.length > 0) {
             const stillLive = bestCornerBridge.matches.some(m => 
-              m.homeTeam.toLowerCase() === f.homeTeam.name.toLowerCase() && 
-              m.awayTeam.toLowerCase() === f.awayTeam.name.toLowerCase()
+              m.homeTeam.toLowerCase() === getTeamName(f.homeTeam).toLowerCase() && 
+              m.awayTeam.toLowerCase() === getTeamName(f.awayTeam).toLowerCase()
             );
             if (!stillLive) return false;
           }
@@ -880,7 +1035,7 @@ export default function Radar() {
           prev.filter(f => !filtered.includes(f)).forEach(removed => {
             scannerFixtureIdsRef.current.forEach(key => {
               const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-              const normRemoved = `${removed.homeTeam.name}${removed.awayTeam.name}`.toLowerCase().replace(/[^a-z0-9]/g, '');
+              const normRemoved = `${getTeamName(removed.homeTeam)}${getTeamName(removed.awayTeam)}`.toLowerCase().replace(/[^a-z0-9]/g, '');
               if (normKey.includes(normRemoved) || normRemoved.includes(normKey)) {
                 scannerFixtureIdsRef.current.delete(key);
               }
@@ -925,7 +1080,7 @@ export default function Radar() {
       if (fixture) {
         bridgeMatch = (fixture as any).matchUrl
           ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
-          : findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bet365Bridge.matches);
+          : findBet365Match(getTeamName(fixture.homeTeam), getTeamName(fixture.awayTeam), bet365Bridge.matches);
       }
     }
     
@@ -935,7 +1090,7 @@ export default function Radar() {
       if (fixture) {
         bridgeMatch = (fixture as any).matchUrl
           ? bestCornerBridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
-          : findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bestCornerBridge.matches);
+          : findBet365Match(getTeamName(fixture.homeTeam), getTeamName(fixture.awayTeam), bestCornerBridge.matches);
       }
     }
 
@@ -981,7 +1136,7 @@ export default function Radar() {
           ? bet365Bridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
           : null;
         if (!bridgeMatch) {
-          bridgeMatch = findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bet365Bridge.matches);
+          bridgeMatch = findBet365Match(getTeamName(fixture.homeTeam), getTeamName(fixture.awayTeam), bet365Bridge.matches);
         }
       }
     }
@@ -994,7 +1149,7 @@ export default function Radar() {
           ? bestCornerBridge.matches.find(m => matchUrls(m.matchUrl, (fixture as any).matchUrl))
           : null;
         if (!bridgeMatch) {
-          bridgeMatch = findBet365Match(fixture.homeTeam.name, fixture.awayTeam.name, bestCornerBridge.matches);
+          bridgeMatch = findBet365Match(getTeamName(fixture.homeTeam), getTeamName(fixture.awayTeam), bestCornerBridge.matches);
         }
       }
     }
@@ -1030,8 +1185,8 @@ export default function Radar() {
           
           if (!bridgeMatch) {
             bridgeMatch = findBet365Match(
-                fixture.homeTeam.name,
-                fixture.awayTeam.name,
+                getTeamName(fixture.homeTeam),
+                getTeamName(fixture.awayTeam),
                 bridgeMatches
               );
           }
@@ -1083,7 +1238,7 @@ export default function Radar() {
       applyBridgeData(bestCornerBridge.matches);
     }
 
-    // Capture halftime shots on target
+    // Capture halftime shots on target and total shots
     for (const fixture of allFixtures) {
       const stats = updated[fixture.id];
       if (stats) {
@@ -1091,7 +1246,9 @@ export default function Radar() {
         if (isHTOrFirstHalf) {
           halftimeStatsRef.current[fixture.id] = {
             homeSog: stats.home.shotsOnGoal ?? 0,
-            awaySog: stats.away.shotsOnGoal ?? 0
+            awaySog: stats.away.shotsOnGoal ?? 0,
+            homeShots: stats.home.totalShots ?? 0,
+            awayShots: stats.away.totalShots ?? 0
           };
         }
       }
@@ -1799,6 +1956,9 @@ export default function Radar() {
 
   const registerAutomaticSuggestion = useCallback(async (opp: Opportunity, stats: any) => {
     try {
+      // Check if learning is enabled
+      if (localStorage.getItem('learning_enabled') === 'false') return;
+
       // Evitar duplicados: verificar se já existe registro automático para este jogo e estratégia
       const { data: existing } = await supabase
         .from('trade_entries')
@@ -2296,7 +2456,6 @@ export default function Radar() {
   // Track already alerted opportunities to avoid double playing the sound
   const alertedIdsRef = useRef<Set<string>>(new Set());
   const telegramAlertedIdsRef = useRef<Set<string>>(new Set());
-  const halftimeStatsRef = useRef<Record<number, { homeSog: number; awaySog: number }>>({});
   const statsLastFetchRef = useRef<Record<number, number>>({});
 
   // 📈 EMA Smoothing: Suaviza o ScoreFinal para evitar volatilidade nos gatilhos
@@ -2384,11 +2543,19 @@ export default function Radar() {
         awayShotsOnGoalHt: halftimeStatsRef.current[opp.fixtureId]?.awaySog,
         homeTotalShots: oppStats.home?.totalShots ?? 0,
         awayTotalShots: oppStats.away?.totalShots ?? 0,
+        homeTotalShotsHt: halftimeStatsRef.current[opp.fixtureId]?.homeShots,
+        awayTotalShotsHt: halftimeStatsRef.current[opp.fixtureId]?.awayShots,
         homeScoreFinal: getScoreFinalForSide(opp.fixtureId, true),
         awayScoreFinal: getScoreFinalForSide(opp.fixtureId, false),
-        atm10: getAttacksInWindow(opp.fixtureId, 10, isHome) / 10,
-        atm5: getAttacksInWindow(opp.fixtureId, 5, isHome) / 5,
-        atm3: getAttacksInWindow(opp.fixtureId, 3, isHome) / 3,
+        atm10: opp.teamName === 'Ambas'
+          ? (getAttacksInWindow(opp.fixtureId, 10, true) + getAttacksInWindow(opp.fixtureId, 10, false)) / 10
+          : getAttacksInWindow(opp.fixtureId, 10, isHome) / 10,
+        atm5: opp.teamName === 'Ambas'
+          ? (getAttacksInWindow(opp.fixtureId, 5, true) + getAttacksInWindow(opp.fixtureId, 5, false)) / 5
+          : getAttacksInWindow(opp.fixtureId, 5, isHome) / 5,
+        atm3: opp.teamName === 'Ambas'
+          ? (getAttacksInWindow(opp.fixtureId, 3, true) + getAttacksInWindow(opp.fixtureId, 3, false)) / 3
+          : getAttacksInWindow(opp.fixtureId, 3, isHome) / 3,
       } : undefined,
     }).then((wasSent) => {
       if (wasSent) {
@@ -2739,8 +2906,68 @@ export default function Radar() {
       }
       scoreEmaRef.current[fixture.id] = { home: homeScoreFinal, away: awayScoreFinal };
       
-      const homePLS = getPLSForSide(true);
-      const awayPLS = getPLSForSide(false);
+      // Buscar correspondência pré-live do BestCorner para a partida
+      const homeBCS = preLiveStats.find(s => s && (fuzzyMatchTeam(s.home_team, getTeamName(fixture.homeTeam)) || fuzzyMatchTeam(s.away_team, getTeamName(fixture.homeTeam)) || fuzzyMatchTeam(s.team_name, getTeamName(fixture.homeTeam))));
+      const awayBCS = preLiveStats.find(s => s && (fuzzyMatchTeam(s.home_team, getTeamName(fixture.awayTeam)) || fuzzyMatchTeam(s.away_team, getTeamName(fixture.awayTeam)) || fuzzyMatchTeam(s.team_name, getTeamName(fixture.awayTeam))));
+      
+      const isHT = fixture.status === '1H' || fixture.status === 'HT' || (elapsed !== undefined && elapsed <= 45);
+      
+      const getBCSPreLiveScore = (teamStats: any, sideIsHome: boolean): number | null => {
+        if (!teamStats) return null;
+        
+        const isTeamMatch = teamStats.home_team && teamStats.away_team;
+        let limitRate: number | null = null;
+        let avgCorners: number | null = null;
+        
+        if (isTeamMatch) {
+          const matchedHome = fuzzyMatchTeam(teamStats.home_team, sideIsHome ? getTeamName(fixture.homeTeam) : getTeamName(fixture.awayTeam));
+          if (matchedHome) {
+            limitRate = isHT ? teamStats.home_ht_limit_rate : teamStats.home_ft_limit_rate;
+            if (limitRate === null || limitRate === undefined) {
+              limitRate = isHT ? teamStats.ht_limit_rate : teamStats.ft_limit_rate;
+            }
+          } else {
+            limitRate = isHT ? teamStats.away_ht_limit_rate : teamStats.away_ft_limit_rate;
+            if (limitRate === null || limitRate === undefined) {
+              limitRate = isHT ? teamStats.ht_limit_rate : teamStats.ft_limit_rate;
+            }
+          }
+          avgCorners = isHT ? teamStats.ht_avg : teamStats.ft_avg;
+        } else {
+          limitRate = isHT ? teamStats.ht_limit_rate : teamStats.ft_limit_rate;
+          avgCorners = isHT ? teamStats.ht_avg_corners : teamStats.ft_avg_corners;
+        }
+        
+        if ((limitRate === null || limitRate === undefined) && (avgCorners === null || avgCorners === undefined)) return null;
+        
+        let nLimitRate = 0;
+        if (limitRate !== null && limitRate !== undefined) {
+          nLimitRate = Number(limitRate) / 10;
+        }
+        
+        let nAvgCorners = 0;
+        if (avgCorners !== null && avgCorners !== undefined) {
+          const maxScale = isHT ? 4.5 : 9.0;
+          nAvgCorners = Math.min(10, (Number(avgCorners) / maxScale) * 10);
+        }
+        
+        if (limitRate !== null && limitRate !== undefined && avgCorners !== null && avgCorners !== undefined) {
+          return Math.round(((nLimitRate * 0.7) + (nAvgCorners * 0.3)) * 10) / 10;
+        } else if (limitRate !== null && limitRate !== undefined) {
+          return Math.round(nLimitRate * 10) / 10;
+        } else {
+          return Math.round(nAvgCorners * 10) / 10;
+        }
+      };
+
+      const homeBCSPls = getBCSPreLiveScore(homeBCS, true);
+      const awayBCSPls = getBCSPreLiveScore(awayBCS, false);
+      
+      const homePLS = homeBCSPls !== null ? homeBCSPls : getPLSForSide(true);
+      const awayPLS = awayBCSPls !== null ? awayBCSPls : getPLSForSide(false);
+      
+      const isHomePremiumBCS = homeBCSPls !== null;
+      const isAwayPremiumBCS = awayBCSPls !== null;
 
       const getQualityPctForSide = (scoreFinal: number, pls: number | null): number => {
         if (pls !== null) {
@@ -2789,7 +3016,8 @@ export default function Radar() {
             confidence: homeQualityPct,
             details: `ScoreEMA: ${homeScoreFinal} (bruto: ${homeScoreRaw}) | Qualidade: ${homeQualityPct}% | IIA: ${((getAttacksInWindow(10, true)*0.2) + (getAttacksInWindow(5, true)*0.3) + (getAttacksInWindow(3, true)*0.5)).toFixed(2)} | FA: ${(getAttacksInWindow(5, true) > 0 ? getAttacksInWindow(3, true)/getAttacksInWindow(5, true) : 1.0).toFixed(2)} | Cantos: ${stats.home.corners} | Chutes Gol: ${stats.home.shotsOnGoal}${homePLS !== null ? ` | PLS: ${homePLS}` : ''}`,
             suggestion: `Entrar em "Canto Limite" acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`,
-            isFunnel
+            isFunnel,
+            isPremiumBCS: isHomePremiumBCS
           });
         }
         triggerStateRef.current[homeTriggerKey] = homeTriggerState;
@@ -2822,7 +3050,8 @@ export default function Radar() {
             confidence: awayQualityPct,
             details: `ScoreEMA: ${awayScoreFinal} (bruto: ${awayScoreRaw}) | Qualidade: ${awayQualityPct}% | IIA: ${((getAttacksInWindow(10, false)*0.2) + (getAttacksInWindow(5, false)*0.3) + (getAttacksInWindow(3, false)*0.5)).toFixed(2)} | FA: ${(getAttacksInWindow(5, false) > 0 ? getAttacksInWindow(3, false)/getAttacksInWindow(5, false) : 1.0).toFixed(2)} | Cantos: ${stats.away.corners} | Chutes Gol: ${stats.away.shotsOnGoal}${awayPLS !== null ? ` | PLS: ${awayPLS}` : ''}`,
             suggestion: `Entrar em "Canto Limite" acima de ${stats.home.corners + stats.away.corners + 0.5} escanteios com odd mínima de 1.80.`,
-            isFunnel
+            isFunnel,
+            isPremiumBCS: isAwayPremiumBCS
           });
         }
         triggerStateRef.current[awayTriggerKey] = awayTriggerState;
@@ -2866,6 +3095,46 @@ export default function Radar() {
             confidence,
             details: `IIM combinado: ${combinedIIM} | Chutes Gol: ${combinedShots} | Total Chutes: ${combinedTotalShots} | Dentro Área: ${combinedInsideBox}${dossierBonusDetails}`,
             suggestion: `Fazer entrada no mercado de "Acima de 0.5 Gols HT" (Over 0.5 HT) com odd mínima de 1.70.`,
+            isFunnel: false
+          });
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // ⚽ ESTRATÉGIA 2.5: OVER 0.5 GOLS FT
+      // Critérios: IIM combinado + Chutes ao Gol + Placar 0x0 no segundo tempo (todos reais)
+      // ═══════════════════════════════════════════════════════════════
+      const isCorrectHalfFt = fixture.status === '2H' && scoreHome === 0 && scoreAway === 0;
+      
+      if (isCorrectHalfFt && isGoalsAlertAllowed) {
+        const combinedIIM = Number((stats.home.iim + stats.away.iim).toFixed(2));
+        const combinedShots = stats.home.shotsOnGoal + stats.away.shotsOnGoal;
+        const combinedTotalShots = stats.home.totalShots + stats.away.totalShots;
+        const combinedInsideBox = stats.home.shotsInsideBox + stats.away.shotsInsideBox;
+        
+        if (combinedIIM >= htMinCombinedIIM && combinedShots >= 3) {
+          let confidence = 55 
+            + Math.floor((combinedIIM - htMinCombinedIIM) * 80) 
+            + (combinedShots * 3)
+            + (combinedInsideBox * 2);
+          
+          let dossierBonusDetails = '';
+          if (dossier && (dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway) >= 3.0) {
+            confidence += 10;
+            dossierBonusDetails += ` | Média gols: ${(dossier.avgGoalsScoredHome + dossier.avgGoalsScoredAway).toFixed(1)} (+10%)`;
+          }
+
+          confidence = Math.min(100, confidence);
+          
+          activeOpps.push({
+            id: `${fixture.id}-overft`,
+            fixtureId: fixture.id,
+            match: fixture,
+            strategyName: 'Over 0.5 Gols FT',
+            teamName: 'Ambas',
+            confidence,
+            details: `IIM combinado: ${combinedIIM} | Chutes Gol: ${combinedShots} | Total Chutes: ${combinedTotalShots} | Dentro Área: ${combinedInsideBox}${dossierBonusDetails}`,
+            suggestion: `Fazer entrada no mercado de "Acima de 0.5 Gols FT" (Over 0.5 FT) ou "Over 0.5 Gols no Jogo" com odd mínima de 1.70.`,
             isFunnel: false
           });
         }
@@ -2958,8 +3227,13 @@ export default function Radar() {
 
     });
 
-    // Filter out dismissed fixtures BEFORE setting state and playing sounds
-    const nonDismissedOpps = activeOpps.filter(opp => !dismissedFixtureIdsRef.current.has(opp.fixtureId));
+    // Filter out dismissed fixtures AND blocked leagues BEFORE setting state and playing sounds
+    const nonDismissedOpps = activeOpps.filter(opp => {
+      if (dismissedFixtureIdsRef.current.has(opp.fixtureId)) return false;
+      // 🚫 Bloquear ligas juvenis/reservas
+      if (isBlockedLeague(opp.match?.leagueName)) return false;
+      return true;
+    });
 
     // Sound and Telegram alerts triggers — only for non-dismissed
     nonDismissedOpps.forEach(opp => {
@@ -3037,10 +3311,40 @@ export default function Radar() {
     return cleanup;
   }, []);
 
-  // ─── BestCorner Bridge Listener ───
+  // ─── BestCorner Bridge Listener (com cache de resiliência) ───
+  const lastValidBCBridgeRef = useRef<BestCornerBridgePayload | null>(null);
+  const bcDisconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const BC_GRACE_PERIOD_MS = 120_000; // 2 minutos de tolerância
+
   useEffect(() => {
     const cleanup = onBestCornerData((payload) => {
-      setBestCornerBridge(payload);
+      if (payload.connected && payload.matches.length > 0) {
+        // ✅ Dados válidos → atualizar normalmente e cachear
+        lastValidBCBridgeRef.current = payload;
+        setBestCornerBridge(payload);
+        // Cancelar timer de expiração se houver
+        if (bcDisconnectTimerRef.current) {
+          clearTimeout(bcDisconnectTimerRef.current);
+          bcDisconnectTimerRef.current = null;
+          console.log('[BestCorner Bridge] 🔄 Reconectado — dados frescos restaurados.');
+        }
+      } else {
+        // ⚠️ Desconexão detectada → manter cache por grace period
+        if (lastValidBCBridgeRef.current && !bcDisconnectTimerRef.current) {
+          console.warn('[BestCorner Bridge] ⏸ Desconexão temporária — mantendo cache por 2 min...');
+          bcDisconnectTimerRef.current = setTimeout(() => {
+            // Expirou → só agora limpar
+            console.warn('[BestCorner Bridge] ⏹ Cache expirado — limpando dados.');
+            setBestCornerBridge(null);
+            lastValidBCBridgeRef.current = null;
+            bcDisconnectTimerRef.current = null;
+          }, BC_GRACE_PERIOD_MS);
+          // Manter dados em cache durante o grace period (não atualizar state)
+        } else if (!lastValidBCBridgeRef.current) {
+          // Nunca teve dados válidos — setar normalmente
+          setBestCornerBridge(payload);
+        }
+      }
       
       // 🚀 Auto-inject jogos do BestCorner direto pro sistema
       if (payload.connected && payload.matches.length > 0) {
@@ -3126,7 +3430,10 @@ export default function Radar() {
       );
     });
 
-    return cleanup;
+    return () => {
+      cleanup();
+      if (bcDisconnectTimerRef.current) clearTimeout(bcDisconnectTimerRef.current);
+    };
   }, []);
 
   // ─── Bet365 Scanner Listener (local + cloud broadcast) ───
@@ -3213,7 +3520,7 @@ export default function Radar() {
         return opp.strategyName === 'Canto Limite';
       }
       if (marketFilter === 'goals') {
-        return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Virada do Favorito';
+        return opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Over 0.5 Gols FT' || opp.strategyName === 'Virada do Favorito';
       }
       return true;
     }), [opportunities, marketFilter, dismissedVersion, fixtureSourceFilter, favoriteFixtureIds]);
@@ -3284,8 +3591,15 @@ export default function Radar() {
                       }}
                       title={favoriteFixtureIds.has(f.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
                     >⭐</button>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                      {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {f.awayTeam.name}
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {getTeamName(f.homeTeam)} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {getTeamName(f.awayTeam)}
+                      {(() => {
+                        const hasHomeBCS = preLiveStats.some(s => s && (fuzzyMatchTeam(s.home_team, getTeamName(f.homeTeam)) || fuzzyMatchTeam(s.away_team, getTeamName(f.homeTeam)) || fuzzyMatchTeam(s.team_name, getTeamName(f.homeTeam))));
+                        const hasAwayBCS = preLiveStats.some(s => s && (fuzzyMatchTeam(s.home_team, getTeamName(f.awayTeam)) || fuzzyMatchTeam(s.away_team, getTeamName(f.awayTeam)) || fuzzyMatchTeam(s.team_name, getTeamName(f.awayTeam))));
+                        return (hasHomeBCS || hasAwayBCS) ? (
+                          <span title="Jogo Premium BestCorner" style={{ fontSize: '0.9rem', color: '#eab308', cursor: 'help' }}>⭐</span>
+                        ) : null;
+                      })()}
                     </h3>
                   </div>
 
@@ -3293,7 +3607,7 @@ export default function Radar() {
                   {(() => {
                     const mobileUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
                       : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
-                        ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '')
+                        ? (findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bestCornerBridge.matches)?.matchUrl || '')
                         : '';
                     return mobileUrl && mobileUrl.includes('bet365') ? (
                       <a
@@ -3441,7 +3755,7 @@ export default function Radar() {
                     {(() => {
                       const tabUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
                         : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
-                          ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '')
+                          ? (findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bestCornerBridge.matches)?.matchUrl || '')
                           : '';
                       return tabUrl && tabUrl.includes('bet365') ? (
                         <a
@@ -4364,6 +4678,7 @@ export default function Radar() {
                       <Fragment key={`group-fixture-${f.id}`}>
                         <tr 
                           key={`table-fixture-${f.id}`}
+                          data-fixture-id={f.id}
                           onClick={() => setExpandedFixtureId(expandedFixtureId === f.id ? null : f.id)}
                           style={{ 
                             borderBottom: '1px solid var(--border-color)',
@@ -4657,7 +4972,7 @@ export default function Radar() {
                                 {(() => {
                                   const gUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
                                     : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
-                                      ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '') : '';
+                                      ? (findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bestCornerBridge.matches)?.matchUrl || '') : '';
                                   return gUrl && gUrl.includes('bet365') ? (
                                     <a href={gUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
                                       style={{ fontSize: '0.6rem', fontWeight: 900, color: '#fff', background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', padding: '3px 8px', borderRadius: 4, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3, boxShadow: '0 0 6px rgba(26,141,26,0.4)' }}
@@ -4673,7 +4988,7 @@ export default function Radar() {
                                 {(() => {
                                   const pUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
                                     : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
-                                      ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '') : '';
+                                      ? (findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bestCornerBridge.matches)?.matchUrl || '') : '';
                                   return pUrl && pUrl.includes('bet365') ? (
                                     <a href={pUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
                                       style={{ fontSize: '0.55rem', fontWeight: 900, color: '#fff', background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', padding: '2px 6px', borderRadius: 3, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3, boxShadow: '0 0 4px rgba(26,141,26,0.3)' }}
@@ -5961,7 +6276,7 @@ export default function Radar() {
                       if ((f as any).matchUrl && (f as any).matchUrl.includes('bet365')) return (f as any).matchUrl;
                       // Segundo: buscar no bestCornerBridge
                       if (bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0) {
-                        const bm = findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches);
+                        const bm = findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bestCornerBridge.matches);
                         if (bm && bm.matchUrl && bm.matchUrl.includes('bet365')) return bm.matchUrl;
                       }
                       return '';
@@ -7445,7 +7760,7 @@ export default function Radar() {
             {(alertFilter === 'all' || alertFilter === 'entrada') && filteredOpps.map(opp => {
               let stratColor = 'var(--accent-primary)';
               if (opp.strategyName === 'Canto Limite') stratColor = 'var(--status-green)';
-              else if (opp.strategyName === 'Over 0.5 Gols HT') stratColor = 'var(--status-yellow)';
+              else if (opp.strategyName === 'Over 0.5 Gols HT' || opp.strategyName === 'Over 0.5 Gols FT') stratColor = 'var(--status-yellow)';
               else stratColor = 'var(--status-red)';
 
               return (
@@ -7473,6 +7788,11 @@ export default function Radar() {
                           🔻 FUNIL
                         </span>
                       )}
+                      {opp.isPremiumBCS && (
+                        <span className="badge" style={{ fontSize: '0.65rem', fontWeight: 800, background: 'rgba(234, 179, 8, 0.1)', color: '#eab308', padding: '3px 8px', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
+                          ⭐ BCS ELITE
+                        </span>
+                      )}
                     </div>
                     <span className="badge" style={{
                       fontSize: '0.8rem', fontWeight: 800, padding: '3px 8px',
@@ -7481,10 +7801,20 @@ export default function Radar() {
                     }}>{opp.confidence}%</span>
                   </div>
 
-                  {/* Confronto */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  {/* Confronto — clicável, navega para telemetria */}
+                  <div 
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, cursor: 'pointer', borderRadius: 6, padding: '4px 0', transition: 'background 0.15s' }}
+                    onClick={() => {
+                      setExpandedFixtureId(opp.fixtureId);
+                      setTimeout(() => {
+                        const el = document.querySelector(`[data-fixture-id="${opp.fixtureId}"]`);
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }, 100);
+                    }}
+                    title="Clique para ver a telemetria"
+                  >
                     <div>
-                      <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', textDecoration: 'underline', textDecorationColor: 'var(--accent-primary)', textUnderlineOffset: 3, textDecorationThickness: 2 }}>
                         {opp.match.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{opp.match.goalsHome}-{opp.match.goalsAway}</span> {opp.match.awayTeam.name}
                       </h3>
                       <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{opp.match.leagueName}</span>
@@ -7521,32 +7851,48 @@ export default function Radar() {
 
                   {/* Links + Ação */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                       {(() => {
                         const eUrl = (opp.match as any).matchUrl && (opp.match as any).matchUrl.includes('bet365') ? (opp.match as any).matchUrl
                           : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
-                            ? (findBet365Match(opp.match.homeTeam.name, opp.match.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '') : '';
+                            ? (findBet365Match(getTeamName(opp.match.homeTeam), getTeamName(opp.match.awayTeam), bestCornerBridge.matches)?.matchUrl || '') : '';
                         return eUrl && eUrl.includes('bet365') ? (
                           <a href={eUrl} target="_blank" rel="noopener noreferrer"
                             style={{ fontSize: '0.65rem', fontWeight: 900, color: '#fff', background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', padding: '4px 10px', borderRadius: 5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, boxShadow: '0 0 6px rgba(26,141,26,0.4)' }}
                           >⚽ Abrir Bet365</a>
                         ) : null;
                       })()}
+                      {/* Botão Favoritar */}
+                      <button
+                        onClick={(e) => toggleFavorite(opp.fixtureId, e)}
+                        style={{
+                          background: 'none', border: '1px solid var(--border-color)', borderRadius: 5,
+                          padding: '4px 10px', cursor: 'pointer', fontSize: '0.65rem', fontWeight: 700,
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          color: favoriteFixtureIds.has(opp.fixtureId) ? '#eab308' : 'var(--text-muted)',
+                          transition: 'all 0.15s ease'
+                        }}
+                        title={favoriteFixtureIds.has(opp.fixtureId) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+                      >
+                        {favoriteFixtureIds.has(opp.fixtureId) ? '⭐' : '☆'} {favoriteFixtureIds.has(opp.fixtureId) ? 'Favoritado' : 'Favoritar'}
+                      </button>
                     </div>
-                    <button onClick={() => handleRecusar(opp)} className="btn btn-outline"
-                      style={{ padding: '6px 12px', fontSize: '0.7rem', fontWeight: 700,
-                        background: 'rgba(239,68,68,0.06)', color: '#ef4444',
-                        border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer'
-                      }}
-                    >✕ Recusar</button>
-                    <button onClick={() => handlePeguei(opp)} disabled={gottenOppIds.has(opp.id)} className="btn"
-                      style={{ padding: '6px 14px', fontSize: '0.75rem', fontWeight: 800,
-                        background: gottenOppIds.has(opp.id) ? 'rgba(16,185,129,0.1)' : 'var(--accent-primary)',
-                        color: gottenOppIds.has(opp.id) ? 'var(--status-green)' : '#fff',
-                        border: gottenOppIds.has(opp.id) ? '1px solid var(--status-green)' : 'none',
-                        cursor: gottenOppIds.has(opp.id) ? 'default' : 'pointer'
-                      }}
-                    >{gottenOppIds.has(opp.id) ? 'PEGADA! 🟢' : 'PEGUEI ⚡'}</button>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => handleRecusar(opp)} className="btn btn-outline"
+                        style={{ padding: '6px 12px', fontSize: '0.7rem', fontWeight: 700,
+                          background: 'rgba(239,68,68,0.06)', color: '#ef4444',
+                          border: '1px solid rgba(239,68,68,0.2)', cursor: 'pointer'
+                        }}
+                      >✕ Recusar</button>
+                      <button onClick={() => handlePeguei(opp)} disabled={gottenOppIds.has(opp.id)} className="btn"
+                        style={{ padding: '6px 14px', fontSize: '0.75rem', fontWeight: 800,
+                          background: gottenOppIds.has(opp.id) ? 'rgba(16,185,129,0.1)' : 'var(--accent-primary)',
+                          color: gottenOppIds.has(opp.id) ? 'var(--status-green)' : '#fff',
+                          border: gottenOppIds.has(opp.id) ? '1px solid var(--status-green)' : 'none',
+                          cursor: gottenOppIds.has(opp.id) ? 'default' : 'pointer'
+                        }}
+                      >{gottenOppIds.has(opp.id) ? 'PEGADA! 🟢' : 'PEGUEI ⚡'}</button>
+                    </div>
                   </div>
                 </div>
               );
@@ -7603,8 +7949,25 @@ export default function Radar() {
                       </div>
                     </div>
 
-                    <h3 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>
-                      {f.homeTeam.name} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {f.awayTeam.name}
+                    <h3 
+                      style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--accent-primary)', textUnderlineOffset: 3, textDecorationThickness: 2 }}
+                      onClick={() => {
+                        setExpandedFixtureId(f.id);
+                        setTimeout(() => {
+                          const el = document.querySelector(`[data-fixture-id="${f.id}"]`);
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }, 100);
+                      }}
+                      title="Clique para ver a telemetria"
+                    >
+                      {getTeamName(f.homeTeam)} <span style={{ color: 'var(--text-muted)' }}>{getDisplayScore(f.id, f.goalsHome, f.goalsAway).home}-{getDisplayScore(f.id, f.goalsHome, f.goalsAway).away}</span> {getTeamName(f.awayTeam)}
+                      {(() => {
+                        const hasHomeBCS = preLiveStats.some(s => s && (fuzzyMatchTeam(s.home_team, getTeamName(f.homeTeam)) || fuzzyMatchTeam(s.away_team, getTeamName(f.homeTeam)) || fuzzyMatchTeam(s.team_name, getTeamName(f.homeTeam))));
+                        const hasAwayBCS = preLiveStats.some(s => s && (fuzzyMatchTeam(s.home_team, getTeamName(f.awayTeam)) || fuzzyMatchTeam(s.away_team, getTeamName(f.awayTeam)) || fuzzyMatchTeam(s.team_name, getTeamName(f.awayTeam))));
+                        return (hasHomeBCS || hasAwayBCS) ? (
+                          <span title="Jogo Premium BestCorner" style={{ fontSize: '0.85rem', color: '#eab308', cursor: 'help' }}>⭐</span>
+                        ) : null;
+                      })()}
                     </h3>
                     <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>{f.leagueName}</span>
 
@@ -7626,18 +7989,31 @@ export default function Radar() {
                       </div>
                     </div>
 
-                    {/* Link direto Bet365 */}
-                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    {/* Link direto Bet365 + Favoritar */}
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
                       {(() => {
                         const potUrl = (f as any).matchUrl && (f as any).matchUrl.includes('bet365') ? (f as any).matchUrl
                           : bestCornerBridge?.connected && bestCornerBridge.matches?.length > 0
-                            ? (findBet365Match(f.homeTeam.name, f.awayTeam.name, bestCornerBridge.matches)?.matchUrl || '') : '';
+                            ? (findBet365Match(getTeamName(f.homeTeam), getTeamName(f.awayTeam), bestCornerBridge.matches)?.matchUrl || '') : '';
                         return potUrl && potUrl.includes('bet365') ? (
                           <a href={potUrl} target="_blank" rel="noopener noreferrer"
                             style={{ fontSize: '0.6rem', fontWeight: 900, color: '#fff', background: 'linear-gradient(135deg, #0a6e0a, #1a8d1a)', padding: '3px 8px', borderRadius: 4, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3, boxShadow: '0 0 6px rgba(26,141,26,0.4)' }}
                           >⚽ Abrir Bet365</a>
                         ) : null;
                       })()}
+                      <button
+                        onClick={(e) => toggleFavorite(f.id, e)}
+                        style={{
+                          background: 'none', border: '1px solid var(--border-color)', borderRadius: 4,
+                          padding: '3px 8px', cursor: 'pointer', fontSize: '0.6rem', fontWeight: 700,
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                          color: favoriteFixtureIds.has(f.id) ? '#eab308' : 'var(--text-muted)',
+                          transition: 'all 0.15s ease'
+                        }}
+                        title={favoriteFixtureIds.has(f.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+                      >
+                        {favoriteFixtureIds.has(f.id) ? '⭐' : '☆'} {favoriteFixtureIds.has(f.id) ? 'Favoritado' : 'Favoritar'}
+                      </button>
                     </div>
                   </div>
                 );
@@ -7709,7 +8085,7 @@ export default function Radar() {
                     onChange={(e) => setConfirmOdd(e.target.value)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                      color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
                     }}
                     required
                   />
@@ -7724,7 +8100,7 @@ export default function Radar() {
                     onChange={(e) => setConfirmStake(e.target.value)}
                     style={{
                       width: '100%', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)',
-                      color: '#fff', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
+                      color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, outline: 'none', fontSize: '0.875rem'
                     }}
                     required
                   />

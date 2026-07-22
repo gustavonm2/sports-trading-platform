@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Brain, TrendingUp, BarChart3, CheckCircle, XCircle, Sparkles,
   Target, Award, AlertTriangle, Filter, Clock,
-  BookOpen, RefreshCw, Key, Download
+  BookOpen, RefreshCw, Key, Download, Power
 } from 'lucide-react';
 import {
   getTradeEntries, resolveTradeEntry, analyzePatterns,
-  getGoalLearningEntries,
+  getGoalLearningEntries, computeBCSCorrelation,
   type TradeEntry, type TradeOutcome, type LearningReport, type AIRecommendation,
   type GoalLearningEntry
 } from '../services/learningEngine';
@@ -177,6 +177,9 @@ export default function Learning() {
   const [origemFilter, setOrigemFilter] = useState<'manual' | 'automatica'>('manual');
   const [entries, setEntries] = useState<TradeEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [learningEnabled, setLearningEnabled] = useState(() => 
+    localStorage.getItem('learning_enabled') !== 'false'
+  );
 
   // Tab 1: Entradas — filtros
   const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>('ALL');
@@ -185,6 +188,7 @@ export default function Learning() {
 
   // Tab 2: Análise
   const [analysis, setAnalysis] = useState<LearningReport | null>(null);
+  const [bcsCorrelation, setBcsCorrelation] = useState<Record<string, { total: number; wins: number; rate: number }>>({});
 
   // Aprendizado de Gols
   const [goalsList, setGoalsList] = useState<GoalLearningEntry[]>([]);
@@ -204,8 +208,11 @@ export default function Learning() {
       const resolved = allEntries.filter(e => e.outcome === 'green' || e.outcome === 'red');
       if (resolved.length >= 10) {
         setAnalysis(analyzePatterns(allEntries));
+        // Correlação BCS (async, não bloqueia)
+        computeBCSCorrelation(allEntries).then(setBcsCorrelation).catch(() => setBcsCorrelation({}));
       } else {
         setAnalysis(null);
+        setBcsCorrelation({});
       }
 
       // Carrega momentos dos gols
@@ -381,7 +388,28 @@ export default function Learning() {
             Analise padrões e evolua com inteligência artificial.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+
+          {/* Toggle Aprendizagem ON/OFF */}
+          <button
+            onClick={() => {
+              const current = localStorage.getItem('learning_enabled') !== 'false';
+              localStorage.setItem('learning_enabled', String(!current));
+              setLearningEnabled(!current);
+            }}
+            className="btn"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700,
+              background: learningEnabled ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+              border: `1px solid ${learningEnabled ? 'var(--status-green)' : 'var(--status-red)'}`,
+              color: learningEnabled ? 'var(--status-green)' : 'var(--status-red)',
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <Power size={18} />
+            {learningEnabled ? 'Aprendizagem Ativa' : 'Aprendizagem Desligada'}
+          </button>
+
           {/* Botão de Exportar CSV */}
           <button
             onClick={handleExportCSV}
@@ -939,6 +967,57 @@ export default function Learning() {
                   />
                 </div>
               </div>
+
+              {/* Correlação BCS Pré-Live */}
+              {Object.keys(bcsCorrelation).length > 0 && (
+                <div className="card glass-panel" style={{ padding: 24 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                    <Award size={20} color="var(--status-yellow)" />
+                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800 }}>Acerto por Score BCS Pré-Live</h3>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '2px 8px', borderRadius: 10 }}>
+                      Últimos 3 dias
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {[
+                      { band: 'Excelente (80+)', color: '#22c55e' },
+                      { band: 'Bom (60-79)', color: '#f59e0b' },
+                      { band: 'Moderado (40-59)', color: '#3b82f6' },
+                      { band: 'Fraco (0-39)', color: '#64748b' },
+                    ].map(({ band, color }) => {
+                      const data = bcsCorrelation[band];
+                      if (!data) return (
+                        <div key={band} style={{ opacity: 0.4 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{band}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Sem dados</span>
+                          </div>
+                          <div style={{ width: '100%', height: 6, background: 'var(--bg-elevated)', borderRadius: 3 }} />
+                        </div>
+                      );
+                      return (
+                        <div key={band}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{band}</span>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 800, color }}>
+                              {data.rate}% <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.7rem' }}>({data.wins}/{data.total})</span>
+                            </span>
+                          </div>
+                          <div style={{ width: '100%', height: 6, background: 'var(--bg-elevated)', borderRadius: 3, overflow: 'hidden' }}>
+                            <div style={{
+                              width: `${data.rate}%`, height: '100%', borderRadius: 3,
+                              background: color, transition: 'width 0.5s ease',
+                            }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 16, lineHeight: 1.4 }}>
+                    Correlação entre o score BCS pré-live e o resultado real dos trades. Dados limitados aos últimos 3 dias (janela de retenção).
+                  </p>
+                </div>
+              )}
 
               {/* Recomendações Automáticas */}
               {analysis.recommendations.length > 0 && (

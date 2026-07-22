@@ -190,6 +190,9 @@ export interface LearningReport {
 
   /** Dados brutos resumidos (opcional) */
   raw_summary?: Record<string, any>;
+
+  /** Taxa de acerto por faixa de score BCS pré-live (opcional) */
+  win_rate_by_bcs_score?: Record<string, { total: number; wins: number; rate: number }>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1739,4 +1742,122 @@ Responda APENAS com o JSON válido.`;
   }
 
   throw lastError || new Error('Falha na comunicação com a API após múltiplas tentativas.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORRELAÇÃO BCS PRÉ-LIVE × RESULTADO DE TRADES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function fuzzyMatchTeam(name1: string | undefined | null, name2: string | undefined | null): boolean {
+  if (!name1 || !name2) return false;
+  const n1 = name1.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const n2 = name2.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (n1.includes(n2) || n2.includes(n1)) return true;
+  const words1 = n1.split(/\s+/).filter(w => w.length > 3);
+  const words2 = n2.split(/\s+/).filter(w => w.length > 3);
+  return words1.some(w => words2.includes(w));
+}
+
+/**
+ * Calcula score BCS composto de um registro pré-live.
+ * Réplica da lógica em PreLive.tsx getMatchCalculatedStats.
+ */
+function computeBCSScore(bcs: Record<string, any>): number {
+  const htRate = bcs.top_ht_rate || bcs.ht_limit_rate || 0;
+  const ftRate = bcs.top_ft_rate || bcs.ft_limit_rate || 0;
+  const bestRate = Math.max(htRate, ftRate);
+  const isTop = bcs.is_top_ht || bcs.is_top_ft;
+
+  const notaTaxa = bestRate > 0 ? Math.min(100, Math.max(0, (bestRate - 40) * 1.67)) : 0;
+  const hasTaxa = bestRate > 0;
+
+  const htAvg = bcs.ht_avg || 0;
+  const ftAvg = bcs.ft_avg || 0;
+  const notaMediaHT = htAvg > 0 ? Math.min(100, htAvg * 14) : 0;
+  const notaMediaFT = ftAvg > 0 ? Math.min(100, ftAvg * 8) : 0;
+  const notaMedia = Math.max(notaMediaHT, notaMediaFT);
+  const hasMedia = htAvg > 0 || ftAvg > 0;
+
+  const bonusTop = isTop ? 10 : 0;
+
+  let score = 0;
+  if (hasTaxa && hasMedia) {
+    score = (notaTaxa * 0.6) + (notaMedia * 0.3) + bonusTop;
+  } else if (hasTaxa) {
+    score = (notaTaxa * 0.9) + bonusTop;
+  } else if (hasMedia) {
+    score = (notaMedia * 0.9) + bonusTop;
+  }
+
+  return Math.round(Math.min(100, Math.max(0, score)));
+}
+
+function getScoreBand(score: number): string {
+  if (score >= 80) return 'Excelente (80+)';
+  if (score >= 60) return 'Bom (60-79)';
+  if (score >= 40) return 'Moderado (40-59)';
+  return 'Fraco (0-39)';
+}
+
+/**
+ * Cruza trades resolvidos com dados BCS pré-live e calcula win rate por faixa de score.
+ */
+export async function computeBCSCorrelation(
+  trades: TradeEntry[]
+): Promise<Record<string, { total: number; wins: number; rate: number }>> {
+  const resolved = trades.filter(t => t.outcome === 'green' || t.outcome === 'red');
+  if (resolved.length === 0) return {};
+
+  // Coletar datas únicas dos trades
+  const dates = new Set<string>();
+  resolved.forEach(t => {
+    if (t.created_at) {
+      dates.add(t.created_at.split('T')[0]);
+    }
+  });
+
+  // Buscar dados BCS para essas datas
+  const { data: bcsData, error } = await supabase
+    .from('bestcorner_prelive_stats')
+    .select('*')
+    .in('date', Array.from(dates));
+
+  if (error || !bcsData || bcsData.length === 0) {
+    console.warn('[LearningEngine] Sem dados BCS para correlação.');
+    return {};
+  }
+
+  // Correlacionar cada trade com seu BCS match
+  const bands: Record<string, { total: number; wins: number }> = {
+    'Excelente (80+)': { total: 0, wins: 0 },
+    'Bom (60-79)': { total: 0, wins: 0 },
+    'Moderado (40-59)': { total: 0, wins: 0 },
+    'Fraco (0-39)': { total: 0, wins: 0 },
+  };
+
+  resolved.forEach(trade => {
+    const tradeDate = trade.created_at?.split('T')[0];
+    const matchingBCS = bcsData.find(bcs => {
+      if (bcs.date !== tradeDate) return false;
+      return (fuzzyMatchTeam(bcs.home_team, trade.home_team) && fuzzyMatchTeam(bcs.away_team, trade.away_team)) ||
+             (fuzzyMatchTeam(bcs.home_team, trade.away_team) && fuzzyMatchTeam(bcs.away_team, trade.home_team));
+    });
+
+    if (matchingBCS) {
+      const score = computeBCSScore(matchingBCS);
+      const band = getScoreBand(score);
+      bands[band].total++;
+      if (trade.outcome === 'green') bands[band].wins++;
+    }
+  });
+
+  // Calcular rates
+  const result: Record<string, { total: number; wins: number; rate: number }> = {};
+  Object.entries(bands).forEach(([band, data]) => {
+    if (data.total > 0) {
+      result[band] = { ...data, rate: Math.round((data.wins / data.total) * 100) };
+    }
+  });
+
+  return result;
 }

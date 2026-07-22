@@ -8,6 +8,7 @@ export interface TelegramAlertConfig {
   // Estratégias ON/OFF
   strategyCanto: boolean;
   strategyGols: boolean;
+  strategyGolsFt: boolean;
   strategyVirada: boolean;
   strategyFunil: boolean;
 
@@ -48,7 +49,9 @@ export interface TelegramAlertConfig {
   golsMinScore: number;
   golsMinSogHt: number;
   golsMinSogFt: number;
-  golsMinTotalShots: number;
+  golsMinTotalShotsHt: number;
+  golsMinTotalShotsFt: number;
+  golsMinConfidence: number;
 }
 
 // ─── Defaults & persistence ─────────────────────────────────────────────────
@@ -59,6 +62,7 @@ export function getDefaultAlertConfig(): TelegramAlertConfig {
   return {
     strategyCanto: true,
     strategyGols: true,
+    strategyGolsFt: true,
     strategyVirada: false,
     strategyFunil: true,
     minConfidence: 70,
@@ -87,7 +91,9 @@ export function getDefaultAlertConfig(): TelegramAlertConfig {
     golsMinScore: 6.0,
     golsMinSogHt: 1,
     golsMinSogFt: 3,
-    golsMinTotalShots: 5,
+    golsMinTotalShotsHt: 2,
+    golsMinTotalShotsFt: 5,
+    golsMinConfidence: 70,
   };
 }
 
@@ -384,7 +390,7 @@ function ToggleRow({
 // ─── Strategy metadata ──────────────────────────────────────────────────────
 
 const strategies: {
-  key: 'strategyCanto' | 'strategyGols' | 'strategyVirada' | 'strategyFunil';
+  key: 'strategyCanto' | 'strategyGols' | 'strategyGolsFt' | 'strategyVirada' | 'strategyFunil';
   emoji: string;
   name: string;
   desc: string;
@@ -400,6 +406,12 @@ const strategies: {
     emoji: '⚽',
     name: 'Over 0.5 Gols HT',
     desc: 'IIM ≥ 1.4, chutes ≥ 3, placar 0-0',
+  },
+  {
+    key: 'strategyGolsFt',
+    emoji: '⚽',
+    name: 'Over 0.5 Gols FT',
+    desc: 'IIM ≥ 1.4, chutes ≥ 5, placar 0-0 (2T)',
   },
   {
     key: 'strategyVirada',
@@ -470,8 +482,9 @@ export default function AlertConfig() {
         '🧪 <b>TESTE DE FILTROS</b>',
         '',
         '📲 Seus filtros de alerta estão configurados:',
-        `  🚩 Canto Limite: ${config.strategyCanto ? '✅' : '❌'}`,
+              `  🚩 Canto Limite: ${config.strategyCanto ? '✅' : '❌'}`,
         `  ⚽ Over 0.5 HT: ${config.strategyGols ? '✅' : '❌'}`,
+        `  ⚽ Over 0.5 FT: ${config.strategyGolsFt ? '✅' : '❌'}`,
         `  ⚽ Virada: ${config.strategyVirada ? '✅' : '❌'}`,
         `  🔻 Funil: ${config.strategyFunil ? '✅' : '❌'}`,
         '',
@@ -482,10 +495,11 @@ export default function AlertConfig() {
         `  ATM 5 ≥ ${config.minAtm5} | ATM 3 ≥ ${config.minAtm3}`,
         '',
         '<b>Filtros de Gols:</b>',
+        `  Confiança ≥ ${config.golsMinConfidence}%`,
         `  Score ≥ ${config.golsMinScore}`,
         `  ATM 10 ≥ ${config.golsMinAtm10} | ATM 5 ≥ ${config.golsMinAtm5} | ATM 3 ≥ ${config.golsMinAtm3}`,
         `  Chutes Alvo HT ≥ ${config.golsMinSogHt} | FT ≥ ${config.golsMinSogFt}`,
-        `  Finalizações Totais ≥ ${config.golsMinTotalShots}`,
+        `  Finalizações Totais HT ≥ ${config.golsMinTotalShotsHt} | FT ≥ ${config.golsMinTotalShotsFt}`,
         '',
         '✅ Conexão OK! Alertas serão enviados aqui.',
       ];
@@ -626,6 +640,16 @@ export default function AlertConfig() {
         <h2 style={s.sectionTitle}>⚽ Filtros para Gols (Over HT & Virada)</h2>
         <div style={s.card}>
           <SliderRow
+            label="Confiança mínima para Gols"
+            value={config.golsMinConfidence}
+            min={0}
+            max={100}
+            step={5}
+            format={(v) => `${v}%`}
+            accentColor="var(--accent-primary)"
+            onChange={(v) => update({ golsMinConfidence: v })}
+          />
+          <SliderRow
             label="Score mínimo para Gols"
             value={config.golsMinScore}
             min={4}
@@ -684,13 +708,22 @@ export default function AlertConfig() {
             onChange={(v) => update({ golsMinSogFt: v })}
           />
           <SliderRow
-            label="Finalizações totais mínimas"
-            value={config.golsMinTotalShots}
+            label="Finalizações totais mínimas HT"
+            value={config.golsMinTotalShotsHt}
             min={0}
             max={20}
             step={1}
             accentColor="var(--status-green)"
-            onChange={(v) => update({ golsMinTotalShots: v })}
+            onChange={(v) => update({ golsMinTotalShotsHt: v })}
+          />
+          <SliderRow
+            label="Finalizações totais mínimas FT"
+            value={config.golsMinTotalShotsFt}
+            min={0}
+            max={30}
+            step={1}
+            accentColor="var(--status-green)"
+            onChange={(v) => update({ golsMinTotalShotsFt: v })}
             isLast
           />
         </div>
@@ -736,11 +769,121 @@ export default function AlertConfig() {
         <h2 style={s.sectionTitle}>🏆 Filtro de Ligas</h2>
         <div style={s.card}>
           <ToggleRow
-            label="Excluir ligas juvenis / sub"
+            label="Excluir ligas juvenis / reservas / amistosos"
             value={config.excludeYouth}
             onChange={(v) => update({ excludeYouth: v })}
-            isLast
           />
+          {config.excludeYouth && (
+            <div style={{ padding: '12px 0 4px 0', borderTop: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>
+                Palavras-chave bloqueadas
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {(() => {
+                  const DEFAULT_KW = [
+                    'sub-', 'sub ', 'sub17', 'sub20', 'sub23', 'reserva',
+                    'youth', 'u17', 'u18', 'u19', 'u20', 'u21', 'u23',
+                    'junior', 'júnior', 'juvenil', 'cadete', 'primavera',
+                    'juniores', 'juvenis', 'academi', 'development', 'reserve',
+                    'b team', 'women', 'feminino', 'feminin',
+                    'amistoso', 'friendly', 'club friendly'
+                  ];
+                  let kws: string[] = DEFAULT_KW;
+                  try {
+                    const saved = localStorage.getItem('blocked_league_keywords');
+                    if (saved) kws = JSON.parse(saved) as string[];
+                  } catch { /* */ }
+                  return kws.map((kw, i) => (
+                    <span key={i} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      background: 'rgba(239, 68, 68, 0.1)', color: 'var(--status-red)',
+                      padding: '3px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 600
+                    }}>
+                      {kw}
+                      <span
+                        onClick={() => {
+                          const updated = kws.filter((_, idx) => idx !== i);
+                          localStorage.setItem('blocked_league_keywords', JSON.stringify(updated));
+                          update({ ...config }); // force re-render
+                        }}
+                        style={{ cursor: 'pointer', marginLeft: 2, fontSize: '0.8rem', lineHeight: 1 }}
+                        title="Remover"
+                      >×</span>
+                    </span>
+                  ));
+                })()}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input
+                  type="text"
+                  placeholder="Nova palavra-chave (ex: reserva)"
+                  id="new-blocked-keyword"
+                  style={{
+                    flex: 1, padding: '6px 10px', borderRadius: 6,
+                    border: '1px solid var(--border-color)', background: 'var(--bg-elevated)',
+                    color: 'var(--text-primary)', fontSize: '0.8rem', outline: 'none'
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const input = e.target as HTMLInputElement;
+                      const val = input.value.trim().toLowerCase();
+                      if (!val) return;
+                      const DEFAULT_KW2 = [
+                        'sub-', 'sub ', 'sub17', 'sub20', 'sub23', 'reserva',
+                        'youth', 'u17', 'u18', 'u19', 'u20', 'u21', 'u23',
+                        'junior', 'júnior', 'juvenil', 'cadete', 'primavera',
+                        'juniores', 'juvenis', 'academi', 'development', 'reserve',
+                        'b team', 'women', 'feminino', 'feminin',
+                        'amistoso', 'friendly', 'club friendly'
+                      ];
+                      let kws2: string[] = DEFAULT_KW2;
+                      try {
+                        const saved2 = localStorage.getItem('blocked_league_keywords');
+                        if (saved2) kws2 = JSON.parse(saved2) as string[];
+                      } catch { /* */ }
+                      if (!kws2.includes(val)) {
+                        kws2.push(val);
+                        localStorage.setItem('blocked_league_keywords', JSON.stringify(kws2));
+                        input.value = '';
+                        update({ ...config }); // force re-render
+                      }
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const input = document.getElementById('new-blocked-keyword') as HTMLInputElement;
+                    const val = input?.value.trim().toLowerCase();
+                    if (!val) return;
+                    const DEFAULT_KW3 = [
+                      'sub-', 'sub ', 'sub17', 'sub20', 'sub23', 'reserva',
+                      'youth', 'u17', 'u18', 'u19', 'u20', 'u21', 'u23',
+                      'junior', 'júnior', 'juvenil', 'cadete', 'primavera',
+                      'juniores', 'juvenis', 'academi', 'development', 'reserve',
+                      'b team', 'women', 'feminino', 'feminin',
+                      'amistoso', 'friendly', 'club friendly'
+                    ];
+                    let kws3: string[] = DEFAULT_KW3;
+                    try {
+                      const saved3 = localStorage.getItem('blocked_league_keywords');
+                      if (saved3) kws3 = JSON.parse(saved3) as string[];
+                    } catch { /* */ }
+                    if (!kws3.includes(val)) {
+                      kws3.push(val);
+                      localStorage.setItem('blocked_league_keywords', JSON.stringify(kws3));
+                      input.value = '';
+                      update({ ...config });
+                    }
+                  }}
+                  style={{
+                    padding: '6px 14px', borderRadius: 6, border: 'none',
+                    background: 'var(--accent-primary)', color: '#fff',
+                    fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer'
+                  }}
+                >+ Adicionar</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
