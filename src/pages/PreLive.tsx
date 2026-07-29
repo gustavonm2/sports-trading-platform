@@ -45,7 +45,7 @@ export default function PreLive() {
   const [minPotential, setMinPotential] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<'today' | 'tomorrow'>('today');
+  const [selectedDateMode, setSelectedDateMode] = useState<'today' | 'tomorrow' | 'all'>('today');
 
   // Load games from Supabase
   const loadGames = useCallback(async () => {
@@ -57,16 +57,26 @@ export default function PreLive() {
         const day = String(d.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
       };
-      const todayStr = getLocalDateString(new Date());
-      const tomorrowStr = getLocalDateString(new Date(new Date().setDate(new Date().getDate() + 1)));
-      const targetStr = selectedDate === 'today' ? todayStr : tomorrowStr;
-
-      console.log(`[PreLive] Consultando bestcorner_prelive_stats para data: ${targetStr}`);
+      const now = new Date();
+      const todayStr = getLocalDateString(now);
       
-      const { data, error } = await supabase
-        .from('bestcorner_prelive_stats')
-        .select('*')
-        .eq('date', targetStr)
+      const tomorrowDate = new Date();
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrowStr = getLocalDateString(tomorrowDate);
+
+      console.log(`[PreLive] Consultando bestcorner_prelive_stats (modo: ${selectedDateMode})`);
+      
+      let query = supabase.from('bestcorner_prelive_stats').select('*');
+      if (selectedDateMode === 'today') {
+        query = query.eq('date', todayStr);
+      } else if (selectedDateMode === 'tomorrow') {
+        query = query.eq('date', tomorrowStr);
+      } else {
+        query = query.gte('date', todayStr);
+      }
+
+      const { data, error } = await query
+        .order('date', { ascending: true })
         .order('match_time', { ascending: true });
 
       if (error) {
@@ -75,7 +85,7 @@ export default function PreLive() {
       }
 
       const rows = data || [];
-      console.log(`[PreLive] ${rows.length} jogos encontrados para ${targetStr}.`, rows);
+      console.log(`[PreLive] ${rows.length} jogos encontrados.`, rows);
       setMatches(rows);
       
       // Update selected match if it still exists
@@ -90,7 +100,7 @@ export default function PreLive() {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedDate]);
+  }, [selectedDateMode]);
 
   useEffect(() => {
     loadGames();
@@ -259,26 +269,37 @@ export default function PreLive() {
           {/* Date Selector Segment Controls */}
           <div style={{ display: 'flex', background: 'var(--bg-elevated)', borderRadius: 8, padding: 4, border: '1px solid var(--border-color)' }}>
             <button
-              onClick={() => setSelectedDate('today')}
+              onClick={() => setSelectedDateMode('today')}
               style={{
-                padding: '6px 16px', border: 'none', borderRadius: 6,
-                background: selectedDate === 'today' ? 'var(--accent-primary)' : 'transparent',
-                color: selectedDate === 'today' ? '#ffffff' : 'var(--text-secondary)',
+                padding: '6px 14px', border: 'none', borderRadius: 6,
+                background: selectedDateMode === 'today' ? 'var(--accent-primary)' : 'transparent',
+                color: selectedDateMode === 'today' ? '#ffffff' : 'var(--text-secondary)',
                 fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s ease'
               }}
             >
               Hoje
             </button>
             <button
-              onClick={() => setSelectedDate('tomorrow')}
+              onClick={() => setSelectedDateMode('tomorrow')}
               style={{
-                padding: '6px 16px', border: 'none', borderRadius: 6,
-                background: selectedDate === 'tomorrow' ? 'var(--accent-primary)' : 'transparent',
-                color: selectedDate === 'tomorrow' ? '#ffffff' : 'var(--text-secondary)',
+                padding: '6px 14px', border: 'none', borderRadius: 6,
+                background: selectedDateMode === 'tomorrow' ? 'var(--accent-primary)' : 'transparent',
+                color: selectedDateMode === 'tomorrow' ? '#ffffff' : 'var(--text-secondary)',
                 fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s ease'
               }}
             >
               Amanhã
+            </button>
+            <button
+              onClick={() => setSelectedDateMode('all')}
+              style={{
+                padding: '6px 14px', border: 'none', borderRadius: 6,
+                background: selectedDateMode === 'all' ? 'var(--accent-primary)' : 'transparent',
+                color: selectedDateMode === 'all' ? '#ffffff' : 'var(--text-secondary)',
+                fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.15s ease'
+              }}
+            >
+              Todas as Datas
             </button>
           </div>
 

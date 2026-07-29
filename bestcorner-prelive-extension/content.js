@@ -111,6 +111,18 @@
     return true;
   }
 
+  function resolveFullDate(dateStr, fallbackDate) {
+    if (!dateStr) return fallbackDate;
+    const parts = dateStr.trim().split('/');
+    if (parts.length === 2) {
+      const day = parts[0].padStart(2, '0');
+      const month = parts[1].padStart(2, '0');
+      const year = new Date().getFullYear();
+      return `${year}-${month}-${day}`;
+    }
+    return fallbackDate;
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // SEÇÃO 1: PARSER DOS DESTAQUES TOP 10 / TOP 3
   // Padrão: ⚽ [Home] x [Away] 🏆 [Liga] | 🕐 [DD/MM] [HH:MM] [NN%]
@@ -258,12 +270,15 @@
           }
         }
 
-        // Horário
+        // Data e Horário
         let timeStr = '';
-        for (let i = si - 4; i <= si + 2 && i < leaves.length; i++) {
+        let dateStr = '';
+        for (let i = si - 5; i <= si + 2 && i < leaves.length; i++) {
           if (i < 0) continue;
+          const dt = leaves[i].match(/(\d{2}\/\d{2})/);
+          if (dt && !dateStr) { dateStr = dt[1]; }
           const tm = leaves[i].match(/(\d{2}:\d{2})/);
-          if (tm) { timeStr = tm[1]; break; }
+          if (tm && !timeStr) { timeStr = tm[1]; }
         }
 
         // Limite: próximo separador ou +15
@@ -292,7 +307,7 @@
           home_team: homeTeam,
           away_team: awayTeam,
           league: league || null,
-          date_str: null,
+          date_str: dateStr || null,
           match_time: timeStr || null,
           ht_avg: null, ht_limit_rate: null, home_ht_limit_rate: null,
           away_ht_limit_rate: null, ht_limit_avg: null,
@@ -399,6 +414,17 @@
       scannedData = Array.from(combinedMap.values());
       const topCount = scannedData.filter(r => r.is_top_ht || r.is_top_ft).length;
       const detCount = scannedData.filter(r => r.ht_avg !== null || r.ft_avg !== null).length;
+      
+      // Auto-detectar data principal dos jogos escaneados para atualizar o input
+      const firstWithDate = scannedData.find(r => r.date_str);
+      if (firstWithDate) {
+        const autoDetectedDate = resolveFullDate(firstWithDate.date_str, document.getElementById('tradepro-sync-date')?.value);
+        const dateInput = document.getElementById('tradepro-sync-date');
+        if (dateInput && autoDetectedDate) {
+          dateInput.value = autoDetectedDate;
+        }
+      }
+
       scannedData.forEach(m => delete m._source);
 
       console.log(`[TradePro v4] Final: ${scannedData.length} jogos únicos.`, scannedData);
@@ -450,8 +476,9 @@
       const mergedList = scannedData.map(newItem => {
         const key = `${newItem.home_team}|||${newItem.away_team}`.toLowerCase();
         const old = existingMap.get(key) || {};
+        const itemDate = resolveFullDate(newItem.date_str, targetDate);
         return {
-          date: targetDate,
+          date: itemDate,
           home_team: newItem.home_team,
           away_team: newItem.away_team,
           league: newItem.league || old.league || null,
