@@ -2557,7 +2557,7 @@ export default function Radar() {
   };
 
   // 📲 Send Telegram Alert with independent tracking
-  const triggerTelegramNotification = (opp: Opportunity) => {
+  const triggerTelegramNotification = (opp: Opportunity, telegramKey: string) => {
     if (notifyFavoritesOnlyRef.current && !favoriteFixtureIdsRef.current.has(opp.fixtureId)) return;
 
     const oppStats = allStats[opp.fixtureId];
@@ -2616,8 +2616,8 @@ export default function Radar() {
       } : undefined,
     }).then((wasSent) => {
       if (wasSent) {
-        telegramAlertedIdsRef.current.add(opp.id);
-        console.log(`[Telegram] ✅ Alerta enviado e registrado: ${opp.match.homeTeam.name} vs ${opp.match.awayTeam.name}`);
+        telegramAlertedIdsRef.current.add(telegramKey);
+        console.log(`[Telegram] ✅ Alerta enviado (${telegramKey}): ${opp.match.homeTeam.name} vs ${opp.match.awayTeam.name}`);
       }
     }).catch((err) => {
       console.error('[Telegram] ❌ Erro ao enviar alerta Telegram:', err);
@@ -3314,8 +3314,13 @@ export default function Radar() {
       }
 
       // 2. Telegram Notifications (Refined filters check runs on every tick)
-      if (!telegramAlertedIdsRef.current.has(opp.id)) {
-        triggerTelegramNotification(opp);
+      const elapsed = opp.match.elapsed || 0;
+      const is1H = opp.match.status === '1H' || elapsed < 45;
+      const isEntryPhase = is1H ? elapsed >= 39 : elapsed >= 86;
+      const telegramKey = `${opp.id}-${isEntryPhase ? 'entrada' : 'atencao'}`;
+
+      if (!telegramAlertedIdsRef.current.has(telegramKey)) {
+        triggerTelegramNotification(opp, telegramKey);
       }
     });
 

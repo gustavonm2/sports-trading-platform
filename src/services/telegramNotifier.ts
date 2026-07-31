@@ -349,15 +349,33 @@ export async function sendTelegramAlert(opp: TelegramAlertOpp): Promise<boolean>
   const isCorners = opp.strategyName === 'Canto Limite';
   const isFunil = opp.isFunnel;
 
-  const emoji = isFunil ? '🔻' : isCorners ? '🚩' : '⚽';
+  const elapsed = match.elapsed || 0;
+  const is1H = match.status === '1H' || elapsed < 45;
+  const isEntryPhase = is1H ? elapsed >= 39 : elapsed >= 86;
+
+  const headerBadge = isEntryPhase
+    ? '🚨 <b>REALIZAR ENTRADA - MOMENTO LIMITE</b>'
+    : '⚠️ <b>ATENÇÃO - JOGO NO RADAR</b>';
+
+  const statusBadge = isEntryPhase
+    ? `🔥 <b>Status:</b> MOMENTO DE ENTRADA (${elapsed}' ≥ ${is1H ? '39' : '86'}')`
+    : `👀 <b>Status:</b> AQUECENDO NO RADAR (${elapsed}' < ${is1H ? '39' : '86'}')`;
+
+  const customTip = isEntryPhase
+    ? `💡 <i>MOMENTO EXATO DE ENTRADA! O jogo se manteve aquecido e com alta pressão no momento limite.</i>`
+    : `💡 <i>O jogo está esquentando! Acompanhe a pressão. Se mantiver a intensidade até os ${is1H ? '39' : '86'} min, o alerta de entrada será enviado.</i>`;
+
+  const emoji = isEntryPhase ? (isFunil ? '🔻' : isCorners ? '🚩' : '⚽') : '⚠️';
   const strategyLabel = isFunil ? 'FUNIL (DOMÍNIO)' : opp.strategyName.toUpperCase();
   const premiumMarker = opp.isPremiumBCS ? ' ⭐ <b>[BCS ELITE]</b>' : '';
   
   const lines = [
+    headerBadge,
     `${emoji} <b>${strategyLabel}</b>${premiumMarker}`,
     ``,
     `🏟️ <b>${match.homeTeam.name} ${score} ${match.awayTeam.name}</b>`,
     `🏆 ${match.leagueName} · ⏱️ ${match.elapsed}' (${match.status})`,
+    statusBadge,
     ``,
     `🎯 <b>Time:</b> ${opp.teamName}`,
     `📊 <b>Confiança:</b> ${opp.confidence}%`,
@@ -367,7 +385,7 @@ export async function sendTelegramAlert(opp: TelegramAlertOpp): Promise<boolean>
     ``,
     `📋 ${opp.details}`,
     ``,
-    `💡 <i>${opp.suggestion}</i>`,
+    customTip,
   ];
 
   // Build deep link for "PEGUEI" button
