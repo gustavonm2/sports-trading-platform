@@ -252,11 +252,25 @@
 
     separators.forEach((si, idx) => {
       try {
-        if (si < 1 || si >= leaves.length - 1) return;
+        let homeTeam = '';
+        for (let i = si - 1; i >= Math.max(si - 4, 0); i--) {
+          const candidate = cleanTeamName(leaves[i]);
+          if (isValidTeamName(candidate)) {
+            homeTeam = candidate;
+            break;
+          }
+        }
 
-        const homeTeam = cleanTeamName(leaves[si - 1]);
-        const awayTeam = cleanTeamName(leaves[si + 1]);
-        if (!isValidTeamName(homeTeam) || !isValidTeamName(awayTeam)) return;
+        let awayTeam = '';
+        for (let i = si + 1; i <= Math.min(si + 4, leaves.length - 1); i++) {
+          const candidate = cleanTeamName(leaves[i]);
+          if (isValidTeamName(candidate)) {
+            awayTeam = candidate;
+            break;
+          }
+        }
+
+        if (!homeTeam || !awayTeam) return;
 
         // Pular se já foi capturado pelo TOP parser
         const matchKey = `${homeTeam}|||${awayTeam}`.toLowerCase();
