@@ -111,6 +111,18 @@
     return true;
   }
 
+  function isElementVisible(el) {
+    if (!el) return true;
+    if (el.nodeType === 3) return true;
+    if (el.nodeType === 1) {
+      if (el.id === 'tradepro-prelive-panel') return false;
+      if (el.style && (el.style.display === 'none' || el.style.visibility === 'hidden')) return false;
+      if (el.classList && (el.classList.contains('d-none') || el.classList.contains('hidden') || el.classList.contains('hide'))) return false;
+      if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return false;
+    }
+    return true;
+  }
+
   function resolveFullDate(dateStr, fallbackDate) {
     if (!dateStr) return fallbackDate;
     const parts = dateStr.trim().split('/');
@@ -135,6 +147,7 @@
     console.log(`[TradePro v4] Encontradas ${sectionHeaders.length} section-headers.`);
 
     sectionHeaders.forEach(header => {
+      if (!isElementVisible(header)) return;
       const headerText = header.textContent.trim();
       if (!/TOP\s*\d+/i.test(headerText)) return;
 
@@ -151,7 +164,7 @@
         if ((container.textContent || '').includes('\u26BD') && container.textContent.length > 200) break;
         container = container.parentElement;
       }
-      if (!container) return;
+      if (!container || !isElementVisible(container)) return;
 
       // Regex para o padrão exato do BCS
       const regex = /\u26BD\s*(.+?)\s+x\s+(.+?)\s+\uD83C\uDFC6\s*(.+?)\s*\|\s*\uD83D\uDD50\s*(\d{2}\/\d{2})\s+(\d{2}:\d{2})\s+(\d+)%/g;
@@ -186,7 +199,7 @@
           _source: 'top10'
         });
 
-        console.log(`[TradePro v4] \uD83D\uDD25 TOP ${period}: ${homeTeam} x ${awayTeam} → ${rate}%`);
+        console.log(`[TradePro v4] 🔥 TOP ${period}: ${homeTeam} x ${awayTeam} → ${rate}%`);
       }
     });
 
@@ -202,32 +215,58 @@
     const results = [];
 
     const url = window.location.href.toLowerCase();
-    const bodyText = document.body.textContent || '';
     let defaultPeriod = 'HT';
-    if (url.includes('ft') || (bodyText.includes('Limite FT') && !bodyText.includes('Limite HT'))) {
+
+    if (url.includes('ft') || url.includes('fulltime') || url.includes('full-time')) {
       defaultPeriod = 'FT';
+    } else if (url.includes('ht') || url.includes('halftime') || url.includes('half-time')) {
+      defaultPeriod = 'HT';
+    } else {
+      const activeEl = document.querySelector('.nav-link.active, .tab.active, button.active, .btn-primary, [aria-selected="true"], .active');
+      const activeText = activeEl ? (activeEl.textContent || '').toUpperCase() : '';
+      if (activeText.includes('FT') || activeText.includes('FULL TIME')) {
+        defaultPeriod = 'FT';
+      } else {
+        const headings = document.querySelectorAll('h1, h2, h3, h4, .title, .header-title, .page-title');
+        let foundFT = false;
+        for (const h of headings) {
+          if (!isElementVisible(h)) continue;
+          const txt = (h.textContent || '').toUpperCase();
+          if (txt.includes('LIMITE FT') || txt.includes('FULL TIME') || txt.includes('ESTATÍSTICAS FT') || txt.includes('TODOS OS JOGOS FT')) {
+            foundFT = true;
+            break;
+          }
+        }
+        if (foundFT) {
+          defaultPeriod = 'FT';
+        }
+      }
     }
 
-    // Coletar folhas EXCLUINDO o container de Destaques
+    // Coletar folhas EXCLUINDO o container de Destaques e elementos ocassionalmente ocultos
     const leaves = [];
     function collectLeaves(node) {
       if (!node) return;
-      const tag = node.tagName;
-      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'SVG') return;
-      if (node.id === 'tradepro-prelive-panel') return;
-      // EXCLUIR apenas o container específico de Destaques
-      if (node.classList && node.classList.contains('card-demo')) {
-        const firstH4 = node.querySelector('h4');
-        if (firstH4 && firstH4.textContent.includes('Partidas Destaques')) return;
-      }
+      if (node.nodeType === 1) {
+        const tag = node.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'SVG') return;
+        if (node.id === 'tradepro-prelive-panel') return;
+        if (!isElementVisible(node)) return;
 
-      if (node.children.length === 0) {
-        const txt = (node.textContent || '').trim();
-        if (txt.length > 0) leaves.push(txt);
-      } else {
+        if (node.classList && node.classList.contains('tab-pane') && !node.classList.contains('active') && !node.classList.contains('show')) return;
+
+        // EXCLUIR apenas o container específico de Destaques
+        if (node.classList && node.classList.contains('card-demo')) {
+          const firstH4 = node.querySelector('h4');
+          if (firstH4 && firstH4.textContent.includes('Partidas Destaques')) return;
+        }
+
         for (let i = 0; i < node.children.length; i++) {
           collectLeaves(node.children[i]);
         }
+      } else if (node.nodeType === 3) {
+        const txt = (node.textContent || '').trim();
+        if (txt.length > 0) leaves.push(txt);
       }
     }
     collectLeaves(document.body);
@@ -374,6 +413,8 @@
   function handleScan() {
     const statusEl = document.getElementById('tradepro-scan-status');
     const syncBtn = document.getElementById('tradepro-btn-sync');
+
+    scannedData = [];
 
     try {
       const rawResults = scanPage();
