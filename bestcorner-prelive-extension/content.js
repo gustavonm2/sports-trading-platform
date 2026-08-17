@@ -112,13 +112,13 @@
   }
 
   function isElementVisible(el) {
-    if (!el) return true;
-    if (el.nodeType === 3) return true;
-    if (el.nodeType === 1) {
-      if (el.id === 'tradepro-prelive-panel') return false;
-      if (el.style && (el.style.display === 'none' || el.style.visibility === 'hidden')) return false;
-      if (el.classList && (el.classList.contains('d-none') || el.classList.contains('hidden') || el.classList.contains('hide'))) return false;
-      if (el.getAttribute && el.getAttribute('aria-hidden') === 'true') return false;
+    if (!el || el.nodeType !== 1) return true;
+    if (el.id === 'tradepro-prelive-panel') return false;
+    
+    if (el.style && (el.style.display === 'none' || el.style.visibility === 'hidden')) return false;
+    if (el.classList) {
+      if (el.classList.contains('d-none') || el.classList.contains('hidden')) return false;
+      if (el.classList.contains('tab-pane') && !el.classList.contains('active') && !el.classList.contains('show')) return false;
     }
     return true;
   }
