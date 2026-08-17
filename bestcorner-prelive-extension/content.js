@@ -111,18 +111,6 @@
     return true;
   }
 
-  function isElementVisible(el) {
-    if (!el || el.nodeType !== 1) return true;
-    if (el.id === 'tradepro-prelive-panel') return false;
-    
-    if (el.style && (el.style.display === 'none' || el.style.visibility === 'hidden')) return false;
-    if (el.classList) {
-      if (el.classList.contains('d-none') || el.classList.contains('hidden')) return false;
-      if (el.classList.contains('tab-pane') && !el.classList.contains('active') && !el.classList.contains('show')) return false;
-    }
-    return true;
-  }
-
   function resolveFullDate(dateStr, fallbackDate) {
     if (!dateStr) return fallbackDate;
     const parts = dateStr.trim().split('/');
@@ -147,7 +135,6 @@
     console.log(`[TradePro v4] Encontradas ${sectionHeaders.length} section-headers.`);
 
     sectionHeaders.forEach(header => {
-      if (!isElementVisible(header)) return;
       const headerText = header.textContent.trim();
       if (!/TOP\s*\d+/i.test(headerText)) return;
 
@@ -164,7 +151,7 @@
         if ((container.textContent || '').includes('\u26BD') && container.textContent.length > 200) break;
         container = container.parentElement;
       }
-      if (!container || !isElementVisible(container)) return;
+      if (!container) return;
 
       // Regex para o padrão exato do BCS
       const regex = /\u26BD\s*(.+?)\s+x\s+(.+?)\s+\uD83C\uDFC6\s*(.+?)\s*\|\s*\uD83D\uDD50\s*(\d{2}\/\d{2})\s+(\d{2}:\d{2})\s+(\d+)%/g;
@@ -217,33 +204,17 @@
     const url = window.location.href.toLowerCase();
     let defaultPeriod = 'HT';
 
-    if (url.includes('ft') || url.includes('fulltime') || url.includes('full-time')) {
+    if (url.includes('/ft') || url.includes('ft=1') || url.includes('type=ft') || url.includes('period=ft') || url.includes('limite-ft')) {
       defaultPeriod = 'FT';
-    } else if (url.includes('ht') || url.includes('halftime') || url.includes('half-time')) {
-      defaultPeriod = 'HT';
     } else {
       const activeEl = document.querySelector('.nav-link.active, .tab.active, button.active, .btn-primary, [aria-selected="true"], .active');
       const activeText = activeEl ? (activeEl.textContent || '').toUpperCase() : '';
       if (activeText.includes('FT') || activeText.includes('FULL TIME')) {
         defaultPeriod = 'FT';
-      } else {
-        const headings = document.querySelectorAll('h1, h2, h3, h4, .title, .header-title, .page-title');
-        let foundFT = false;
-        for (const h of headings) {
-          if (!isElementVisible(h)) continue;
-          const txt = (h.textContent || '').toUpperCase();
-          if (txt.includes('LIMITE FT') || txt.includes('FULL TIME') || txt.includes('ESTATÍSTICAS FT') || txt.includes('TODOS OS JOGOS FT')) {
-            foundFT = true;
-            break;
-          }
-        }
-        if (foundFT) {
-          defaultPeriod = 'FT';
-        }
       }
     }
 
-    // Coletar folhas EXCLUINDO o container de Destaques e elementos ocassionalmente ocultos
+    // Coletar folhas EXCLUINDO o container de Destaques
     const leaves = [];
     function collectLeaves(node) {
       if (!node) return;
@@ -251,14 +222,11 @@
         const tag = node.tagName;
         if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'SVG') return;
         if (node.id === 'tradepro-prelive-panel') return;
-        if (!isElementVisible(node)) return;
-
-        if (node.classList && node.classList.contains('tab-pane') && !node.classList.contains('active') && !node.classList.contains('show')) return;
 
         // EXCLUIR apenas o container específico de Destaques
         if (node.classList && node.classList.contains('card-demo')) {
           const firstH4 = node.querySelector('h4');
-          if (firstH4 && firstH4.textContent.includes('Partidas Destaques')) return;
+          if (firstH4 && firstH4.textContent && firstH4.textContent.includes('Partidas Destaques')) return;
         }
 
         for (let i = 0; i < node.children.length; i++) {
